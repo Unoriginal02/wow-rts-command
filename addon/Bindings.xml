@@ -1,0 +1,110 @@
+<Bindings>
+	<Binding name="RTSCOMMAND_TOGGLE" header="RTSCOMMAND">
+		RTSCommand_ToggleUI();
+	</Binding>
+	<Binding name="RTSCOMMAND_MODE">
+		RTSCommand_ToggleRTSMode();
+	</Binding>
+	<Binding name="RTSCOMMAND_CAMERA">
+		RTSCommand_ToggleCamera();
+	</Binding>
+	<Binding name="RTSCOMMAND_CALIBRATE">
+		RTSCommand_Calibrate();
+	</Binding>
+	<Binding name="RTSCOMMAND_SELECTALL">
+		RTSCommand_SelectAll();
+	</Binding>
+	<Binding name="RTSCOMMAND_CLEAR">
+		RTSCommand_ClearSelection();
+	</Binding>
+
+	<Binding name="RTSCOMMAND_ORDER_MOVE" header="RTSCOMMAND_ORDERS">
+		RTSCommand_OrderMove();
+	</Binding>
+	<Binding name="RTSCOMMAND_ORDER_HOLD">
+		RTSCommand_OrderHold();
+	</Binding>
+	<Binding name="RTSCOMMAND_ORDER_FOLLOW">
+		RTSCommand_OrderFollow();
+	</Binding>
+	<Binding name="RTSCOMMAND_ORDER_ATTACK">
+		RTSCommand_OrderAttack();
+	</Binding>
+	<Binding name="RTSCOMMAND_ORDER_ATTACKMOVE">
+		RTSCommand_OrderAttackMove();
+	</Binding>
+	<Binding name="RTSCOMMAND_RELEASE">
+		RTSCommand_ReleasePossession();
+	</Binding>
+	<Binding name="RTSCOMMAND_COMMAND">
+		RTSCommand_ToggleCommandMode();
+	</Binding>
+
+	<Binding name="RTSCOMMAND_UNIT1" header="RTSCOMMAND_UNITS">
+		RTSCommand_SelectIndex(1);
+	</Binding>
+	<Binding name="RTSCOMMAND_UNIT2">
+		RTSCommand_SelectIndex(2);
+	</Binding>
+	<Binding name="RTSCOMMAND_UNIT3">
+		RTSCommand_SelectIndex(3);
+	</Binding>
+	<Binding name="RTSCOMMAND_UNIT4">
+		RTSCommand_SelectIndex(4);
+	</Binding>
+	<Binding name="RTSCOMMAND_UNIT5">
+		RTSCommand_SelectIndex(5);
+	</Binding>
+	<Binding name="RTSCOMMAND_UNIT6">
+		RTSCommand_SelectIndex(6);
+	</Binding>
+	<Binding name="RTSCOMMAND_UNIT7">
+		RTSCommand_SelectIndex(7);
+	</Binding>
+	<Binding name="RTSCOMMAND_UNIT8">
+		RTSCommand_SelectIndex(8);
+	</Binding>
+
+	<Binding name="RTSCOMMAND_GROUP1" header="RTSCOMMAND_GROUPS">
+		RTSCommand_ControlGroup(1);
+	</Binding>
+	<Binding name="RTSCOMMAND_GROUP2">
+		RTSCommand_ControlGroup(2);
+	</Binding>
+	<Binding name="RTSCOMMAND_GROUP3">
+		RTSCommand_ControlGroup(3);
+	</Binding>
+	<Binding name="RTSCOMMAND_GROUP4">
+		RTSCommand_ControlGroup(4);
+	</Binding>
+	<Binding name="RTSCOMMAND_SLOT1">
+		RTSCommand_CommandSlot(1);
+	</Binding>
+	<Binding name="RTSCOMMAND_SLOT2">
+		RTSCommand_CommandSlot(2);
+	</Binding>
+	<Binding name="RTSCOMMAND_SLOT3">
+		RTSCommand_CommandSlot(3);
+	</Binding>
+	<Binding name="RTSCOMMAND_SLOT4">
+		RTSCommand_CommandSlot(4);
+	</Binding>
+	<Binding name="RTSCOMMAND_SLOT5">
+		RTSCommand_CommandSlot(5);
+	</Binding>
+	<Binding name="RTSCOMMAND_SLOT6">
+		RTSCommand_CommandSlot(6);
+	</Binding>
+	<Binding name="RTSCOMMAND_SLOT7">
+		RTSCommand_CommandSlot(7);
+	</Binding>
+	<Binding name="RTSCOMMAND_SLOT8">
+		RTSCommand_CommandSlot(8);
+	</Binding>
+	<Binding name="RTSCOMMAND_SLOT9">
+		RTSCommand_CommandSlot(9);
+	</Binding>
+	<Binding name="RTSCOMMAND_SLOT10">
+		RTSCommand_CommandSlot(10);
+	</Binding>
+</Bindings>

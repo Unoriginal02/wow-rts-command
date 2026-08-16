@@ -1,0 +1,57 @@
+[worldserver]
+
+#
+#    RTS.Camera.Height
+#        Description: How far above your character the detached camera starts,
+#                     in yards. High enough to read the ground, low enough that
+#                     you can still tell your units apart.
+#        Default:     12.0
+#
+
+RTS.Camera.Height = 12.0
+
+#
+#    RTS.Camera.Speed
+#        Description: Camera fly speed, as a multiple of base run speed. This is
+#                     applied to the invisible creature the client is flying, so
+#                     it behaves exactly like any other movement speed.
+#        Range:       0.5 - 50.0
+#        Default:     3.0
+#
+
+RTS.Camera.Speed = 3.0
+
+#
+#    RTS.Camera.Fly
+#        Description: Whether the camera flies or pans flat.
+#
+#                     1 (flight) is the old behaviour and the wrong one for an
+#                     RTS: the client moves the camera along the VIEW vector, so
+#                     tilting down and pressing forward makes you descend. Space
+#                     and X raise and lower it.
+#
+#                     0 (default) leaves gravity disabled but flight off, so the
+#                     client moves the camera flat across the map and the tilt
+#                     only changes what you see -- the WC3 behaviour. Height then
+#                     comes from Q/E in the addon, which zoom the camera, since
+#                     space and X are flight actions and stop working.
+#
+#                     Switchable in game with /rts cam fly.
+#        Default:     0
+#
+
+RTS.Camera.Fly = 0
+
+#
+#    RTS.Camera.LiftSpeed
+#        Description: How fast Q and E raise and lower the camera, in yards per
+#                     second. The camera is possessed, so height is moved by the
+#                     server in small steps on its own tick rather than by the
+#                     client -- a slower rate is smoother, not coarser.
+#                     0 means MATCH the horizontal speed above, which is
+#                     what you normally want -- rising should not feel
+#                     like a different vehicle from panning.
+#        Default:     0
+#
+
+RTS.Camera.LiftSpeed = 0

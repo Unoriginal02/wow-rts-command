@@ -1,0 +1,30 @@
+# Nothing rebuildable, nothing huge, and above all nothing with a password in it.
+
+# Server configs carry the MySQL user and password in plain text. The module's
+# own conf TEMPLATE (mod-rts/conf/*.conf.dist) is fine and is not matched here,
+# because it ships no credentials -- only RTS.Camera.* tuning values.
+worldserver.conf
+authserver.conf
+dbimport.conf
+playerbots.conf
+*.conf.bak-*
+
+# Build output and logs.
+build/
+bin/
+obj/
+out/
+*.log
+*.exe
+*.dll
+*.pdb
+*.ilk
+*.obj
+*.lib
+*.exp
+
+# Editor / OS noise.
+.vs/
+.vscode/
+Thumbs.db
+desktop.ini

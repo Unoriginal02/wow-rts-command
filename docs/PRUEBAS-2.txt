@@ -1,0 +1,144 @@
+RTS COMMAND - LISTA DE PRUEBAS  #2
+Generada 2026-08-15   ·   addon 0.9.0 · mod-rts 0.5.0 · rts_core 0.9.0
+
+QUE HAY EN ESTA RONDA
+  Solo correcciones. Ninguna funcion nueva.
+  Todo lo que sale aqui viene de lo que marcaste en PRUEBAS.txt.
+
+COMO USARLA
+  [x] funciona   ·   [!] falla   ·   [?] no lo entiendo / no estoy seguro
+  Escribe al lado lo que has visto, aunque sea corto.
+
+ANTES DE EMPEZAR
+  1. Actualizar_Mundo.bat      (solo el worldserver; MySQL y auth siguen)
+  2. /reload
+  NO hace falta reinyectar: la DLL no ha cambiado esta ronda.
+
+HERRAMIENTAS
+  /rts version   las tres versiones
+  /rts debug     cada mensaje entre addon y servidor
+  /rts pick on   que hay bajo el cursor, en vivo   (/rts pick off)
+
+
+==============================================================================
+A · LO QUE FALLABA -- deberia estar arreglado
+==============================================================================
+
+[x] A1  TU PERSONAJE ATACA
+    Seleccionate a ti (ultimo retrato) y click derecho en un enemigo.
+    Debe ir hacia el y pegarle, como los bots.
+    Antes: "mi jugador no ataca" -- te dejaba fuera del mensaje por completo.
+    notas:
+
+[x] A2  TU PERSONAJE INTERACTUA CON PNJ
+    Seleccionate y click derecho en un PNJ con el que se pueda hablar.
+    Debe abrirse la ventana de dialogo.
+    notas: Pero al pulsar botón derecho, al no estar a rango no puede interactuar con el, debería ser un move y luego interactuar.
+
+[!] A3  TU PERSONAJE LOTEA CADAVERES
+    Mata algo, seleccionate, click derecho en el cadaver.
+    Debe abrirse la ventana de botin.
+    notas: No
+
+[?] A4  LOS BOTS HABLAN CON LOS PNJ
+    Selecciona bots y click derecho en un PNJ.
+    Antes: no hablaba nadie. Era el mismo fallo que el ataque -- la accion
+    leia TU objetivo y nadie se lo habia puesto.
+    notas: No testado
+
+[!] A5  LA X BAJA LA CAMARA
+    Con la camara RTS puesta, manten X. Debe descender.
+    Espacio ya subia; la X no hacia nada.
+    notas: Error en el plugin
+
+[X] A6  LA BENGALA SE VE
+    Click derecho en el suelo: pulso VERDE donde has mandado.
+    Click derecho en un enemigo: pulso ROJO.
+    Antes: no se veia nunca, porque el click derecho de verdad no la llamaba.
+    notas:PEro dura poco
+
+
+==============================================================================
+B · COMPROBAR QUE NO HE ROTO NADA
+    (toque el camino del click derecho otra vez, que es el que mas usas)
+==============================================================================
+
+[x] B1  Click derecho en el suelo: los bots van, al instante y sin emote
+    notas:
+
+[x] B2  NO se amontonan: bloque escalonado mirando hacia donde van
+    notas:
+
+[x] B3  Click derecho en un enemigo: los bots lo atacan
+    notas:
+
+[x] B4  Redirigir a medio camino sigue funcionando
+    notas:
+
+[x] B5  Tu personaje sigue moviendose con click derecho en el suelo
+    notas:
+
+[x] B6  La camara: WASD, Q/E, espacio siguen igual
+    notas:
+
+
+==============================================================================
+C · PENDIENTE DE TU RESPUESTA -- no es una prueba
+==============================================================================
+
+C1  HUECOS 6-8  (dijiste "no entiendo")
+
+    Le puse mal el nombre. En Controles -> RTS Command hay una entrada
+    "Select unit N" por cada retrato del panel. Le asignas una tecla y esa
+    tecla selecciona a esa unidad. Con SHIFT, la ANADE a la seleccion en
+    vez de reemplazarla.
+
+    Ahora tienes 5 unidades (4 bots + tu), asi que los huecos 6, 7 y 8
+    estan vacios: sobran por si algun dia el grupo es mas grande.
+
+    No hay nada que probar. Solo asignales teclas si quieres seleccionar
+    unidades sueltas con el teclado.
+
+    responde aqui si quieres algo distinto: no
+
+
+C2  PANEL DE OBJETIVOS  (tu idea del modo comando)
+
+    Lo he entendido asi -- corrigeme donde me equivoque:
+
+      - Un panel que sustituye al de "engaging".
+      - Muestra TODOS los objetivos activos del combate, con su retrato.
+      - Cada uno con un numero: cuantas de tus unidades le estan pegando.
+      - Si eliges a un aliado para curarlo, tambien aparece en ese panel.
+      - Al pulsar un objetivo del panel, el bot que estas comandando
+        lo selecciona, y tus hechizos van a el.
+
+    Esto es lo que hace que el modo comando sirva de verdad: ahora mismo
+    solo puedes lanzar hechizos a quien el bot ya tuviera seleccionado,
+    que es justo lo que me dijiste.
+
+    Es lo siguiente que voy a construir salvo que me digas otra cosa.
+
+    correcciones / lo que falta: si
+
+
+==============================================================================
+D · SIGUE SIN RESOLVER
+==============================================================================
+
+  MARCADO EN EL SUELO -- el circulo bajo los pies que dice QUE unidades
+  tienes seleccionadas. Dos intentos descartados. Sigo sin intentarlo una
+  tercera vez porque no tienes claro que lo quieras.
+
+  Ahora mismo lo unico que te dice que has seleccionado es el panel de
+  retratos. Juega una sesion y mira si echas de menos verlo en el mundo.
+
+  lo echas de menos? mas adelante
+
+
+==============================================================================
+SI SOLO TIENES PACIENCIA PARA TRES
+==============================================================================
+  1. A1  tu personaje ataca
+  2. A4  los bots hablan con los PNJ
+  3. B2  no se amontonan       (es el camino que mas he tocado)
