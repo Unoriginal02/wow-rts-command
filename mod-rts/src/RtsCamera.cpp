@@ -39,6 +39,50 @@ namespace
 
     constexpr float kDefaultLift = 14.0f;   // yards per second on Q/E
 
+    // --- pivot ------------------------------------------------------------
+    //
+    // Q/E used to be TURNLEFT/TURNRIGHT, which yaws the camera IN PLACE: what
+    // you were looking at swings off the screen. Pivoting instead carries the
+    // camera around an arc centred on the point it is looking at, so that point
+    // stays put and you see it from a new side -- the WC3/SC2 gesture.
+    //
+    // The focus point is taken a fixed distance ahead of the camera rather than
+    // from the character, because in an RTS the camera spends most of its time
+    // somewhere the character is not. Pivoting around the character would
+    // behave correctly only while they happened to be on screen.
+    //
+    // Pitch is deliberately not involved. The camera's tilt lives on the client
+    // and the server never sees it, but the orbit only needs the point's
+    // position on the HORIZONTAL plane -- rotating about a vertical axis is the
+    // same arc whatever the tilt. So the focus is computed flat, at the
+    // camera's own height, and the tilt takes care of itself.
+    std::unordered_map<ObjectGuid, int> g_pivot;   // player -> -1 left, +1 right
+
+    constexpr float kDefaultPivotDist  = 26.0f;   // yards ahead of the camera
+    constexpr float kDefaultPivotSpeed = 0.9f;    // radians per second
+
+    // Read ONCE, not per tick.
+    //
+    // The previous attempt at a camera option called GetOption from inside
+    // Update(), so a property missing from the conf file logged its "Missing
+    // property" warning on every world tick and buried the console. A compiled
+    // default keeps the module working without a conf file; it does not silence
+    // that warning. Function-local statics initialise on first use and never
+    // again, which is the whole fix.
+    float PivotDistance()
+    {
+        static float const d =
+            sConfigMgr->GetOption<float>("RTS.Camera.PivotDistance", kDefaultPivotDist);
+        return d;
+    }
+
+    float PivotSpeed()
+    {
+        static float const s =
+            sConfigMgr->GetOption<float>("RTS.Camera.PivotSpeed", kDefaultPivotSpeed);
+        return s;
+    }
+
     // Give every direction the SAME absolute speed.
     //
     // `speed` arrives as a multiple of base run speed, and the obvious thing --
@@ -222,6 +266,7 @@ bool rts::camera::Disable(Player* player)
 
     Creature* cam = ObjectAccessor::GetCreature(*player, it->second);
     g_cameras.erase(it);
+    g_pivot.erase(player->GetGUID());
 
     // Release FIRST, despawn second. Despawning a unit the client is still
     // moving and seeing through is what took the client down the first time.
@@ -294,8 +339,58 @@ void rts::camera::SetVertical(Player const* player, int direction)
         g_vertical[player->GetGUID()] = (direction > 0) ? 1 : -1;
 }
 
+void rts::camera::SetPivot(Player const* player, int direction)
+{
+    if (!player)
+        return;
+
+    if (direction == 0)
+        g_pivot.erase(player->GetGUID());
+    else
+        g_pivot[player->GetGUID()] = (direction > 0) ? 1 : -1;
+}
+
 void rts::camera::Update(uint32 diff)
 {
+    // --- pivot ------------------------------------------------------------
+    //
+    // Orbit the camera around the point it is looking at. The focus is
+    // recomputed from the CURRENT orientation every step, which is what keeps
+    // it exactly still: with F = pos + D*(cos o, sin o), moving to
+    // pos' = F - D*(cos o', sin o') and o' = o + a leaves F unchanged by
+    // construction. No drift to correct, and no stored pivot to go stale if the
+    // player pans mid-turn.
+    if (!g_pivot.empty())
+    {
+        float const dist = PivotDistance();
+        float const rate = PivotSpeed();
+
+        for (auto it = g_pivot.begin(); it != g_pivot.end();)
+        {
+            Player* player = ObjectAccessor::FindPlayer(it->first);
+            Creature* cam  = player ? FindCamera(player) : nullptr;
+            if (!cam)
+            {
+                it = g_pivot.erase(it);
+                continue;
+            }
+
+            float const o  = cam->GetOrientation();
+            float const a  = rate * (static_cast<float>(diff) / 1000.0f)
+                             * static_cast<float>(it->second);
+            float const no = o + a;
+
+            float const fx = cam->GetPositionX() + std::cos(o) * dist;
+            float const fy = cam->GetPositionY() + std::sin(o) * dist;
+
+            cam->NearTeleportTo(fx - std::cos(no) * dist,
+                                fy - std::sin(no) * dist,
+                                cam->GetPositionZ(), no);
+            ++it;
+        }
+    }
+
+    // --- height keys ------------------------------------------------------
     if (g_vertical.empty())
         return;
 
@@ -387,6 +482,7 @@ void rts::camera::Abandon(Player* player)
 
     Creature* cam = ObjectAccessor::GetCreature(*player, it->second);
     g_cameras.erase(it);
+    g_pivot.erase(player->GetGUID());
 
     // Same order as Disable. Even on the way out the viewpoint has to be torn
     // down before the creature goes, or the seer dangles.

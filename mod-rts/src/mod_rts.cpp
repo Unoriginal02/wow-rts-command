@@ -626,6 +626,19 @@ namespace
                     rts::camera::SetVertical(player, dir);
                     return true;
                 }
+                // "CAM PV <-1|0|1>" -- a pivot key going down or coming up.
+                // Same shape as ZV and for the same reason: the addon reports
+                // only the key transitions and the server orbits on its own
+                // tick, so a held key costs two messages rather than one per
+                // frame.
+                if (sub == "PV")
+                {
+                    int dir = 0;
+                    std::istringstream stream(value);
+                    stream >> dir;
+                    rts::camera::SetPivot(player, dir);
+                    return true;
+                }
                 // "CAM FLY <0|1>" -- decides whether forward follows the view
                 // vector or runs flat across the map. Switchable live so the
                 // two can be compared without a restart.

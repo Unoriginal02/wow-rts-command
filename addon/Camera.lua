@@ -135,6 +135,35 @@ function RTSCommand_CameraUp(_, _, down)
 	Vertical(down and 1 or 0)
 end
 
+-- PIVOTE con Q/E, 2026-08-18.
+--
+-- Antes Q/E iban a TURNLEFT/TURNRIGHT del propio cliente, que gira la camara
+-- SOBRE SI MISMA: lo que estabas mirando se va de pantalla. Pivotar la lleva en
+-- arco alrededor del punto que mira, que se queda quieto mientras lo ves desde
+-- otro lado -- el gesto de WC3/SC2.
+--
+-- El precio es que ya no lo puede hacer el cliente. Girar era gratis porque el
+-- giro es suyo; orbitar es un cambio de POSICION, y la camara esta poseida, asi
+-- que solo el servidor puede moverla. De ahi que estas teclas pasen a reportar
+-- transiciones como +/- en vez de ir a una accion del juego.
+local pivoting = { left = false, right = false }
+
+local function Pivot(dir)
+	ns.SendServer(("CAM PV %d"):format(dir))
+end
+
+function RTSCommand_CameraPivotLeft(_, _, down)
+	if pivoting.left == down then return end
+	pivoting.left = down
+	Pivot(down and -1 or 0)
+end
+
+function RTSCommand_CameraPivotRight(_, _, down)
+	if pivoting.right == down then return end
+	pivoting.right = down
+	Pivot(down and 1 or 0)
+end
+
 local function GrabTurnKeys()
 	if InCombatLockdown() then
 		ns.Print("|cffffff00Teclas de camara no disponibles en combate|r - la camara sigue yendo.")
@@ -153,9 +182,19 @@ local function GrabTurnKeys()
 	-- apagado (que es lo que hace que WASD vaya plano) el cliente no ofrece
 	-- ningun movimiento vertical. Las teclas solo avisan de que se pulsan y se
 	-- sueltan; el servidor la sube mientras siga pulsada.
-	for key, action in pairs({ Q = "TURNLEFT", E = "TURNRIGHT" }) do
+	-- CAMBIADO 2026-08-18: Q/E PIVOTAN, ya no giran en el sitio.
+	--
+	-- Iban a TURNLEFT/TURNRIGHT, que es el giro propio del cliente: continuo y
+	-- suave, pero sobre el propio eje de la camara, asi que lo que mirabas se
+	-- iba de pantalla. Ahora van a botones nuestros que solo avisan de que la
+	-- tecla baja y sube; el servidor la orbita alrededor del punto que mira.
+	--
+	-- Se pierde la suavidad del movimiento del cliente y se gana el gesto
+	-- correcto. Si se nota a pasos, el dial es RTS.Camera.PivotSpeed.
+	for key, button in pairs({ Q = "RTSCamPivotLeftButton",
+	                           E = "RTSCamPivotRightButton" }) do
 		saved[key] = GetBindingAction(key) or ""
-		SetBinding(key, action)
+		SetBindingClick(key, button)
 	end
 
 	-- Las cuatro, porque "+" no es una tecla: en la fila de numeros se saca con
@@ -232,8 +271,10 @@ end
 -- Buttons must exist BEFORE SetBindingClick names them, so this is called from
 -- Create() at login rather than lazily when the camera turns on.
 local function MakeZoomButtons()
-	for name, fn in pairs({ RTSCamDownButton = RTSCommand_CameraDown,
-	                        RTSCamUpButton   = RTSCommand_CameraUp }) do
+	for name, fn in pairs({ RTSCamDownButton       = RTSCommand_CameraDown,
+	                        RTSCamUpButton         = RTSCommand_CameraUp,
+	                        RTSCamPivotLeftButton  = RTSCommand_CameraPivotLeft,
+	                        RTSCamPivotRightButton = RTSCommand_CameraPivotRight }) do
 		if not _G[name] then
 			local b = CreateFrame("Button", name, UIParent)
 			b:Hide()
@@ -392,6 +433,11 @@ function C:OnState(on)
 		-- would start already climbing.
 		held.up, held.down = false, false
 		Vertical(0)
+		-- Lo mismo para el pivote, y por el mismo motivo: soltar la camara con
+		-- Q o E pulsada dejaba al servidor orbitando una camara que ya no esta,
+		-- y el siguiente encendido empezaba girando solo.
+		pivoting.left, pivoting.right = false, false
+		Pivot(0)
 		ns.Print("|cffff0000RTS camera OFF|r - back on your character.")
 	end
 end

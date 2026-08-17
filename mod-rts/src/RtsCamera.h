@@ -80,6 +80,23 @@ namespace rts
         // for.
         void SetVertical(Player const* player, int direction);
 
+        // Pivot drive: -1 left, 0 stop, +1 right. Held while Q or E is held.
+        //
+        // ORBIT, NOT YAW. Q/E were bound to the client's own TURNLEFT/TURNRIGHT,
+        // which turns the camera where it stands -- so whatever you were looking
+        // at swings off the screen. Pivoting carries the camera around an arc
+        // centred on the point it is looking at, which stays put while you see
+        // it from a new side. That is the WC3/SC2 gesture and the reason to want
+        // it.
+        //
+        // The cost is that it has to come from the server. Yaw was free because
+        // the client owns turning; an orbit is a change of POSITION, and the
+        // camera is possessed, so only NearTeleportTo can move it -- the same
+        // per-tick stepping the height keys use, with the same risk of showing
+        // as steps rather than a glide. RTS.Camera.PivotSpeed is the dial if it
+        // does.
+        void SetPivot(Player const* player, int direction);
+
         // Called every world tick; moves any camera with a live vertical drive.
         void Update(uint32 diff);
 

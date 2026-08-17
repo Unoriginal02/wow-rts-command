@@ -55,3 +55,32 @@ RTS.Camera.Fly = 0
 #
 
 RTS.Camera.LiftSpeed = 0
+
+#
+#    RTS.Camera.PivotDistance
+#        A que distancia por delante de la camara esta el punto sobre el que
+#        pivotan Q y E, en yardas.
+#
+#        Q/E ya no giran la camara sobre si misma: la llevan en arco alrededor
+#        de este punto, que se queda quieto mientras lo ves desde otro lado.
+#        Mas distancia = arco mas amplio y giro mas suave; menos = giro mas
+#        cerrado, casi sobre el sitio.
+#
+#        Por defecto: 26.0
+#
+
+RTS.Camera.PivotDistance = 26.0
+
+#
+#    RTS.Camera.PivotSpeed
+#        Radianes por segundo del pivote. 0.9 son unos 52 grados/s.
+#
+#        La camara esta poseida, asi que orbitarla es el servidor moviendola
+#        con NearTeleportTo en cada tick -- el mismo camino que las teclas de
+#        altura. Si se nota a pasos en vez de fluido, este es el dial: mas
+#        despacio con el mismo intervalo de tick se ve MAS suave, no menos.
+#
+#        Por defecto: 0.9
+#
+
+RTS.Camera.PivotSpeed = 0.9
