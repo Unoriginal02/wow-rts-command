@@ -55,3 +55,43 @@ RTS.Camera.Fly = 0
 #
 
 RTS.Camera.LiftSpeed = 0
+
+#
+#    RTS.Camera.TurnRate
+#        Velocidad de giro de Q/E, como multiplo del giro propio del cliente
+#        (180 grados/s). Por debajo de 1 gira mas despacio.
+#
+#        Es MOVE_TURN_RATE. Aunque el cliente es quien conduce la camara, el
+#        RITMO al que gira lo manda el servidor: SetSpeed envia
+#        SMSG_FORCE_TURN_RATE_CHANGE y el cliente obedece. Antes esta velocidad
+#        no se tocaba, asi que la camara giraba a 180 grados/s -- bien para un
+#        personaje esquivando, demasiado para encuadrar.
+#
+#        Por defecto: 0.6   (unos 108 grados/s)
+#
+
+RTS.Camera.TurnRate = 0.6
+
+#
+#    RTS.Camera.Accel
+#        Segundos desde parado hasta la velocidad completa de desplazamiento.
+#        0 lo desactiva y vuelve al arranque instantaneo de antes.
+#
+#        WoW no tiene aceleracion: una tecla de movimiento esta pulsada o no, y
+#        la unidad va a tope en el primer fotograma o esta quieta. Para un
+#        personaje esta bien; para una camara es lo que hace que un
+#        desplazamiento parezca un salto en vez de un movimiento.
+#
+#        La rampa se hace cambiando la VELOCIDAD de la camara, no su posicion,
+#        asi que el cliente sigue conduciendo y no hay nada que pelear.
+#
+#        NO HAY DECELERACION, y no es un olvido: al soltar la tecla el cliente
+#        para la unidad por su cuenta antes de que el servidor se entere, asi
+#        que no queda movimiento cuya velocidad bajar. Un deslizamiento
+#        significaria empujar la camara desde el servidor despues de que el
+#        cliente crea que esta parada, y eso es pelearse con la posesion.
+#
+#        Por defecto: 0.35
+#
+
+RTS.Camera.Accel = 0.35

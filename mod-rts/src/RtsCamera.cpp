@@ -25,6 +25,34 @@ namespace
     constexpr float kDefaultHeight = 12.0f;   // yards above the player to start
     constexpr float kDefaultSpeed  = 3.0f;    // multiple of base run speed
 
+    // Q/E turn rate, as a multiple of the base 3.141594 rad/s (180 deg/s).
+    // Below 1 is slower. This is MOVE_TURN_RATE, which the server really does
+    // own even though the client is the one driving: SetSpeed sends
+    // SMSG_FORCE_TURN_RATE_CHANGE and the client turns at whatever it is told.
+    // ApplySpeed used to leave this type alone entirely, so the camera spun at
+    // a full 180 deg/s -- fine for a character dodging, far too fast for framing
+    // a shot.
+    constexpr float kDefaultTurnRate = 0.6f;
+
+    // Seconds from a standing start to full pan speed. 0 disables the ramp and
+    // restores the old instant-on behaviour.
+    constexpr float kDefaultAccel = 0.35f;
+
+    // Speed the camera sits at while it is NOT moving, as a fraction of full.
+    //
+    // The ramp has to be armed BEFORE the client starts moving, not after: the
+    // server only learns about a keypress from the movement packet that follows
+    // it, and by then the first strides have already happened at whatever speed
+    // was in force. So an idle camera is parked at this fraction, and the ramp
+    // is a climb away from it rather than a dip and a recovery.
+    constexpr float kEaseFloor = 0.22f;
+
+    // What each camera is currently being driven at. `target` and `turn` are the
+    // configured values; `ease` is where the ramp has got to, 0..1 as a fraction
+    // of target.
+    struct Drive { float target; float turn; float ease; };
+    std::unordered_map<ObjectGuid, Drive> g_drive;   // player -> drive state
+
     std::unordered_map<ObjectGuid, ObjectGuid> g_cameras;   // player -> camera
 
     // Where each player wants the camera to sit relative to their character.
@@ -48,6 +76,10 @@ namespace
     // which is exactly how it felt in game. A camera has no business being
     // faster one way than the other, so convert to an absolute target once and
     // give each type whatever rate reproduces it.
+    // MOVE_TURN_RATE is deliberately NOT in this list: turning is not a
+    // direction of travel, so giving it the same absolute yards-per-second as
+    // the others is meaningless -- its unit is radians per second. It is set
+    // separately, and only when it changes, by ApplyTurn below.
     void ApplySpeed(Creature* cam, float speed)
     {
         float const target = baseMoveSpeed[MOVE_RUN] * speed;
@@ -63,6 +95,16 @@ namespace
             if (baseMoveSpeed[mt] > 0.0f)
                 cam->SetSpeed(mt, target / baseMoveSpeed[mt], true);
         }
+    }
+
+    void ApplyTurn(Creature* cam, float rate)
+    {
+        cam->SetSpeed(MOVE_TURN_RATE, rate, true);
+    }
+
+    float ConfiguredAccel()
+    {
+        return sConfigMgr->GetOption<float>("RTS.Camera.Accel", kDefaultAccel);
     }
 
     // Placement, shared by Enable and Recenter so a camera cannot come back to a
@@ -202,8 +244,16 @@ bool rts::camera::Enable(Player* player)
     // across the ground: tilt down, press forward, descend. See SetFly.
     cam->SetDisableGravity(true);
     cam->SetCanFly(sConfigMgr->GetOption<bool>("RTS.Camera.Fly", false));
-    ApplySpeed(cam, speed);
+    // Start parked at the floor, not at full speed: the ramp has to be armed
+    // before the first keypress, because the server only hears about one after
+    // the fact. See the note in Update().
+    float const turn = sConfigMgr->GetOption<float>("RTS.Camera.TurnRate", kDefaultTurnRate);
+    float const ease = ConfiguredAccel() > 0.0f ? kEaseFloor : 1.0f;
 
+    ApplySpeed(cam, speed * ease);
+    ApplyTurn(cam, turn);
+
+    g_drive[player->GetGUID()] = { speed, turn, ease };
     g_cameras[player->GetGUID()] = cam->GetGUID();
 
     LOG_DEBUG("module.rts", "RTS camera on for '{}' (speed {}, at {:.1f} {:.1f} {:.1f})",
@@ -222,6 +272,7 @@ bool rts::camera::Disable(Player* player)
 
     Creature* cam = ObjectAccessor::GetCreature(*player, it->second);
     g_cameras.erase(it);
+    g_drive.erase(player->GetGUID());
 
     // Release FIRST, despawn second. Despawning a unit the client is still
     // moving and seeing through is what took the client down the first time.
@@ -296,6 +347,68 @@ void rts::camera::SetVertical(Player const* player, int direction)
 
 void rts::camera::Update(uint32 diff)
 {
+    // --- easing -----------------------------------------------------------
+    //
+    // WoW has no acceleration: a movement key is on or off, and the unit is at
+    // full speed on the first frame or stopped. That is right for a character
+    // and wrong for a camera, where the snap is what makes a pan feel like a
+    // teleport rather than a move.
+    //
+    // The ramp is done by changing the camera's SPEED, not its position, so the
+    // client stays in charge of driving and there is nothing to fight. Cost is
+    // one forced-speed packet per step, which is why it only sends when the
+    // value actually moved (kEpsilon) and stops sending once it is at target.
+    //
+    // DECELERATION IS NOT DONE HERE AND CANNOT BE. When the key comes up the
+    // client stops the unit itself, on its own authority, before the server
+    // hears about it -- so there is no movement left whose speed we could ramp
+    // down. A glide would mean the server pushing the camera on after the
+    // client believes it has stopped, which is the one thing possession makes
+    // expensive. See the note in RtsCamera.h.
+    float const accel = ConfiguredAccel();
+    constexpr float kEpsilon = 0.02f;
+
+    for (auto it = g_drive.begin(); it != g_drive.end();)
+    {
+        Player* player = ObjectAccessor::FindPlayer(it->first);
+        Creature* cam  = player ? FindCamera(player) : nullptr;
+        if (!cam)
+        {
+            it = g_drive.erase(it);
+            continue;
+        }
+
+        Drive& d = it->second;
+        float const want = cam->isMoving() ? 1.0f : kEaseFloor;
+
+        float next;
+        if (accel <= 0.0f)
+        {
+            next = want;                       // ramp off: old instant behaviour
+        }
+        else if (want > d.ease)
+        {
+            next = std::min(want, d.ease + (1.0f - kEaseFloor)
+                                           * (static_cast<float>(diff) / 1000.0f) / accel);
+        }
+        else
+        {
+            // Back to the floor at once. There is nothing to glide (see above),
+            // and leaving it high would mean the NEXT press started at full
+            // speed -- which is exactly the snap the ramp exists to remove.
+            next = want;
+        }
+
+        if (std::fabs(next - d.ease) > kEpsilon || (next == want && d.ease != want))
+        {
+            d.ease = next;
+            ApplySpeed(cam, d.target * next);
+        }
+
+        ++it;
+    }
+
+    // --- height keys ------------------------------------------------------
     if (g_vertical.empty())
         return;
 
@@ -351,7 +464,34 @@ bool rts::camera::SetSpeed(Player* player, float speed)
     if (!cam)
         return false;
 
-    ApplySpeed(cam, speed);
+    // Through the drive state, so the ramp keeps working after a speed change
+    // instead of being overwritten back to full on the next tick.
+    auto it = g_drive.find(player->GetGUID());
+    float const ease = (it != g_drive.end()) ? it->second.ease : 1.0f;
+    if (it != g_drive.end())
+        it->second.target = speed;
+
+    ApplySpeed(cam, speed * ease);
+    return true;
+}
+
+bool rts::camera::SetTurnRate(Player* player, float rate)
+{
+    // 0.05 is about 9 deg/s, slow enough to be useless but not broken; 3.0 is
+    // three times the client's own turn and already unusable. The range only
+    // exists to keep a typo from making the camera unrecoverable.
+    if (rate < 0.05f || rate > 3.0f)
+        return false;
+
+    Creature* cam = player ? FindCamera(player) : nullptr;
+    if (!cam)
+        return false;
+
+    auto it = g_drive.find(player->GetGUID());
+    if (it != g_drive.end())
+        it->second.turn = rate;
+
+    ApplyTurn(cam, rate);
     return true;
 }
 
@@ -387,6 +527,7 @@ void rts::camera::Abandon(Player* player)
 
     Creature* cam = ObjectAccessor::GetCreature(*player, it->second);
     g_cameras.erase(it);
+    g_drive.erase(player->GetGUID());
 
     // Same order as Disable. Even on the way out the viewpoint has to be torn
     // down before the creature goes, or the seer dangles.

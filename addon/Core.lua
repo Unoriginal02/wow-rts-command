@@ -243,6 +243,7 @@ local HELP = {
 	"|cffffff00/rts cam fly|r / |cffffff00fly 0|r - forward follows your view, or runs flat (RTS)",
 	"|cffffff00/rts cam here|r - recentre over your character; |cffffff00mouse|r toggles mouse steering",
 	"|cffffff00/rts cam speed <n>|r - how fast it flies",
+	"|cffffff00/rts cam turn <n>|r - Q/E turn rate; 1 is the game's own, lower is slower",
 	"|cffffff00/rts channel|r - what the DLL is being told about your selection",
 	"|cffffff00/rts state|r - the tint colour each selected unit is being given",
 	"|cffffff00/rts cal|r - measure the projection (fixes rings that sit short)",
@@ -380,6 +381,8 @@ SlashCmdList["RTSCOMMAND"] = function(msg)
 		sub = (sub or ""):lower()
 		if sub == "speed" then
 			ns.Camera:SetSpeed(arg)
+		elseif sub == "turn" then
+			ns.Camera:SetTurnRate(arg)
 		elseif sub == "fly" then
 			ns.Camera:SetFly(arg ~= "0" and arg ~= "off")
 		elseif sub == "frame" then
