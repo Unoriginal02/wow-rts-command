@@ -684,7 +684,7 @@ segundo.
 file per round — everything built and installed but not yet seen working. Marked
 `[x]` works, `[!]` fails, `[?]` unclear, with a `notas:` line under each. Each
 entry says what a failure would actually *mean*, so a bad result narrows the
-problem rather than just reporting it. Latest is `PRUEBAS-7.txt`.
+problem rather than just reporting it. Latest is `PRUEBAS-8.txt`.
 
 ## Update policy
 
