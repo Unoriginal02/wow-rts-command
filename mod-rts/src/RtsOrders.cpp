@@ -273,10 +273,23 @@ rts::orders::ClickIntent rts::orders::ClassifyClick(Player* master, ObjectGuid t
     if (!unit || !unit->IsInWorld())
         return CLICK_MOVE;
 
-    // Dead things are scenery for these purposes -- a corpse is neither a fight
-    // nor a conversation, and treating it as either just eats the click.
+    // A corpse you can loot is neither scenery nor a conversation -- it is its
+    // own thing, and it used to fall through to a move order. That is why
+    // right-clicking a body in RTS mode did nothing at all: the click was read
+    // as "walk over there", which it also silently did.
+    //
+    // The reason this cannot be left to the client, the way it is in normal
+    // play, is possession. While the RTS camera holds client control the player
+    // is not the active mover, so the client works its interactions out against
+    // the camera creature -- which is why no loot cursor appears on hover
+    // either. The server has to do it.
     if (!unit->IsAlive())
+    {
+        Creature* corpse = unit->ToCreature();
+        if (corpse && master->isAllowedToLoot(corpse))
+            return CLICK_INTERACT;
         return CLICK_MOVE;
+    }
 
     if (master->IsValidAttackTarget(unit))
         return CLICK_ATTACK;

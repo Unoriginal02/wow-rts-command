@@ -50,7 +50,7 @@ A · LA CAJA DE SELECCION   (el arreglo grande)
     cursor reaparece justo donde empezaste a pulsar -- que es la esquina
     que la caja quiere -- y a partir de ahi va normal.
 
-[ ] A1  ARRASTRAR DIBUJA UNA CAJA Y SELECCIONA
+[!] A1  ARRASTRAR DIBUJA UNA CAJA Y SELECCIONA
     Modo RTS. Pulsa el izquierdo en suelo vacio y arrastra alrededor de
     dos o tres bots.
     Debes ver: un rectangulo verde translucido, la camara QUIETA, y al
@@ -60,10 +60,10 @@ A · LA CAJA DE SELECCION   (el arreglo grande)
     >> Si no pasa nada de nada: prueba a mantener pulsado medio segundo
        ANTES de mover. Si asi si sale la caja, es que la DLL no esta
        inyectada y esta cayendo al plan B (0,15 s de espera). Miralo con
-       /rts version.
-    notas:
+       /rts versión.
+    notas: Sigue moviendo la cámara como de costumbre. 
 
-[ ] A2  UN CLICK SUELTO SIGUE SIENDO UN CLICK
+[x] A2  UN CLICK SUELTO SIGUE SIENDO UN CLICK
     Esto es lo que podria haber roto A1, asi que compruebalo aunque
     parezca tonto.
     - Click izquierdo en un bot          -> lo selecciona
@@ -75,12 +75,12 @@ A · LA CAJA DE SELECCION   (el arreglo grande)
        si tiemblas.
     notas:
 
-[ ] A3  EL BOTON DERECHO SIGUE GIRANDO LA CAMARA
+[x] A3  EL BOTON DERECHO SIGUE GIRANDO LA CAMARA
     Arrastrar con el derecho debe orbitar como en PRUEBAS-3. No lo he
     tocado, pero comparte codigo con lo de arriba.
-    notas:
+    notas:Si mientras pulso botón derecho muvo la cámara pero cuando lo suelto lo registra como que quiero que los mobs se muevan hacia allí donde estuviera el ratón. 
 
-[ ] A4  LA CAJA ACIERTA CON EL FOV CAMBIADO   (era B2 en PRUEBAS-3)
+[!] A4  LA CAJA ACIERTA CON EL FOV CAMBIADO   (era B2 en PRUEBAS-3)
     /rts cam fov 40   y arrastra una caja alrededor de los bots.
     Debe coger exactamente los que has encerrado.
     Antes no se podia comprobar porque no habia caja.
@@ -100,7 +100,7 @@ B · EL CLICK IZQUIERDO YA NO PROTESTA
     geometria real del modelo. Estabamos pidiendo algo que ya habia
     pasado. He borrado la llamada y ya esta.
 
-[ ] B1  CLICK EN UN ENEMIGO O UN PNJ
+[x] B1  CLICK EN UN ENEMIGO O UN PNJ
     Debe quedar como tu objetivo, SIN ningun mensaje de error, y tu
     seleccion de bots NO debe cambiar.
     >> Si ya no se pone de objetivo: entonces el cliente no estaba
@@ -125,7 +125,7 @@ C · EL BOT CAMINA HASTA EL PNJ Y ENTONCES HABLA
     deja 3,5 yardas de margen en vez de 1, que es lo que se comia el
     ajuste del camino al suelo pisable.
 
-[ ] C1  UN BOT HABLA CON UN PNJ
+[!] C1  UN BOT HABLA CON UN PNJ
     Selecciona un bot. Click derecho en un PNJ de gremio/vendedor que este
     a 20-30 metros.
     Debe: andar hasta el PNJ, plantarse a un par de metros, girarse hacia
@@ -135,15 +135,15 @@ C · EL BOT CAMINA HASTA EL PNJ Y ENTONCES HABLA
     >> Si sigue sin andar: el problema no es este, es la orden de mover.
     >> Si tarda mas de 20 segundos en llegar, la intencion caduca a
        proposito y no hablara. Es normal, no es fallo.
-    notas:
+    notas: Camina hasta cerca del Mob (podría ir mas cerca para ir bien) pero no habla, si hago un seguindo click en el mismo sitio encontes si habla
 
-[ ] C2  TU PROPIO PERSONAJE HABLA CON UN PNJ
+[!] C2  TU PROPIO PERSONAJE HABLA CON UN PNJ
     Seleccionate a ti (no a un bot) y click derecho en el mismo PNJ.
     Mismo comportamiento: andar y luego abrir la ventana de gossip.
     >> Esta via ya existia pero tenia el mismo margen justo, asi que la he
        tocado igual. Si esta falla y C1 funciona, es cosa del movimiento
        del cuerpo, no de la conversacion.
-    notas:
+    notas: Camina hasta cerca del Mob (podría ir mas cerca para ir bien) pero no habla, si hago un seguindo click en el mismo sitio encontes si habla
 
 
 ==============================================================================
@@ -159,7 +159,7 @@ D · DISTANCIAS DE FABRICA   (lo que pediste en C1/C2 de PRUEBAS-3)
     el cliente solo conoce lo que el servidor le manda, y el servidor
     vuelve a cortar en 100. Se limita sola.
 
-[ ] D1  MANDAR ATACAR SIGUE FUNCIONANDO
+[x] D1  MANDAR ATACAR SIGUE FUNCIONANDO
     Es la pregunta que hiciste: si funcionaba por haber quitado lo que
     secuestraba el raton, o por la distancia.
     Busca un hostil a 40-80 metros y hazle click derecho.
@@ -168,7 +168,7 @@ D · DISTANCIAS DE FABRICA   (lo que pediste en C1/C2 de PRUEBAS-3)
        solo SightDistance, que es la que de verdad importa para esto.
     notas:
 
-[ ] D2  EL MUNDO VA IGUAL O MEJOR
+[x] D2  EL MUNDO VA IGUAL O MEJOR
     Con la visibilidad a la mitad deberia ir igual o mas suelto.
     >> Si ahora ves aparecer bichos de golpe cerca de ti donde antes ya
        estaban, eso es normal a 100 yardas: es el valor original del juego.
@@ -179,13 +179,13 @@ D · DISTANCIAS DE FABRICA   (lo que pediste en C1/C2 de PRUEBAS-3)
 E · QUE NO SE HAYA ROTO NADA
 ==============================================================================
 
-[ ] E1  EL ADDON CARGA LIMPIO
+[x] E1  EL ADDON CARGA LIMPIO
     Sin errores de Lua al entrar. /rts responde, /rts help imprime.
     (He pasado el analizador de sintaxis por los 17 ficheros del addon,
     pero eso no es lo mismo que cargar.)
     notas:
 
-[ ] E2  FUERA DEL MODO RTS TODO SIGUE NORMAL
+[x] E2  FUERA DEL MODO RTS TODO SIGUE NORMAL
     La regla tuya: el modo RTS solo afecta al modo RTS. Al salir, camara
     de siempre, zoom de siempre, FOV normal, raton normal.
     >> Nuevo riesgo esta ronda: si sales del modo RTS con el boton
@@ -193,7 +193,7 @@ E · QUE NO SE HAYA ROTO NADA
        raro, dime exactamente que hiciste.
     notas:
 
-[ ] E3  LA CAMARA RTS SIGUE COMO ESTABA
+[x] E3  LA CAMARA RTS SIGUE COMO ESTABA
     Desplazamiento plano, inclinacion que se queda, Q/E, rueda, FOV.
     notas:
 

@@ -436,12 +436,28 @@ namespace
                 // target (GossipHelloAction.cpp:22) -- never set, so nobody
                 // talked to anybody. Naming the NPC is the whole fix, same as
                 // it was for attack.
+                // UN CADAVER NO ES UNA CONVERSACION.
+                //
+                // Reportado asi: "click derecho sobre el muerto lo interpretan
+                // como talk, y no quiero hablar con el muerto sino lootearlo".
+                // Y era literal: TalkBot dispara `gossip hello` sin mirar si el
+                // objetivo esta vivo, asi que los bots seleccionados intentaban
+                // darle conversacion al cuerpo.
+                //
+                // Con un muerto, el unico que actua es TU personaje, y lo que
+                // hace es lootear -- SelfInteract acaba en DoInteract, que ya
+                // distingue "muerto que puedes lootear" de "PNJ con el que se
+                // habla". Los bots se quedan al margen: recogen por su cuenta
+                // cuando les toca, que es como quisiste dejarlo.
+                Unit* victim = ObjectAccessor::GetUnit(*player, target);
+                bool const corpse = victim && !victim->IsAlive();
+
                 int hit = 0;
                 for (Dest const& d : dests)
                 {
                     if (d.name == selfName)
                         hit += rts::orders::SelfInteract(player, target) ? 1 : 0;
-                    else if (rts::orders::TalkBot(player, d.name, target))
+                    else if (!corpse && rts::orders::TalkBot(player, d.name, target))
                         ++hit;
                 }
                 SendAddon(player, "DID INTERACT " + std::to_string(hit));

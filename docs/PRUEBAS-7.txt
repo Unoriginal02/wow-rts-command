@@ -1,0 +1,159 @@
+RTS COMMAND - LISTA DE PRUEBAS  #7
+Generada 2026-08-16   ·   addon 0.15.0 · mod-rts 0.6.0 · rts_core 0.10.0 (sin tocar)
+
+QUE HAY EN ESTA RONDA
+  Poco, y a proposito. En PRUEBAS-6 paso casi todo; lo unico que fallaba era
+  D2 (lootear), y el arreglo que probe para eso lo has mandado revertir.
+  Asi que esta ronda es sobre todo comprobar QUE EL ROLLBACK NO HA ROTO NADA.
+
+    A  el rollback: los bots vuelven a recoger y a autoequiparse
+    B  lo que sobrevivio del 6 y quiero confirmar que sigue vivo
+    C  el estado real del loot, para decidir por donde atacarlo
+
+ANTES DE EMPEZAR
+  1. REINICIA EL WORLDSERVER  (el rollback toca playerbots.conf)
+  2. /reload
+  3. /console scriptErrors 1
+  4. /rts version  ->  addon 0.15.0
+
+COMO USARLA
+  [x] funciona   ·   [!] falla   ·   [?] no lo entiendo / no estoy seguro
+
+
+==============================================================================
+A · EL ROLLBACK
+==============================================================================
+    Deshecho: los bots vuelven a recoger solos (quitadas las estrategias
+    -loot,-gather y el comando /rts loot bots), y AutoEquipUpgradeLoot y
+    AutoUpgradeEquip vuelven a 1.
+
+    Lo quite del todo en vez de dejarlo apagado por defecto, que es lo que
+    "rollback" quiere decir -- y ademas encaja con la leccion que ya nos
+    costo una ronda: un apano que sobrevive a su motivo acaba leyendose como
+    un fallo nuevo.
+
+[x] A1  LOS BOTS VUELVEN A RECOGER
+    Mata algo con ellos delante. Deben vaciar el cadaver como antes.
+    >> Si NO recogen, quedo alguna estrategia puesta de la ronda anterior:
+       las estrategias viven en la sesion del bot, asi que un bot que ya
+       tenia -loot puesto lo sigue teniendo hasta que se reinicie el
+       worldserver. Por eso el reinicio es obligatorio esta vez.
+    notas: REcogen, y el mio recoge sin la UI (cosa que no me gusta) y a menudo se dejan cosas que no pueden lotear, y click derecho sobre el muerto lo interpretan como "talk" y no quiero hablar con el muerto sino lotearlo. 
+
+[x] A2  VUELVEN A AUTOEQUIPARSE
+    Con el tiempo deberian mejorarse el equipo solos otra vez.
+    >> Esto es lento de ver. Si no te apetece esperarlo, marcalo [?] y lo
+       damos por bueno: es un valor de config que he devuelto a 1 y lo he
+       comprobado en el fichero.
+    notas:
+
+[x] A3  EL ADDON CARGA SIN ERRORES
+    He borrado codigo, que es donde es facil dejarse una referencia suelta.
+    He comprobado que no queda ninguna (0 restos) y que los 17 ficheros
+    parsean, pero eso no es lo mismo que cargar.
+    >> Un error nombrando StopBotLooting o noAutoLoot seria justo eso.
+    notas:
+
+
+==============================================================================
+B · LO QUE SOBREVIVIO -- confirmar que sigue vivo
+==============================================================================
+    Todo esto paso en PRUEBAS-6 y NO lo he tocado en el rollback. Es una
+    pasada rapida, no hace falta ensanarse.
+
+[X] B1  SELFBOT: sale "Enable player botAI" al entrar en modo RTS
+    notas:
+
+[X] B2  BOTIN LIBRE: el metodo del grupo se pone en free-for-all
+    /rts loot lo activa y desactiva.
+    notas:
+
+[X] B3  CTRL + ARRASTRAR dibuja la caja y la camara NO gira
+    notas:
+
+[X] B4  GIRAR CON EL IZQUIERDO (sin Ctrl) no borra la seleccion
+    notas:
+
+[X] B5  Q/E giran, +/- suben y bajan
+    notas:
+
+[X] B6  CLICK selecciona uno, DOBLE CLICK selecciona a todos
+    notas:
+
+[X] B7  CLICK DERECHO ordena; arrastrar con el derecho gira y no ordena
+    notas:
+
+[X] B8  FUERA DEL MODO RTS todo normal: camara, zoom, FOV, raton, teclas
+    notas:
+
+
+==============================================================================
+C · EL LOOT: donde estamos de verdad
+==============================================================================
+    No es una prueba de si funciona -- ya sabemos que los bots vacian el
+    cadaver antes de que llegues. Es para decidir por donde atacarlo.
+
+[X] C1  CONFIRMA EL SINTOMA
+    Mata algo, click derecho en el cadaver. Lo esperado es que no haya nada
+    que abrir porque ya lo han recogido ellos.
+    >> Si SI se abre la ventana de botin: entonces el free-for-all basta y no
+       hace falta tocar nada mas. Seria la mejor noticia de la ronda.
+    notas:
+
+[3] C2  QUE PREFIERES QUE INTENTE
+    No hace falta que pruebes nada aqui, solo que elijas. Tres caminos, y
+    ninguno necesita tocar playerbots:
+
+      1. SUBIR AiPlayerbot.LootDelay  (ahora 1000 ms)
+         Los bots tardan mas en agacharse y te da tiempo a ti. Un solo
+         numero, reversible, y no cambia ninguna conducta -- solo el ritmo.
+
+      2. QUITAR LOOT SOLO A LOS BOTS, NO A TU PERSONAJE
+         Es lo que probamos, pero aplicado con mas cuidado: la vez anterior
+         se lo quite tambien a tu selfbot. Sigue siendo por chat de grupo,
+         asi que playerbots no se toca.
+
+      3. DEJARLO COMO ESTA
+         Los bots recogen, y el reparto lo arregla el botin libre: lo que
+         cojan va al grupo igualmente. Quiza el problema no exista de verdad
+         y solo faltaba entenderlo.
+
+    tu eleccion:3
+
+
+==============================================================================
+D · CALLEJONES SIN SALIDA -- no volver sin pruebas nuevas
+==============================================================================
+  COLOR POR UNIDAD EN LOS CIRCULOS. Dos compilaciones, dos negativos
+  confirmados en juego. En pausa por decision tuya. Aviso en Offsets.h.
+
+  LA ROTACION DEL SELFBOT sigue sin poderse juzgar con personajes de nivel 1.
+  No es un fallo y no lo arregla el codigo: hace falta un personaje con
+  hechizos. Es la pregunta que decide cuanto modo comandante hace falta.
+
+
+==============================================================================
+SI SOLO TIENES PACIENCIA PARA TRES
+==============================================================================
+  1. A3  el addon carga sin errores      (he borrado codigo)
+  2. A1  los bots vuelven a recoger      (que el rollback llego de verdad)
+  3. B1  el selfbot sigue encendiendose
+
+
+==============================================================================
+NOTA DE CIERRE DE SESION  (2026-08-16, noche)
+==============================================================================
+  EL LOOT QUEDA A MEDIAS, Y ASI ES COMO ESTA:
+
+  - CONFIRMADO: ya NO aparece ninguna linea "susurra: talk". El duplicado que
+    mandaba el addon esta quitado de verdad (Camera.lua, DID INTERACT).
+  - El arreglo del cadaver del servidor esta instalado (binario 21:47).
+  - `ll gray` se PROBO y se REVIRTIO: empeoro las cosas. Al decirles que los
+    grises tambien valen, los bots dejaron de dejarte precisamente lo que
+    antes te dejaban, y llegabas al cadaver vacio.
+  - Las estrategias viven en la SESION del bot: los que ya recibieron
+    `ll gray` lo siguen teniendo hasta reiniciar el worldserver.
+
+  PENDIENTE de mirar con calma en otra sesion: si sigue quedando botin en el
+  suelo ahora que no hay interferencia del addon, la causa ya no es nuestra.
+  Sitios por donde empezar: el autoloot del cliente, y LootDelay (1000 ms).

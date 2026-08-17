@@ -174,11 +174,13 @@ coords), so `go X;Y;Z` is unusable until the DLL lands. `go <playerName>` covers
 
 ### Layers
 
-1. **Lua addon `RTSCommand`** — `F:\Games\WOW WOTLK\Interface\AddOns\RTSCommand`.
+1. **Lua addon `RTSCommand`** — edited in `C:\Server\rts-project\addon`, deployed
+   to `F:\Games\WOW WOTLK\Interface\AddOns\RTSCommand` (see *Where the source
+   lives* below).
    Selection model, control groups, command card, order dispatch (throttled —
    unthrottled whispers get silently eaten by the client's chat rate limit).
    Separate from Jairo's existing `PlayerbotCommander` addon; both can coexist.
-2. **`rts_core.dll`** — `C:\Server\rts-client-mod`, separate CMake project, **not**
+2. **`rts_core.dll`** — `C:\Server\rts-project\rts-client-mod`, separate CMake project, **not**
    part of the AzerothCore build. Only three jobs: world coordinates, cursor→world
    raycast, world→screen projection. Builds `-A Win32` (`Wow.exe` is x86; CMake
    hard-fails otherwise), static CRT, no third-party deps. Registers `RTS_*`
@@ -576,13 +578,72 @@ and it would wreck the periodic upstream pull. Test-loop speed comes from cuttin
 random-bot counts in `playerbots.conf` (startup), and from building the
 `worldserver` target with `/m` rather than `ALL_BUILD` → `INSTALL`.
 
+## Siguiente capitulo: la UI del modo RTS
+
+`UI-RTS-ESTUDIO.md` es el estudio previo para sustituir toda la interfaz por una
+HUD estilo WC3/SC2 en modo RTS. Leerlo antes de dibujar arte: tres de sus
+hallazgos obligan a rehacerlo si se descubren tarde -- las texturas son
+potencias de dos hasta **512**, la escala de UI hace que 1 unidad sean 1.61
+pixeles en su equipo (arte borroso salvo que la HUD lleve su propia escala), y
+`UIParent:Hide()` esconde tambien el botin, el gossip, las bolsas y el menu de
+escape.
+
+La decision que bloquea todo lo demas esta en su apartado 8: ocultar todo y
+reparentar ventanas, u ocultado selectivo.
+
+## Where the source lives — one original, one direction
+
+Adopted 2026-08-17, replacing a backup-mirror arrangement that had both
+directions and cost a day.
+
+**`C:\Server\rts-project` is the source of truth.** It is the git repo
+(`Unoriginal02/wow-rts-command`), and all three pieces are edited there:
+
+| Source | Deployed to | Button |
+|---|---|---|
+| `rts-project\addon` | `F:\Games\WOW WOTLK\Interface\AddOns\RTSCommand` | `Deploy_Addon.bat` |
+| `rts-project\mod-rts` | `azerothcore\modules\mod-rts` | `Deploy_Mod.bat` |
+| `rts-project\rts-client-mod` | nowhere — compiled in place | — |
+
+Deploy is `robocopy /MIR`, out only. There is no way back in, deliberately.
+
+**What the old arrangement cost.** `sync.ps1` pulled the three pieces *in* from
+where they lived, making this folder a backup. Both directions existed, so
+"which copy is newer" was a question with no structural answer — only a
+timestamp. On 2026-08-16 the addon was edited until 22:06, the last sync had run
+at 19:04, and moving the server to a second machine installed the 19:04 copy.
+`RTSMode.lua` was short by 247 lines including `CameraTurned()` — the drag
+detection that Stage 5h had just added — so box-select silently did nothing on
+the new machine, with no Lua error to point at it. The addon was the only piece
+that could go stale this way, because it is the only one living outside
+`C:\Server` and therefore the only one not carried by copying that folder.
+
+`Jugar.bat` deliberately does **not** deploy: it launches the client and
+injects, nothing else. Deploying is a decision, not a side effect of pressing
+play.
+
+## Comprobar el addon antes de darlo por bueno
+
+```
+python C:\Server\check_addon.py
+```
+
+Sintaxis, y **locales usadas antes de declararse**. Lo segundo es el fallo que ya
+ha costado dos rondas de pruebas, las dos veces igual: una `local function`
+definida por debajo del sitio donde se llama compila como una busqueda de
+GLOBAL, encuentra nil, y revienta al ejecutarse -- dejando la secuencia a
+medias. La primera vez dejo la camara sin soltar; la segunda impidio salir del
+modo RTS. El parser no lo ve, porque el fichero es sintacticamente valido, y WoW
+esconde los errores de Lua salvo que `scriptErrors` este a 1. Correrlo cuesta un
+segundo.
+
 ## Unverified work
 
 `PRUEBAS-N.txt` in the project root is the running test list, in Spanish, one
 file per round — everything built and installed but not yet seen working. Marked
 `[x]` works, `[!]` fails, `[?]` unclear, with a `notas:` line under each. Each
 entry says what a failure would actually *mean*, so a bad result narrows the
-problem rather than just reporting it. Latest is `PRUEBAS-4.txt`.
+problem rather than just reporting it. Latest is `PRUEBAS-6.txt`.
 
 ## Update policy
 

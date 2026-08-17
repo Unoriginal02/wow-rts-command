@@ -6,7 +6,7 @@ REM Abre el juego y le inyecta rts_core.dll cuando ya esta cargado,
 REM para no tener que ejecutar el inyector a mano cada vez.
 
 set WOW=F:\Games\WOW WOTLK\Wow.exe
-set INJECTOR=C:\Server\rts-client-mod\build\bin\injector.exe
+set INJECTOR=C:\Server\rts-project\rts-client-mod\build\bin\injector.exe
 
 echo ============================================
 echo   ABRIENDO EL JUEGO

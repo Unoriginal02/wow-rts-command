@@ -1,22 +1,22 @@
-# RTS Command — copia de seguridad
+# RTS Command
 
 Capa de control estilo RTS (Warcraft 3 / StarCraft) para un servidor privado de
 World of Warcraft 3.3.5a con AzerothCore + mod-playerbots.
 
-**Esto es una COPIA.** No se trabaja aquí. Las tres piezas viven cada una donde
-tiene que vivir, y `sync.ps1` las trae a esta carpeta para poder subirlas juntas.
+**Aquí se trabaja.** Esta carpeta es el original de las tres piezas del
+proyecto. Lo que hay en el WoW y dentro de AzerothCore son copias desplegadas.
 
 ## Qué hay dentro
 
-| Carpeta | Qué es | Dónde vive de verdad |
+| Carpeta | Qué es | Se despliega a |
 |---|---|---|
 | `addon/` | Addon Lua: selección, órdenes, cámara, command card | `F:\Games\WOW WOTLK\Interface\AddOns\RTSCommand` |
-| `rts-client-mod/` | `rts_core.dll` — coordenadas de mundo, raycast del cursor, cámara, círculos nativos | `C:\Server\rts-client-mod` |
 | `mod-rts/` | Módulo de servidor: cámara poseída, despacho de órdenes, command mode | `C:\Server\azerothcore\modules\mod-rts` |
-| `docs/` | `CLAUDE.md` (el documento de diseño) y las listas `PRUEBAS-N.txt` | `C:\Server` |
-| `scripts/` | `.bat` de arranque | `C:\Server` |
+| `rts-client-mod/` | `rts_core.dll` — coordenadas de mundo, raycast del cursor, cámara, círculos nativos | no se despliega: se compila aquí mismo |
+| `docs/` | `CLAUDE.md` y las listas `PRUEBAS-N.txt` | copia manual desde `C:\Server` |
+| `scripts/` | `.bat` de arranque | copia manual desde `C:\Server` |
 
-Las tres se comunican así:
+Las tres piezas se comunican así:
 
 ```
 Cliente WoW  <->  worldserver (+ mod-rts)  <->  MySQL
@@ -25,14 +25,38 @@ Cliente WoW  <->  worldserver (+ mod-rts)  <->  MySQL
      +-- rts_core.dll       (solo local: coordenadas, raycast, círculos)
 ```
 
-## Actualizar la copia
+## Desplegar
+
+Un solo sentido, siempre: de aquí hacia fuera. Nunca al revés.
+
+| Botón | Qué hace | Después hay que |
+|---|---|---|
+| `C:\Server\Deploy_Addon.bat` | `addon/` → carpeta del WoW | `/reload` en el juego |
+| `C:\Server\Deploy_Mod.bat` | `mod-rts/` → AzerothCore | recompilar `worldserver` |
+
+El DLL no tiene botón porque no se mueve de sitio:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\sync.ps1
-git add -A
-git commit -m "backup"
-git push
+cmake --build C:\Server\rts-project\rts-client-mod\build --config Release
 ```
+
+Y se inyecta con `C:\Server\Jugar.bat`.
+
+## Por qué un solo sentido
+
+Antes había un `sync.ps1` que recogía las tres piezas desde donde vivían, y esta
+carpeta era solo una copia de seguridad. Existían los dos sentidos, y eso
+significaba que en cualquier momento no estaba claro cuál era la versión buena.
+
+El 16/08/2026 costó una tarde: el addon se editó hasta las 22:06, el último
+`sync` había sido a las 19:04, y al mudar el servidor a otro ordenador se
+instaló la copia de las 19:04. Faltaban 247 líneas de `RTSMode.lua`, entre ellas
+`CameraTurned()` — justo la función que hace funcionar la selección por caja. El
+síntoma fue "lo nuevo no funciona en el ordenador nuevo", y no había ni un error
+que lo delatara.
+
+Con un solo original y un solo sentido, ese fallo no se puede dar: si el juego
+va viejo, es que falta desplegar, y se arregla con un botón.
 
 ## Qué NO se sube, y por qué
 
@@ -40,19 +64,19 @@ git push
   y la contraseña de MySQL en texto plano. Nunca entran aquí. La plantilla del
   módulo (`mod-rts/conf/mod_rts.conf.dist`) sí, porque solo trae ajustes de
   cámara.
-- **`build/`, `dist/`, binarios, logs** — se regeneran compilando.
+- **`build/`, binarios, logs** — se regeneran compilando.
 - **El fork de AzerothCore** — tiene su propio remoto
   (`mod-playerbots/azerothcore-wotlk`, rama `Playerbot`). Aquí solo va nuestro
   módulo.
 - **`mysql-data/`** — son las bases de datos, no código.
 
-## Para restaurar
+## En otro ordenador
 
-Copia cada carpeta a su sitio (columna derecha de la tabla), y después:
+```
+git pull
+```
 
-- addon: recargar el cliente
-- `mod-rts`: recompilar el target `worldserver` y copiar el binario a `dist`
-- `rts-client-mod`: recompilar en **Win32** (`Wow.exe` es x86) e inyectar
+y después los dos botones de deploy, más compilar el DLL y el `worldserver`.
 
 `docs/CLAUDE.md` explica el porqué de cada decisión, incluidos los callejones
 sin salida, que es la parte que más cuesta redescubrir.

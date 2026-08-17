@@ -53,6 +53,12 @@ local function Initialise()
 	ns.Targets:Create()
 	ns.Channel:Create()
 	ns.Camera:Create()
+	if type(RTSCommandDB.selfBotAuto) == "boolean" then
+		ns.RTSMode.selfBot.auto = RTSCommandDB.selfBotAuto
+	end
+	if type(RTSCommandDB.freeLoot) == "boolean" then
+		ns.RTSMode.freeLoot = RTSCommandDB.freeLoot
+	end
 	ns.UnitBar:Refresh()
 	ns.CommandCard:Refresh()
 
@@ -100,6 +106,9 @@ f:SetScript("OnEvent", function(self, event)
 			ns.Selection:Prune()
 			ns.UnitBar:Refresh()
 			ns.CommandCard:Refresh()
+			-- El metodo de botin es del GRUPO, y el grupo se rehace cada vez
+			-- que entra o sale un bot -- asi que hay que volver a ponerlo.
+			ns.RTSMode:ApplyFreeLoot(true)
 		end
 	end
 end)
@@ -223,6 +232,8 @@ local HELP = {
 	"|cffffff00/rts markers|r - halo that follows the mouse pointer (off by default)",
 	"|cffffff00/rts command|r - borrow the selected bot's action bar and cast as them",
 	"|cffffff00/rts targets|r - panel with everything the group is engaged with",
+	"|cffffff00/rts self|r - your own character fights with the playerbots AI; |cffffff00auto|r / |cffffff00status|r",
+	"|cffffff00/rts loot|r - botin libre para todo el grupo (free-for-all)",
 	"|cffffff00/rts tri|r - green triangle over heads (parked; |cffffff00/rts tri help|r)",
 	"|cffffff00/rts halo <0-2>|r - cursor halo style, |cffffff00/rts halo size <yards>|r",
 	"|cffffff00/rts ring|r - native ground circle under selected units; |cffffff00tint|r adds the model glow, |cffffff00test|r proves the hook",
@@ -320,6 +331,19 @@ SlashCmdList["RTSCOMMAND"] = function(msg)
 
 	elseif cmd == "markers" then
 		ns.Markers:Toggle()
+
+	elseif cmd == "loot" then
+		ns.RTSMode:ToggleFreeLoot()
+
+	elseif cmd == "self" or cmd == "selfbot" then
+		local sub = (rest or ""):match("^(%S*)"):lower()
+		if sub == "auto" then
+			ns.RTSMode:SelfBotAuto()
+		elseif sub == "status" or sub == "?" then
+			ns.RTSMode:SelfBotStatus()
+		else
+			ns.RTSMode:SelfBotToggle()
+		end
 
 	elseif cmd == "targets" then
 		ns.Targets:Toggle()

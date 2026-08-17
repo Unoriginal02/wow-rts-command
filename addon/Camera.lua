@@ -137,21 +137,48 @@ end
 
 local function GrabTurnKeys()
 	if InCombatLockdown() then
-		ns.Print("|cffffff00Q/E height unavailable in combat|r - camera still works.")
+		ns.Print("|cffffff00Teclas de camara no disponibles en combate|r - la camara sigue yendo.")
 		return
 	end
 
-	-- Bound to a hidden button rather than to a game action, because there is
-	-- no game action for "zoom" -- and CameraZoomIn/Out are not protected, so
-	-- a click handler may call them.
-	for key, button in pairs({ Q = "RTSCamDownButton", E = "RTSCamUpButton" }) do
+	-- CAMBIADO 2026-08-16, segunda vez y por buenas razones.
+	--
+	-- Q/E ROTAN. Van a las acciones propias del juego (TURNLEFT/TURNRIGHT), no
+	-- a una funcion nuestra: el sistema de movimiento gira de forma continua y
+	-- suave mientras la tecla esta pulsada, y eso no lo iguala nada movido
+	-- desde un OnUpdate. Ademas asi rotar no depende del servidor para nada.
+	--
+	-- +/- SUBEN Y BAJAN. Esa parte SI tiene que ir por el servidor: la camara
+	-- esta poseida, asi que el cliente manda su posicion, y con el vuelo
+	-- apagado (que es lo que hace que WASD vaya plano) el cliente no ofrece
+	-- ningun movimiento vertical. Las teclas solo avisan de que se pulsan y se
+	-- sueltan; el servidor la sube mientras siga pulsada.
+	for key, action in pairs({ Q = "TURNLEFT", E = "TURNRIGHT" }) do
+		saved[key] = GetBindingAction(key) or ""
+		SetBinding(key, action)
+	end
+
+	-- Las cuatro, porque "+" no es una tecla: en la fila de numeros se saca con
+	-- Mayus y "=", asi que se coge "=" y tambien el teclado numerico, que es
+	-- donde mucha gente espera encontrarlas.
+	-- En un teclado espanol "+" ES una tecla propia (la del +, * y ]), no
+	-- Mayus+"=" como en el americano. Se ponen las dos formas y las del
+	-- teclado numerico: sobra con que exista una, y las que no existan en tu
+	-- distribucion simplemente no se enlazan.
+	for key, button in pairs({
+		["+"]           = "RTSCamUpButton",
+		["="]           = "RTSCamUpButton",
+		["-"]           = "RTSCamDownButton",
+		["NUMPADPLUS"]  = "RTSCamUpButton",
+		["NUMPADMINUS"] = "RTSCamDownButton",
+	}) do
 		saved[key] = GetBindingAction(key) or ""
 		SetBindingClick(key, button)
 	end
 
-	-- X is still the flight descend action, which does nothing while flight is
-	-- off. Left bound so that turning flight back on (/rts cam fly) restores
-	-- the old space/X behaviour without another rebind.
+	-- X sigue siendo la accion de descenso en vuelo, que no hace nada con el
+	-- vuelo apagado. Se deja puesta para que encender el vuelo (/rts cam fly)
+	-- devuelva el comportamiento de espacio/X sin volver a tocar teclas.
 	saved.X = GetBindingAction("X") or ""
 	SetBinding("X", "SITORSTAND")
 end
@@ -353,7 +380,7 @@ function C:OnState(on)
 		GrabTurnKeys()
 		look.lastX, look.stillFor = nil, 0
 		self:Frame()
-		ns.Print("|cff00ff00RTS camera ON|r - WASD pans flat, Q/E lower and raise.")
+		ns.Print("|cff00ff00Camara RTS ON|r - WASD desplaza plano, Q/E rotan, +/- suben y bajan.")
 		ns.Print("Right-drag sets the angle and it |cff00ff00stays|r - the client's auto-adjust is off.")
 		ns.Print("Frame it how you like, then |cffffff00/rts cam save|r to make that the RTS view.")
 	else
@@ -689,7 +716,22 @@ function C:Create()
 					label ~= "" and ("|cffff6666" .. label .. "|r") or "target",
 					n == "" and "0" or n, n == "1" and "" or "s"))
 			elseif did == "INTERACT" then
-				ns.Orders:Talk()
+				-- NO se manda `talk` aqui. El servidor YA ha interactuado --
+				-- eso es justo lo que este mensaje nos esta contando -- y ademas
+				-- distingue un PNJ (gossip) de un cadaver (botin).
+				--
+				-- La llamada que habia aqui era de cuando el servidor no lo
+				-- hacia y el addon tenia que pedirlo por chat. Al pasarle esa
+				-- tarea al servidor, esta linea se quedo de duplicado: sobre un
+				-- cadaver susurraba `talk` -- querer hablar con un muerto -- y
+				-- encima interrumpia la ventana de botin recien abierta, que es
+				-- por lo que solo recogias una cosa y el resto se quedaba.
+				--
+				-- Mismo patron que ya costo una ronda entera: un apano en pie
+				-- despues de que desapareciera el motivo que lo puso ahi.
+				if n ~= "" and tonumber(n) == 0 then
+					ns.Print("|cffffff00Nadie pudo interactuar.|r")
+				end
 			elseif did == "MOVE" and n == "0" then
 				ns.Print("|cffffff00Move order reached no bots.|r")
 			end

@@ -42,6 +42,11 @@ local CLICK_SLOP = 6          -- px; drag beyond this is a box, not a click
 local ORBIT_SLOP = 16
 local PICK_RADIUS = 42        -- px; how close a click must be to a unit
 
+-- Ventana del doble click, en segundos. El valor de Windows por defecto es 0,5;
+-- se queda algo por debajo para que dos ordenes seguidas a la misma unidad no
+-- se confundan con querer seleccionarlas a todas.
+local DOUBLE_CLICK = 0.40
+
 --- Selectable roster (party bots + you) ------------------------------------
 
 -- One source of truth, shared with the unit bar and the select-by-index keys.
@@ -296,9 +301,30 @@ function R:OnLeftClick(sx, sy, shift, alt, hover)
 	end
 
 	if m then
-		if shift then ns.Selection:Toggle(m.name) else ns.Selection:SelectOnly(m.name) end
+		-- DOBLE CLICK sobre una unidad tuya = seleccionar todas.
+		--
+		-- WoW no da un evento de doble click en un frame del mundo, asi que se
+		-- mide a mano: dos clicks sobre EL MISMO nombre dentro de la ventana.
+		-- Exigir el mismo nombre importa -- si no, un click rapido sobre un bot
+		-- y luego sobre otro se leeria como doble click y te seleccionaria a
+		-- todos justo cuando querias cambiar de unidad.
+		local now = GetTime()
+		if shift then
+			ns.Selection:Toggle(m.name)
+		elseif self.lastClickName == m.name
+		   and self.lastClickAt and (now - self.lastClickAt) < DOUBLE_CLICK then
+			ns.Selection:SelectAll()
+			self.lastClickName, self.lastClickAt = nil, nil   -- que un triple no reabra
+			return
+		else
+			ns.Selection:SelectOnly(m.name)
+		end
+		self.lastClickName, self.lastClickAt = m.name, now
 		return
 	end
+
+	-- Un click en cualquier otro sitio rompe la cadena del doble click.
+	self.lastClickName, self.lastClickAt = nil, nil
 
 	-- Clicking something that is NOT ours -- an enemy, an NPC -- leaves the
 	-- selection alone rather than clearing it. Only bare ground clears.
@@ -348,7 +374,28 @@ function R:OnRightClick(sx, sy, hover)
 	-- job; deciding what an order against it means -- and where each bot has to
 	-- stand to carry it out -- is a server job, and the server is the only side
 	-- with the positions to do it exactly.
-	local guid = (hover and not hover.ours and not hover.dead and hover.guid) or "0"
+	-- Dead units are sent too. They used to be filtered out here, on the
+	-- assumption that a corpse could only ever be a failed attack -- which is
+	-- exactly why looting did nothing in RTS mode: the guid never left the
+	-- client, so the server never got the chance to say "that is a corpse you
+	-- may loot". Classifying is the server's job; withholding the guid took
+	-- that job away from it.
+	local guid = (hover and not hover.ours and hover.guid) or "0"
+
+	-- Sin mouseover, tirar de la proyeccion. Hace falta para los CADAVERES:
+	-- con la camara poseida el cliente calcula sus interacciones contra la
+	-- camara y no contra ti, asi que a veces no llega a marcar mouseover sobre
+	-- un muerto -- y sin guid el servidor no puede decir "eso es un cadaver que
+	-- puedes lootear". La proyeccion es menos precisa pero no depende de la
+	-- posesion, asi que cubre justo el hueco.
+	if guid == "0" then
+		local near = self:NearestCreature(sx, sy)
+		local r = self.hostilePickRadius
+		if near then
+			local _, d = self:NearestCreature(sx, sy)
+			if d and d <= r * r then guid = near.guid end
+		end
+	end
 
 	if ns.Orders:HasServer() and x then
 		ns.Orders:Click(guid, x, y, z)
@@ -449,22 +496,35 @@ local function BeginGesture(button)
     local sx, sy = CursorXY()
     down.x, down.y, down.button = sx, sy, button
     down.dragging = false
+    down.turned = false
     down.at = GetTime()
+    -- Did WE get this press, or did the client? Decides how the drag is
+    -- measured further down: our own capture leaves the cursor alone, the
+    -- client's freezes it.
+    down.captured = catcher and catcher:IsMouseEnabled() or false
     down.fx, down.fy, down.fz = CamFwd()
     -- Snapshot now, while the client still owns the mouse.
     down.hover = R:HoverUnit()
 end
 
--- Has this press turned into a drag? See the note above for why the cursor
--- cannot answer this.
-local function BecameDrag()
+-- Has the CAMERA moved since the button went down?
+--
+-- This is the question that replaced "has the cursor moved", and it is the only
+-- one that can be answered while a button is held: the client freezes the cursor
+-- for the whole of a camera drag, so the cursor says "no" no matter what the
+-- hand does. The camera vector, which rts_core publishes every tick, says yes on
+-- the first frame of real movement.
+local function CameraTurned()
     local fx, fy, fz = CamFwd()
-    if fx and down.fx then
-        if math.abs(fx - down.fx) + math.abs(fy - down.fy)
-         + math.abs(fz - down.fz) > FWD_EPS then
-            return true
-        end
-    end
+    if not fx or not down.fx then return false end
+    return math.abs(fx - down.fx) + math.abs(fy - down.fy)
+         + math.abs(fz - down.fz) > FWD_EPS
+end
+
+-- Has this press turned into a drag? The hold timer is the fallback for a
+-- client with no DLL injected, where CameraTurned can never answer.
+local function BecameDrag()
+    if CameraTurned() then return true end
     return down.at ~= nil and (GetTime() - down.at) > HOLD_TO_DRAG
 end
 
@@ -477,23 +537,51 @@ local function EndGesture(button)
     local hover = down.hover
 
     if button == "LeftButton" then
-        -- Both halves matter. `down.dragging` says the client was turning the
-        -- camera, so this was never a click; `moved` says the cursor actually
-        -- travelled far enough to enclose anything. A press that nudged the
-        -- camera and came back to where it started is a click.
-        if down.dragging and moved > CLICK_SLOP then
-            R:OnLeftDrag(down.x, down.y, sx, sy, shift)
+        -- Two ways to tell a drag, because there are two ways the press can
+        -- arrive.
+        --
+        -- CAPTURED (Ctrl held): the catcher ate the press, the client never
+        -- started a camera turn, the cursor moves normally -- so the cursor is
+        -- the honest measure and the box is exact.
+        --
+        -- NOT CAPTURED: the client owns the button and has frozen the cursor,
+        -- so only the camera can say anything moved. That path can no longer
+        -- draw a box at all (see the note on Ctrl above); it is kept so a drag
+        -- is still recognised as "not a click" and does not fire an order.
+        local isDrag
+        if down.captured then
+            isDrag = moved > CLICK_SLOP
         else
+            isDrag = down.dragging and moved > CLICK_SLOP
+        end
+
+        if isDrag then
+            R:OnLeftDrag(down.x, down.y, sx, sy, shift)
+        elseif down.captured or not down.turned then
             R:OnLeftClick(sx, sy, shift, IsAltKeyDown(), hover)
         end
+        -- Si no, fue un GIRO DE CAMARA con el izquierdo (sin Ctrl) y no es ni
+        -- arrastre ni click. Antes caia en el else y se leia como "click en
+        -- suelo vacio", que borra la seleccion: girabas la camara y perdias a
+        -- los bots. Es el mismo fallo que tenia el boton derecho, y se arregla
+        -- igual: preguntando si se movio la CAMARA, no el cursor.
     elseif button == "RightButton" then
-        -- Past the orbit slop the client was turning the camera, not ordering.
-        if moved <= ORBIT_SLOP then
+        -- Was the camera turned, or was this a click?
+        --
+        -- NOT `moved <= ORBIT_SLOP`. That measured the CURSOR, and while the
+        -- client is turning the camera the cursor is frozen -- so `moved` was
+        -- always 0, always under the threshold, and every camera orbit fired a
+        -- move order at whatever the cursor happened to be over when the button
+        -- went down. Reported as "giro la camara y al soltar los bots se van".
+        --
+        -- Same mistake the left button had, and the same fix: ask whether the
+        -- CAMERA moved, which is the thing that actually changes during a drag.
+        if not down.turned then
             R:OnRightClick(sx, sy, hover)
         end
     end
 
-    down.button, down.hover, down.dragging = nil, nil, false
+    down.button, down.hover, down.dragging, down.turned = nil, nil, false, false
     ReleaseCapture()
 end
 
@@ -517,6 +605,9 @@ local function EnsureFrames()
     -- in practice this does not fire -- the release arrives either through
     -- WorldFrame below or through the poll in OnUpdate. It costs nothing and it
     -- covers the case where some other frame ends up owning the button.
+    -- With Ctrl held the catcher owns the mouse, so the press lands here
+    -- rather than on WorldFrame. This is the path that makes the box possible.
+    catcher:SetScript("OnMouseDown", function(_, button) BeginGesture(button) end)
     catcher:SetScript("OnMouseUp", function(_, button) EndGesture(button) end)
 
     -- HookScript, not SetScript: WorldFrame's own mouse handling is what drives
@@ -530,10 +621,36 @@ local function EnsureFrames()
     end)
 
     catcher:SetScript("OnUpdate", function()
-        if not down.button or down.button ~= "LeftButton" then
+        -- CTRL ARMS THE BOX.
+        --
+        -- The client takes the mouse the instant the left button goes down in
+        -- the world and turns the camera with it, freezing the cursor. Nothing
+        -- in Lua can take that back afterwards: MouselookStop only stops a
+        -- mouselook an ADDON started, and IsMouselooking is false for the
+        -- client's own button-drag, which is why the previous attempt at this
+        -- changed nothing at all.
+        --
+        -- The only way to have the box is to own the mouse BEFORE the press.
+        -- Holding Ctrl does that, and only for as long as it is held -- so
+        -- hover, highlight, native picking and looting are untouched the rest
+        -- of the time, which was the whole point of freeing the mouse.
+        if not down.button then
+            local want = IsControlKeyDown() and R.active
+            if want ~= catcher:IsMouseEnabled() then catcher:EnableMouse(want) end
+        end
+
+        if not down.button then
             if box:IsShown() then box:Hide() end
             return
         end
+
+        -- Tracked for BOTH buttons, before the left-only work below. The right
+        -- button needs it to tell an orbit from an order, and it has to be
+        -- latched while the button is still down -- by the time the release
+        -- arrives, the camera has stopped moving and the evidence is gone.
+        if not down.turned and CameraTurned() then down.turned = true end
+
+        if down.button ~= "LeftButton" then return end
 
         -- Poll for the release instead of waiting on a handler. During
         -- mouselook the button is held by the client rather than by any frame,
@@ -569,6 +686,130 @@ local function EnsureFrames()
     end)
 end
 
+
+
+--- Botin libre --------------------------------------------------------------
+--
+-- "Que pueda lootear siempre" es, literalmente, el metodo de botin FREE_FOR_ALL
+-- del grupo. En Player::isAllowedToLoot (PlayerStorage.cpp:5762) el switch por
+-- metodo de botin tiene esta linea:
+--
+--     case MASTER_LOOT: case FREE_FOR_ALL: return true;
+--
+-- y con GROUP_LOOT, que es el de por defecto, solo puedes lootear si eres el
+-- del turno rotatorio o el objeto pasa del umbral. Con bots matando cosas, ese
+-- turno rara vez te toca -- de ahi que el cadaver estuviera ahi y no se dejara
+-- abrir.
+--
+-- Se pone desde el cliente porque es una propiedad del GRUPO y ya existe la
+-- llamada; no hace falta tocar el servidor para nada. Requiere ser lider.
+R.freeLoot = true
+
+function R:ApplyFreeLoot(quiet)
+    if not self.freeLoot then return end
+    if GetNumPartyMembers() == 0 then return end          -- solo, no hay metodo
+    if not IsPartyLeader() then
+        if not quiet then
+            ns.Print("|cffffff00Botin libre:|r hay que ser lider del grupo.")
+        end
+        return
+    end
+    if GetLootMethod() == "freeforall" then return end
+    SetLootMethod("freeforall")
+    if not quiet then ns.Print("botin |cff00ff00libre|r - puedes lootear todo.") end
+end
+
+function R:ToggleFreeLoot()
+    self.freeLoot = not self.freeLoot
+    RTSCommandDB.freeLoot = self.freeLoot
+    if self.freeLoot then
+        self:ApplyFreeLoot()
+    elseif IsPartyLeader() and GetNumPartyMembers() > 0 then
+        SetLootMethod("group")
+        ns.Print("botin de vuelta a |cffff0000grupo|r (el normal).")
+    end
+    ns.Print("botin libre automatico: " ..
+        (self.freeLoot and "|cff00ff00SI|r" or "|cffff0000NO|r"))
+end
+
+--- Selfbot: que tu propio personaje pelee como uno mas ----------------------
+--
+-- mod-playerbots puede engancharle a TU personaje el mismo PlayerbotAI que
+-- lleva cualquier bot (PlayerbotMgr.cpp:1071). No es una imitacion: es el mismo
+-- objeto, asi que pasa por el mismo ResetStrategies y AiFactory elige la
+-- rotacion segun tu arbol de talentos, igual que con los demas.
+--
+-- El comando es ".playerbots BOT self". El "bot" de en medio no es opcional:
+-- self es un subcomando de HandlePlayerbotCommand, que cuelga de "bot" en la
+-- tabla de comandos (PlayerbotCommandScript.cpp:36). Sin el salia la lista de
+-- ayuda amarilla y no pasaba nada.
+--
+-- Va por comando de chat y no por mod-rts a proposito. El comando ya existe y
+-- lo mantiene playerbots; replicarlo en nuestro modulo obligaria a enlazar
+-- mod-rts contra las cabeceras de playerbots, y ataria dos modulos que hoy no
+-- se conocen -- por un interruptor.
+--
+-- LA PEGA, y conviene saberla: el comando es un TOGGLE y no devuelve el estado,
+-- asi que aqui se lleva la cuenta a mano. Si se desincroniza (por ejemplo si lo
+-- lanzas tu por tu cuenta), /rts self lo vuelve a alinear.
+R.selfBot = { auto = true, on = false }
+
+local function SelfBotCommand()
+    SendChatMessage(".playerbots bot self", "SAY")
+end
+
+-- want = true encender, false apagar. No hace nada si ya cree estar asi.
+-- Que TU personaje no recoja solo, aunque los bots si.
+--
+-- "el mio recoge sin la UI, cosa que no me gusta". Es la estrategia "loot" que
+-- playerbots le pone por defecto a todo el que lleve su IA -- y con el selfbot
+-- puesto, eso te incluye. Recoge en silencio y nunca ves la ventana.
+--
+-- Se le quita SOLO A TI, por susurro. Un susurro a un bot ejecuta el comando en
+-- ESE bot nada mas (PlayerbotAI.cpp:582), y susurrarte a ti mismo llega a tu
+-- propia IA -- asi que los bots siguen recogiendo, que es como elegiste
+-- dejarlo, y tu looteas a mano y con ventana.
+--
+-- No estorba al loot manual: el click derecho va por mod-rts y acaba en
+-- SendLoot del servidor, que no sabe nada de estrategias.
+local function SelfLootStrategy(on)
+    SendChatMessage(on and "nc +loot,+gather" or "nc -loot,-gather",
+                    "WHISPER", nil, UnitName("player"))
+end
+
+function R:SelfBotSet(want, quiet)
+    if self.selfBot.on == want then return end
+    SelfBotCommand()
+    self.selfBot.on = want
+
+    -- Despues de encender: la IA acaba de nacer con sus estrategias por
+    -- defecto puestas, asi que hay que quitarle el loot ahora, no antes.
+    SelfLootStrategy(not want)
+    if not quiet then
+        ns.Print("selfbot " .. (want and "|cff00ff00ON|r - tu personaje pelea solo"
+                                     or "|cffff0000OFF|r - vuelves a llevarlo tu"))
+    end
+end
+
+function R:SelfBotToggle()
+    self:SelfBotSet(not self.selfBot.on)
+end
+
+function R:SelfBotAuto()
+    self.selfBot.auto = not self.selfBot.auto
+    RTSCommandDB.selfBotAuto = self.selfBot.auto
+    ns.Print("selfbot automatico al entrar en modo RTS: " ..
+        (self.selfBot.auto and "|cff00ff00SI|r" or "|cffff0000NO|r"))
+end
+
+function R:SelfBotStatus()
+    ns.Print(("selfbot: %s   automatico: %s"):format(
+        self.selfBot.on and "|cff00ff00encendido|r" or "|cffff0000apagado|r",
+        self.selfBot.auto and "si" or "no"))
+    ns.Print("Se lleva la cuenta a mano porque el comando no devuelve estado.")
+    ns.Print("Si no cuadra con lo que ves, |cffffff00/rts self|r lo realinea.")
+end
+
 --- Toggle ------------------------------------------------------------------
 
 -- RTS mode is ONE switch, not a set of things to remember to turn on.
@@ -582,8 +823,11 @@ function R:Toggle()
 		catcher:Show()
 		catcher:EnableMouse(false)
 		ns.Camera:On()
-		ns.Print("|cff00ff00RTS mode ON|r - hover highlights, left select, drag box, right-click order.")
-		ns.Print("The mouse works normally now - it is only captured while a box is being dragged.")
+		ns.Print("|cff00ff00Modo RTS ON|r - el raton va normal: pasar por encima ilumina,")
+		ns.Print("click selecciona, |cffffff00doble click|r selecciona a todos, click derecho ordena.")
+		ns.Print("|cffffff00Ctrl + arrastrar|r = caja de seleccion.")
+		if self.selfBot.auto then self:SelfBotSet(true, true) end
+		self:ApplyFreeLoot(true)
 	else
 		catcher:Hide()
 		ReleaseCapture()
@@ -594,6 +838,9 @@ function R:Toggle()
 		if IsMouselooking() then MouselookStop() end
 		-- Drop any borrowed bar before the camera goes.
 		ns.CommandMode:Leave()
+		-- Devolver el personaje ANTES de soltar la camara, para que no quede un
+		-- instante en el que la IA lo lleva y tu ya has vuelto a el.
+		self:SelfBotSet(false, true)
 		ns.Camera:Off()
 		ns.Print("|cffff0000RTS mode OFF|r - normal controls.")
 	end
