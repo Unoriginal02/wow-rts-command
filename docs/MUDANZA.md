@@ -1,106 +1,131 @@
 # Mudar el servidor a otro ordenador
 
-Todo lo que hay que hacer, en orden. Dos scripts hacen el trabajo:
-
-| Script | Donde se ejecuta | Que hace |
-|---|---|---|
-| `Mudanza_1_Copiar.ps1` | PC **viejo** | Vuelca al disco externo lo que no se puede reinstalar |
-| `Mudanza_2_Instalar.ps1` | PC **nuevo**, como administrador | Restaura eso e instala todos los programas |
+A mano, en orden. Los scripts que hacian esto (`Mudanza_1_Copiar.ps1`,
+`Mudanza_2_Instalar.ps1`, `Instalar_En_PC_Nuevo.bat`) se borraron el 2026-08-17:
+la mudanza se hace una vez cada mucho, y mantener 22 KB de automatizacion
+correcta entre mudanza y mudanza costaba mas que copiar carpetas a mano. Lo que
+si merecia la pena guardar era el **porque** de cada paso, y eso es este fichero.
 
 ---
 
 ## 0. Antes de nada: la red de seguridad
 
-`mod-rts` y el addon `RTSCommand` **no estan en ningun repositorio propio** — son
-ficheros sueltos dentro de un arbol ajeno. Lo unico que los respalda es
-`C:\Server\rts-project`, que es una copia de los tres trozos del proyecto y si
-tiene remoto en GitHub (`Unoriginal02/wow-rts-command`).
-
-Actualizalo y subelo antes de mover nada. Si el disco externo se corrompe a
-mitad, esto es lo unico que no se puede volver a escribir:
+`C:\Server\rts-project` es el original de las tres piezas (addon, `mod-rts`,
+`rts-client-mod`) y tiene remoto en GitHub (`Unoriginal02/wow-rts-command`).
+Subelo antes de mover nada. Si el disco externo se corrompe a mitad, esto es lo
+unico que no se puede volver a escribir:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File C:\Server\rts-project\sync.ps1
 git -C C:\Server\rts-project add -A
 git -C C:\Server\rts-project commit -m "Antes de la mudanza"
 git -C C:\Server\rts-project push
 ```
 
-Ojo: `sync.ps1` **no** copia los `.conf`, porque llevan la contrasena de MySQL en
-claro. Esos solo viajan en el disco externo.
+Dos cosas **no** viajan en GitHub y solo estan en el disco externo:
+
+- Los `.conf` del servidor — llevan la contrasena de MySQL en claro, por eso
+  estan en `.gitignore`.
+- `C:\Server\rts-tools` — los .bat y .ps1 estan fuera del repo a proposito.
 
 ---
 
-## 1. En el PC viejo
+## 1. En el PC viejo: que copiar
 
-Con el servidor parado (el script aborta si encuentra `mysqld`, `worldserver` o
-`authserver` vivos):
+Con el servidor **parado** (ni `mysqld`, ni `worldserver`, ni `authserver`
+vivos — copiar `mysql-data` en caliente da una base corrupta).
 
-```powershell
-powershell -ExecutionPolicy Bypass -File C:\Server\rts-tools\Mudanza_1_Copiar.ps1 -Destino E:\MudanzaWoW
-```
-
-Necesitas un disco de **64 GB o mas**:
+Necesitas un disco de **64 GB o mas**. Copia estas carpetas tal cual:
 
 | Que | Tamano | Por que viaja en vez de reinstalarse |
 |---|---:|---|
 | `C:\Server\dist\data` | 3,1 GB | Los `mmaps` tardan **horas** en generarse |
 | `C:\Server\mysql-data` | 2,5 GB | Personajes, cuentas, guilds. Irreemplazable |
 | `C:\Server\build` | 4,4 GB | Ahorra 1–2 h de primera compilacion |
-| `C:\Server\azerothcore` | 0,9 GB | Lleva `mod-rts`, que no esta en su propio git |
-| MySQL 8.4.9 | 0,6 GB | La version **exacta** que escribio `mysql-data` |
-| Cliente WoW | 19,5 GB | El `Wow.exe` exacto contra el que estan los offsets |
+| `C:\Server\azerothcore` | 0,9 GB | Lleva `modules\mod-rts` ya desplegado |
+| `C:\Server\rts-project` | pequeno | El original. Tambien esta en GitHub |
+| `C:\Server\rts-tools` | pequeno | Los botones. **No** esta en GitHub |
+| `C:\Server\dist` (resto) | — | Binarios y los `.conf` con la contrasena |
+| `C:\Program Files\MySQL\MySQL Server 8.4` | 0,6 GB | La version **exacta** que escribio `mysql-data` |
+| `F:\Games\WOW WOTLK` | 19,5 GB | El `Wow.exe` exacto contra el que estan los offsets |
+| `%USERPROFILE%\.claude\projects\C--Server` | pequeno | Memoria de Claude Code |
 
-Opciones: `-SinBuild` (te ahorra 4,4 GB y pagas 1–2 h compilando) y `-SinCliente`
-(si mueves el cliente por tu cuenta).
+`build\` es opcional: te ahorra 4,4 GB de copia y pagas 1–2 h compilando.
+
+Usa `robocopy /MIR` en vez de arrastrar con el raton: se reanuda si lo cortas y
+no se atraganta con rutas largas.
+
+```powershell
+robocopy C:\Server E:\MudanzaWoW\Server /MIR /R:2 /W:2 /MT:16
+```
 
 ---
 
-## 2. En el PC nuevo
+## 2. En el PC nuevo: que instalar
 
-Copia `E:\MudanzaWoW\Server` a `C:\Server`, abre PowerShell **como
-administrador** y:
+Copia `E:\MudanzaWoW\Server` a `C:\Server` y luego, **como administrador**:
+
+**Programas** (`winget install --id <id> -e`):
+
+| Programa | id de winget |
+|---|---|
+| Visual Studio 2022 Community | `Microsoft.VisualStudio.2022.Community` |
+| Git para Windows | `Git.Git` |
+| CMake | `Kitware.CMake` |
+| Python 3.12 (para `check_addon.py`) | `Python.Python.3.12` |
+| 7-Zip | `7zip.7zip` |
+
+Visual Studio necesita la carga **«Desarrollo para el escritorio con C++»**, y
+dentro de ella los **dos** compiladores: el servidor es x64 y `rts_core.dll` es
+x86 obligatoriamente, porque `Wow.exe` lo es.
+
+**Boost 1.81.0 y OpenSSL 3.6.3.** Antes viajaban como `.exe` dentro de
+`C:\Server`; se borraron el 2026-08-17 porque son 437 MB de descarga gratuita.
+Bajalos otra vez — **las versiones no son negociables**, una version equivocada
+de cualquiera de las dos es la causa numero uno de que la primera compilacion de
+AzerothCore falle:
+
+- `boost_1_81_0-msvc-14.3-64.exe` — binarios de Boost en SourceForge,
+  `boost-binaries/1.81.0`. Instalar en `C:\local\boost_1_81_0`.
+- `Win64OpenSSL-3_6_3.exe` — slproweb.com, la version **completa**, no la
+  «Light». Instalar en `C:\Program Files\OpenSSL-Win64`, con las DLL en el
+  directorio de binarios de OpenSSL.
+
+**`BOOST_ROOT` a nivel de MAQUINA**, no de usuario:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File C:\Server\rts-tools\Mudanza_2_Instalar.ps1 -Origen E:\MudanzaWoW
+[Environment]::SetEnvironmentVariable("BOOST_ROOT", "C:\local\boost_1_81_0", "Machine")
 ```
 
-Restaura lo demas (MySQL, cliente, memoria de Claude Code) e instala:
+En el PC viejo estaba solo a nivel de usuario y CMake no lo veia al compilar
+desde otro contexto. A nivel de maquina funciona en los dos casos.
 
-- **Visual Studio 2022 Community** + carga «Desarrollo para el escritorio con
-  C++». Necesitas los **dos** compiladores: el servidor es x64 y `rts_core.dll`
-  es x86 obligatoriamente, porque `Wow.exe` lo es.
-- **Git**, **CMake**, **Python 3.12** (para `check_addon.py`), **7-Zip**
-- **Boost 1.81.0** en `C:\local\boost_1_81_0` + `BOOST_ROOT`
-- **OpenSSL 3.6.3** en `C:\Program Files\OpenSSL-Win64`
-- Exclusiones de Defender para `C:\Server`, `C:\local` y el cliente
+**Exclusiones de Defender** para `C:\Server`, `C:\local` y la carpeta del
+cliente. Ademas de casi partir por la mitad el tiempo de compilacion, evita que
+el heuristico se coma el inyector:
 
-Boost y OpenSSL se instalan desde los `.exe` que ya viven dentro de `C:\Server`,
-**no** desde la web: la version equivocada de una de las dos es la causa numero
-uno de que la primera compilacion de AzerothCore falle, y estas son las que ya
-funcionan.
+```powershell
+Add-MpPreference -ExclusionPath "C:\Server"
+```
 
-Cuando termine, **reinicia** — `BOOST_ROOT` y el `PATH` no cuentan hasta
-entonces. Es repetible: si algo falla, vuelve a lanzarlo y los pasos ya hechos se
-saltan solos.
+**Reinicia** cuando termines. `BOOST_ROOT` y el `PATH` no cuentan hasta entonces.
 
 ---
 
 ## 3. Las rutas tienen que ser las mismas
 
-Esto no es manía: hay rutas absolutas metidas en `CMakeCache.txt`, en los `.bat`,
-en `sync.ps1` y en el propio `worldserver.conf`.
+Esto no es mania: hay rutas absolutas metidas en `CMakeCache.txt`, en los `.bat`
+de `rts-tools` y en el propio `worldserver.conf`.
 
 | Ruta | Quien la exige |
 |---|---|
 | `C:\Server` | Todo |
 | `C:\local\boost_1_81_0` | `CMakeCache.txt` |
 | `C:\Program Files\MySQL\MySQL Server 8.4` | `Iniciar_Servidor.bat`, `CMakeCache.txt` |
-| `F:\Games\WOW WOTLK` | `Jugar.bat`, `sync.ps1` |
+| `F:\Games\WOW WOTLK` | `Jugar.bat`, `Deploy_Addon.bat` |
 
-**Si el PC nuevo no tiene unidad F:**, pon el cliente donde puedas, pasa
-`-ClienteDestino "D:\Juegos\WOW WOTLK"` al script 2, y luego cambia la ruta en
-`Jugar.bat` y en `rts-project\sync.ps1`. Dimelo y te los edito.
+**Si el PC nuevo no tiene unidad F:**, pon el cliente donde puedas y hay que
+cambiar la ruta en `rts-tools\Jugar.bat` y en `rts-tools\Deploy_Addon.bat`.
+Dimelo y te los edito — es un `set` en cada uno.
 
 ---
 
@@ -110,11 +135,17 @@ en `sync.ps1` y en el propio `worldserver.conf`.
 `acore`, su contrasena y todos los personajes vienen dentro**. En el PC nuevo no
 hay que crear bases, ni usuarios, ni importar el mundo, ni tocar los `.conf`.
 
-Por eso MySQL se copia en vez de instalarse: tiene que ser **8.4.x**. Una 8.0 no
-abre ese directorio, y una 9.x lo migraria sin vuelta atras. El script comprueba
-la version y avisa. Tampoco hay servicio de Windows que registrar —
-`Iniciar_Servidor.bat` lanza `mysqld.exe` a mano con `--datadir`, y no existe
-ningun `my.ini` que pueda contradecirlo.
+Por eso MySQL se **copia** en vez de instalarse: tiene que ser **8.4.x**. Una 8.0
+no abre ese directorio, y una 9.x lo migraria sin vuelta atras. Comprueba la
+version antes de arrancar nada:
+
+```powershell
+& "C:\Program Files\MySQL\MySQL Server 8.4\bin\mysqld.exe" --version
+```
+
+Tampoco hay servicio de Windows que registrar — `Iniciar_Servidor.bat` lanza
+`mysqld.exe` a mano con `--datadir`, y no existe ningun `my.ini` que pueda
+contradecirlo.
 
 ---
 
@@ -126,7 +157,7 @@ Con `build\` copiado, deberia bastar con recompilar lo que haga falta:
 cmake --build C:\Server\build --config Release --target worldserver -- /m
 ```
 
-Si CMake protesta (versión distinta del toolset de MSVC, o de CMake), borra
+Si CMake protesta (version distinta del toolset de MSVC, o de CMake), borra
 `C:\Server\build` y configura de cero — son 1–2 horas, no un problema:
 
 ```powershell
@@ -139,8 +170,8 @@ cmake --build C:\Server\build --config Release --target worldserver -- /m
 El DLL del cliente es un proyecto aparte y **`-A Win32` no es opcional**:
 
 ```powershell
-cmake -S C:\Server\rts-client-mod -B C:\Server\rts-client-mod\build -A Win32
-cmake --build C:\Server\rts-client-mod\build --config Release
+cmake -S C:\Server\rts-project\rts-client-mod -B C:\Server\rts-project\rts-client-mod\build -A Win32
+cmake --build C:\Server\rts-project\rts-client-mod\build --config Release
 ```
 
 ---
@@ -150,24 +181,32 @@ cmake --build C:\Server\rts-client-mod\build --config Release
 Cada paso deja el siguiente en pie, asi que un fallo dice exactamente donde
 mirar:
 
-1. `Iniciar_Servidor.bat` → `worldserver` llega a su prompt. Si falla, es MySQL
-   o los `.conf`.
+1. `rts-tools\Iniciar_Servidor.bat` → `worldserver` llega a su prompt. Si falla,
+   es MySQL o los `.conf`.
 2. Login con tu cuenta de siempre, personaje donde lo dejaste → `mysql-data`
    viajo entero.
 3. `.playerbots bot add <nombre>` → el bot sigue y responde → `mmaps` bien.
-4. `Jugar.bat` + `/rts native` → dice la version de `rts_core`. Si no, es Smart
-   App Control o el MD5 del cliente.
+4. `rts-tools\Jugar.bat` + `/rts native` → dice la version de `rts_core`. Si no,
+   es Smart App Control o el MD5 del cliente.
 5. `python C:\Server\rts-tools\check_addon.py` → sin errores.
+
+El `Wow.exe` tiene que seguir siendo el mismo binario, porque los offsets de
+`rts_core` estan verificados contra el:
+
+```powershell
+(Get-FileHash "F:\Games\WOW WOTLK\Wow.exe" -Algorithm MD5).Hash
+# 45892BDEDD0AD70AED4CCD22D9FB5984
+```
 
 ---
 
-## 7. Lo que el script no puede hacer por ti
+## 7. Lo que hay que hacer a mano si o si
 
 - **Smart App Control.** Si esta activo en el PC nuevo, bloquea `rts_core.dll`
   por no estar firmado — y firmarlo no sirve, esto ya se probo. Se apaga a mano
   en Seguridad de Windows, y es **de un solo sentido**: para volver a activarlo
-  hay que reinstalar Windows. El script detecta el estado y avisa.
-- **Claude Code.** Instalalo aparte en el PC nuevo. La memoria del proyecto se
-  restaura en `%USERPROFILE%\.claude\projects\C--Server`; si el usuario de
-  Windows se llama distinto, la ruta cambia sola y no pasa nada.
+  hay que reinstalar Windows.
+- **Claude Code.** Instalalo aparte. La memoria del proyecto se restaura en
+  `%USERPROFILE%\.claude\projects\C--Server`; si el usuario de Windows se llama
+  distinto, la ruta cambia sola y no pasa nada.
 - **El disco duro.** `C:\Server` mas el cliente son ~31 GB en destino.

@@ -611,18 +611,27 @@ Deploy is `robocopy /MIR`, out only. There is no way back in, deliberately.
 
 Everything we wrote that is *run* rather than *built* lives there and nowhere
 else: the launchers (`Iniciar_Servidor`, `Detener_Servidor`, `Jugar`,
-`Actualizar_Mundo`), the two deploy buttons, the mudanza pair, `srp6_account.ps1`
-and `check_addon.py`. `C:\Server` root now holds only `CLAUDE.md` plus folders.
+`Actualizar_Mundo`), the two deploy buttons, `srp6_account.ps1` and
+`check_addon.py`. `C:\Server` root now holds only `CLAUDE.md` plus folders.
 
 It was briefly duplicated into `rts-project\scripts` as well. That copy is
 **deleted**, on the same reasoning as `sync.ps1` below — two copies with no
 structural direction is a bug waiting for a timestamp to trigger it.
 
+**The mudanza scripts are gone too, deliberately.** `Mudanza_1_Copiar.ps1`,
+`Mudanza_2_Instalar.ps1` and `Instalar_En_PC_Nuevo.bat` were deleted the same
+day: a move happens once in a long while, and keeping 22 KB of automation
+*correct* between moves costs more than copying folders by hand. What was worth
+keeping was the reasoning, so it was folded into `rts-project\docs\MUDANZA.md`
+first — the winget ids, `BOOST_ROOT` needing **machine** scope rather than user,
+the exact Boost/OpenSSL versions, and why MySQL 8.4.x is copied rather than
+installed. The move is now a manual checklist.
+
 **The tradeoff, stated so it is not a surprise:** `rts-tools` is outside the git
-repo, so it is *not* on GitHub and a disk failure loses it. It is carried by
-`Mudanza_1_Copiar.ps1` (which mirrors all of `C:\Server`), so the move-to-a-new-PC
-path is unaffected. Every path inside these scripts is absolute, so they run
-correctly from anywhere and could be moved again without edits.
+repo, so it is *not* on GitHub and a disk failure loses it. With the mudanza
+scripts gone, nothing carries it automatically either — it has to be copied by
+hand on a move, which `MUDANZA.md` §1 lists. Every path inside these scripts is
+absolute and none of them call each other, so they run from anywhere.
 
 **What the old arrangement cost.** `sync.ps1` pulled the three pieces *in* from
 where they lived, making this folder a backup. Both directions existed, so
