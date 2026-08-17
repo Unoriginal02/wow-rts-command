@@ -601,11 +601,28 @@ directions and cost a day.
 
 | Source | Deployed to | Button |
 |---|---|---|
-| `rts-project\addon` | `F:\Games\WOW WOTLK\Interface\AddOns\RTSCommand` | `Deploy_Addon.bat` |
-| `rts-project\mod-rts` | `azerothcore\modules\mod-rts` | `Deploy_Mod.bat` |
+| `rts-project\addon` | `F:\Games\WOW WOTLK\Interface\AddOns\RTSCommand` | `rts-tools\Deploy_Addon.bat` |
+| `rts-project\mod-rts` | `azerothcore\modules\mod-rts` | `rts-tools\Deploy_Mod.bat` |
 | `rts-project\rts-client-mod` | nowhere — compiled in place | — |
 
 Deploy is `robocopy /MIR`, out only. There is no way back in, deliberately.
+
+### `C:\Server\rts-tools` — the buttons, 2026-08-17
+
+Everything we wrote that is *run* rather than *built* lives there and nowhere
+else: the launchers (`Iniciar_Servidor`, `Detener_Servidor`, `Jugar`,
+`Actualizar_Mundo`), the two deploy buttons, the mudanza pair, `srp6_account.ps1`
+and `check_addon.py`. `C:\Server` root now holds only `CLAUDE.md` plus folders.
+
+It was briefly duplicated into `rts-project\scripts` as well. That copy is
+**deleted**, on the same reasoning as `sync.ps1` below — two copies with no
+structural direction is a bug waiting for a timestamp to trigger it.
+
+**The tradeoff, stated so it is not a surprise:** `rts-tools` is outside the git
+repo, so it is *not* on GitHub and a disk failure loses it. It is carried by
+`Mudanza_1_Copiar.ps1` (which mirrors all of `C:\Server`), so the move-to-a-new-PC
+path is unaffected. Every path inside these scripts is absolute, so they run
+correctly from anywhere and could be moved again without edits.
 
 **What the old arrangement cost.** `sync.ps1` pulled the three pieces *in* from
 where they lived, making this folder a backup. Both directions existed, so
@@ -618,14 +635,14 @@ the new machine, with no Lua error to point at it. The addon was the only piece
 that could go stale this way, because it is the only one living outside
 `C:\Server` and therefore the only one not carried by copying that folder.
 
-`Jugar.bat` deliberately does **not** deploy: it launches the client and
+`rts-tools\Jugar.bat` deliberately does **not** deploy: it launches the client and
 injects, nothing else. Deploying is a decision, not a side effect of pressing
 play.
 
 ## Comprobar el addon antes de darlo por bueno
 
 ```
-python C:\Server\check_addon.py
+python C:\Server\rts-tools\check_addon.py
 ```
 
 Sintaxis, y **locales usadas antes de declararse**. Lo segundo es el fallo que ya
@@ -639,11 +656,11 @@ segundo.
 
 ## Unverified work
 
-`PRUEBAS-N.txt` in the project root is the running test list, in Spanish, one
+`PRUEBAS-N.txt` in `rts-project\docs` is the running test list, in Spanish, one
 file per round — everything built and installed but not yet seen working. Marked
 `[x]` works, `[!]` fails, `[?]` unclear, with a `notas:` line under each. Each
 entry says what a failure would actually *mean*, so a bad result narrows the
-problem rather than just reporting it. Latest is `PRUEBAS-6.txt`.
+problem rather than just reporting it. Latest is `PRUEBAS-7.txt`.
 
 ## Update policy
 

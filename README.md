@@ -31,8 +31,8 @@ Un solo sentido, siempre: de aquí hacia fuera. Nunca al revés.
 
 | Botón | Qué hace | Después hay que |
 |---|---|---|
-| `C:\Server\Deploy_Addon.bat` | `addon/` → carpeta del WoW | `/reload` en el juego |
-| `C:\Server\Deploy_Mod.bat` | `mod-rts/` → AzerothCore | recompilar `worldserver` |
+| `C:\Server\rts-tools\Deploy_Addon.bat` | `addon/` → carpeta del WoW | `/reload` en el juego |
+| `C:\Server\rts-tools\Deploy_Mod.bat` | `mod-rts/` → AzerothCore | recompilar `worldserver` |
 
 El DLL no tiene botón porque no se mueve de sitio:
 
@@ -40,7 +40,7 @@ El DLL no tiene botón porque no se mueve de sitio:
 cmake --build C:\Server\rts-project\rts-client-mod\build --config Release
 ```
 
-Y se inyecta con `C:\Server\Jugar.bat`.
+Y se inyecta con `C:\Server\rts-tools\Jugar.bat`.
 
 ## Por qué un solo sentido
 
