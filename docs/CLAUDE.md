@@ -618,14 +618,29 @@ It was briefly duplicated into `rts-project\scripts` as well. That copy is
 **deleted**, on the same reasoning as `sync.ps1` below — two copies with no
 structural direction is a bug waiting for a timestamp to trigger it.
 
-**The mudanza scripts are gone too, deliberately.** `Mudanza_1_Copiar.ps1`,
-`Mudanza_2_Instalar.ps1` and `Instalar_En_PC_Nuevo.bat` were deleted the same
-day: a move happens once in a long while, and keeping 22 KB of automation
-*correct* between moves costs more than copying folders by hand. What was worth
-keeping was the reasoning, so it was folded into `rts-project\docs\MUDANZA.md`
-first — the winget ids, `BOOST_ROOT` needing **machine** scope rather than user,
-the exact Boost/OpenSSL versions, and why MySQL 8.4.x is copied rather than
-installed. The move is now a manual checklist.
+**The mudanza scripts are gone, and the split is the point.** The old pair tried
+to do two jobs at once. *Copying* your data is judgement — which folders, which
+drive, what fits — and it is now a manual checklist in
+`rts-project\docs\MUDANZA.md`. *Installing prerequisites* is mechanical and
+verifiable, so it survives as `rts-tools\Instalar_Requisitos.ps1` (+ a `.bat`
+that only elevates). It installs nothing of yours and copies nothing — it just
+gets a bare PC to the point where the core compiles.
+
+**It verifies against the disk, not the installer's exit code.** The silent-install
+flags for Boost and OpenSSL are guesses at Inno Setup convention, so each step
+finishes by testing for `boost\version.hpp` / `bin\openssl.exe` and, if missing,
+prints the exact file to fetch and where to put it. Same for downloads:
+SourceForge will happily serve an HTML interstitial under the requested
+filename, so the download is rejected unless it starts with `MZ`. slproweb
+retires old OpenSSL builds, so that URL is the first thing here that will rot.
+
+**Detection is the part that was actually wrong.** The first version tested
+hardcoded `Program Files` paths and would have reinstalled over working
+software: on this machine winget had put Git and Python under
+`%LOCALAPPDATA%\Programs` (per-user) and left `7z.exe` off `PATH` entirely —
+three different shapes among four packages. It now checks `PATH` *and* a
+candidate list. Caught by running the detection against this PC before shipping
+it, which took one command.
 
 **The tradeoff, stated so it is not a surprise:** `rts-tools` is outside the git
 repo, so it is *not* on GitHub and a disk failure loses it. With the mudanza

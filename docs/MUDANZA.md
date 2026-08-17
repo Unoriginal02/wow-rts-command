@@ -62,7 +62,17 @@ robocopy C:\Server E:\MudanzaWoW\Server /MIR /R:2 /W:2 /MT:16
 
 ## 2. En el PC nuevo: que instalar
 
-Copia `E:\MudanzaWoW\Server` a `C:\Server` y luego, **como administrador**:
+Copia `E:\MudanzaWoW\Server` a `C:\Server` y luego lanza:
+
+```
+C:\Server\rts-tools\Instalar_Requisitos.bat
+```
+
+Pide permisos de administrador solo y hace todo lo de este apartado. Es
+repetible: comprueba cada cosa y se salta lo que ya este. Si falla algo, dice
+exactamente que bajar y donde ponerlo, lo arreglas y lo vuelves a lanzar.
+
+Lo que hace, por si hay que hacerlo a mano:
 
 **Programas** (`winget install --id <id> -e`):
 
