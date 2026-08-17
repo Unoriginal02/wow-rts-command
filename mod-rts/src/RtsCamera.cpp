@@ -58,8 +58,8 @@ namespace
     // camera's own height, and the tilt takes care of itself.
     std::unordered_map<ObjectGuid, int> g_pivot;   // player -> -1 left, +1 right
 
-    constexpr float kDefaultPivotDist  = 26.0f;   // yards ahead of the camera
-    constexpr float kDefaultPivotSpeed = 0.9f;    // radians per second
+    constexpr float kDefaultPivotDist  = 12.0f;   // yards ahead of the camera
+    constexpr float kDefaultPivotSpeed = 1.6f;    // radians per second
 
     // Read ONCE, not per tick.
     //

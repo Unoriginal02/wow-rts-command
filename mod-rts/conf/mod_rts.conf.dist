@@ -66,21 +66,21 @@ RTS.Camera.LiftSpeed = 0
 #        Mas distancia = arco mas amplio y giro mas suave; menos = giro mas
 #        cerrado, casi sobre el sitio.
 #
-#        Por defecto: 26.0
+#        Por defecto: 12.0
 #
 
-RTS.Camera.PivotDistance = 26.0
+RTS.Camera.PivotDistance = 12.0
 
 #
 #    RTS.Camera.PivotSpeed
-#        Radianes por segundo del pivote. 0.9 son unos 52 grados/s.
+#        Radianes por segundo del pivote. 1.6 son unos 92 grados/s.
 #
 #        La camara esta poseida, asi que orbitarla es el servidor moviendola
 #        con NearTeleportTo en cada tick -- el mismo camino que las teclas de
 #        altura. Si se nota a pasos en vez de fluido, este es el dial: mas
 #        despacio con el mismo intervalo de tick se ve MAS suave, no menos.
 #
-#        Por defecto: 0.9
+#        Por defecto: 1.6
 #
 
-RTS.Camera.PivotSpeed = 0.9
+RTS.Camera.PivotSpeed = 1.6
