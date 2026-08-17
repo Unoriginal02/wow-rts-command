@@ -280,21 +280,6 @@ function C:SetSpeed(n)
 	Send(("CAM SPEED %s"):format(tostring(n)))
 end
 
--- Velocidad de giro de Q/E, como multiplo del giro propio del cliente (180
--- grados/s). Por debajo de 1 gira mas despacio.
---
--- Va por el servidor y no por el cliente aunque Q/E esten enlazadas a
--- TURNLEFT/TURNRIGHT del propio juego: lo que esas acciones hacen es girar la
--- unidad poseida, y el RITMO de ese giro es MOVE_TURN_RATE, que lo manda el
--- servidor incluso para una unidad que conduce el cliente.
-function C:SetTurnRate(n)
-	if not tonumber(n) then
-		ns.Print("Usage: |cffffff00/rts cam turn <0.05-3.0>|r  (1 = giro normal del juego)")
-		return
-	end
-	Send(("CAM TURN %s"):format(tostring(n)))
-end
-
 --- Mouselook while flying --------------------------------------------------
 --
 -- While the camera is actually moving, the mouse should steer it, so a hand

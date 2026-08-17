@@ -33,31 +33,6 @@ namespace rts
         bool IsActive(Player const* player);
         bool SetSpeed(Player* player, float speed);
 
-        // Q/E turn rate, as a multiple of the client's own 180 deg/s. Below 1
-        // is slower.
-        //
-        // Q and E are bound to the client's TURNLEFT/TURNRIGHT, so the turn is
-        // the client's own smooth continuous one -- but the RATE is
-        // MOVE_TURN_RATE, which is the server's to set even for a unit the
-        // client is driving (SetSpeed sends SMSG_FORCE_TURN_RATE_CHANGE).
-        // ApplySpeed never touched that move type, so the camera inherited the
-        // full character turn rate.
-        bool SetTurnRate(Player* player, float rate);
-
-        // ACCELERATION, AND WHY THERE IS NO DECELERATION.
-        //
-        // The pan ramps up from a standing start over RTS.Camera.Accel seconds,
-        // done by changing the camera's speed while the client keeps driving it
-        // -- so there is no server-side movement fighting the client for the
-        // position.
-        //
-        // The same trick cannot give a glide on release. The client stops the
-        // unit on its own authority the moment the key comes up, and the server
-        // only finds out afterwards; by then there is no motion left to slow
-        // down. Coasting would mean the server pushing the camera onward after
-        // the client believes it has stopped, which is a position fight with
-        // possession -- a different and much more expensive job than this.
-
         // Flight mode, live-switchable, because it decides how WASD behaves and
         // the two behaviours are opposites.
         //

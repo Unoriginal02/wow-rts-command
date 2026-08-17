@@ -604,18 +604,6 @@ namespace
                         Reply(player, "RTS camera: speed must be 0.5-50 and the camera must be on.");
                     return true;
                 }
-                // "CAM TURN <n>" -- Q/E turn rate, multiple of the client's own
-                // 180 deg/s. Separate from SPEED because its unit is radians
-                // per second, not yards: one number cannot mean both.
-                if (sub == "TURN")
-                {
-                    float rate = 0.0f;
-                    std::istringstream stream(value);
-                    stream >> rate;
-                    if (!rts::camera::SetTurnRate(player, rate))
-                        Reply(player, "RTS camera: turn must be 0.05-3.0 and the camera must be on.");
-                    return true;
-                }
                 // "CAM OFFSET <back> <up>" -- where the camera sits relative to
                 // the character. Sent by the addon before every enable, since
                 // the addon is where the setting is persisted.
