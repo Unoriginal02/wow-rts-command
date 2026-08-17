@@ -826,6 +826,21 @@ function R:Toggle()
 		ns.Print("|cff00ff00Modo RTS ON|r - el raton va normal: pasar por encima ilumina,")
 		ns.Print("click selecciona, |cffffff00doble click|r selecciona a todos, click derecho ordena.")
 		ns.Print("|cffffff00Ctrl + arrastrar|r = caja de seleccion.")
+
+		-- SIN DLL EL MODO RTS SE DEGRADA EN SILENCIO, Y ESO COSTO UNA SESION
+		-- ENTERA. Un rts_core que no entra no da ningun error: la caja se
+		-- dibuja (es Lua pura) pero no coge nada, porque decidir que unidad cae
+		-- dentro necesita proyectar mundo->pantalla; los halos no salen; y
+		-- mover/atacar se quedan sin coordenadas. Se lee como tres fallos
+		-- distintos y no lo es. Asi que el modo RTS ya no arranca callado.
+		ns.Bridge:TryAttach()
+		if not ns.Bridge:IsNative() then
+			ns.Print("|cffff0000rts_core.dll NO esta inyectado.|r Sin el:")
+			ns.Print("  - la caja se dibuja pero |cffff0000no selecciona nada|r")
+			ns.Print("  - |cffff0000no hay halos|r")
+			ns.Print("  - |cffff0000mover y atacar al suelo no funcionan|r (siguen valiendo follow/stay/attack)")
+			ns.Print("  Arreglo: cierra el WoW y abrelo con |cffffff00C:\\Server\\rts-tools\\Jugar.bat|r")
+		end
 		if self.selfBot.auto then self:SelfBotSet(true, true) end
 		self:ApplyFreeLoot(true)
 	else
