@@ -306,6 +306,13 @@ pueden cambiar.
 
 ## 8. La pregunta que hay que contestar antes de nada
 
+> **DECIDIDO 2026-08-19: opción B.** Implementada en `addon/Chrome.lua` (el
+> ocultado, con restauración al estado previo) y `addon/HUD.lua` (el contenedor
+> a escala de píxel, el minimapa reparentado y la línea de mensajes que
+> sustituye al chat escondido). Se maneja con `/rts ui`, y la ronda
+> `PRUEBAS-9.txt` es la que decide la altura de la barra de control. El resto
+> de este apartado se deja tal cual como registro del razonamiento.
+
 **¿Opción A (ocultar todo y reparentar) u opción B (ocultado selectivo)?**
 
 Todo lo demás se deriva de eso: cuánto arte hace falta, cuántas ventanas hay que

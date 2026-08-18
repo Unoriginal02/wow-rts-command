@@ -1,0 +1,266 @@
+RTS COMMAND - LISTA DE PRUEBAS  #9
+Generada 2026-08-19   ·   addon 0.26.0 · mod-rts sin tocar · rts_core sin tocar
+
+CORREGIDO YA, DE LA PRIMERA PASADA POR EL JUEGO (19/08, captura)
+  - La escala de pixel no cogia: `gxWindowedResolution` NO existe en 3.3.5a, y
+    era el CVar que se leia en modo ventana. Toda la HUD salia un 45% mas
+    grande de lo pedido, y por eso la barra de abajo se veia enorme.
+    Ahora se lee `gxResolution` y se corrige por relacion de aspecto.
+  - El alto ya NO es un numero elegido a ojo (240, luego 210, las dos veces
+    mal). Se CALCA del boton de la barra de acciones del propio juego: se mide
+    ActionButton1 y se calcula el alto que hace que la rejilla 4x3 tenga
+    botones de ese mismo tamano. En tu pantalla salen ~62 px de boton y ~249
+    px de barra. /rts ui fit lo recalca, /rts ui height <px> lo fija a mano.
+  - Los botones de la rejilla ahora SALEN del alto de la barra, en vez de ser
+    fijos: bajar la altura los encoge, que es lo que hace util la prueba B3.
+  - Nuevo: /rts ui what, que nombra lo que siga visible en pantalla.
+  - PENDIENTE DE MIRAR: en la captura seguia viendose el seguimiento de
+    MISIONES a la derecha. Si sigue ahi, /rts ui what da el nombre exacto.
+
+QUE HAY EN ESTA RONDA
+  La primera piedra de la HUD del modo RTS, por la OPCION B del estudio
+  (UI-RTS-ESTUDIO.md, apartado 8): ocultado selectivo, no UIParent:Hide().
+
+  Dos ficheros nuevos:
+    Chrome.lua  esconde lo que estaba rodeado en el boceto y lo devuelve al
+                salir, cada frame al estado en que estaba ANTES de tocarlo.
+    HUD.lua     un contenedor a escala de pixel con dos cosas dentro: el
+                minimapa de verdad abajo a la izquierda, y la HUELLA de la
+                barra de control a su derecha con las medidas escritas.
+
+  NO hay arte todavia, y es deliberado: el estudio dice que dibujar antes de
+  tener la distribucion decidida es apostar sobre medidas que van a cambiar.
+  Lo que se decide en esta ronda es la ALTURA de la barra de control.
+
+  Tres cosas pueden salir mal y las tres se leen distinto:
+    - algo NO se esconde  -> falta un nombre en la lista de Chrome.lua
+    - algo NO vuelve      -> el fallo grave, porque afecta al juego normal
+    - se ve BORROSO       -> la escala de pixel esta leyendo mal la resolucion
+
+ANTES DE EMPEZAR
+  1. rts-tools\Deploy_Addon.bat  (ya ejecutado, pero por si acaso)
+  2. Arrancar con rts-tools\Jugar.bat
+  3. /rts version  ->  addon 0.26.0
+  4. Fuera de combate, en una ciudad, con 1-2 bots en el grupo
+
+COMO USARLA
+  [x] funciona   ·   [!] falla   ·   [?] no lo entiendo / no estoy seguro
+
+
+==============================================================================
+A · OCULTAR (la opcion B)
+==============================================================================
+
+[ ] A1  ENTRAR EN MODO RTS ESCONDE TODO LO DEL BOCETO
+    Entrar en modo RTS y repasar la pantalla: marco de jugador, marco de
+    objetivo, marcos del grupo, buffs, minimapa de Blizzard, chat, las dos
+    columnas de botones de la derecha, la barra de abajo entera (acciones,
+    bolsas, XP, menu de iconos) y el tooltip de unidad.
+    >> Si queda algo por esconder, DI CUAL. Es una linea en la lista, no un
+       problema de diseno.
+    notas:
+
+[ ] A2  *** SALIR LO DEVUELVE TODO EXACTAMENTE COMO ESTABA ***
+    La prueba importante de la ronda. Salir del modo RTS y comprobar que
+    vuelve todo: barras, chat, minimapa en su esquina y redondo, tooltip.
+    >> Si algo NO vuelve, es el fallo grave: el modo RTS estaria cambiando el
+       juego normal, que es justo lo que la regla dura prohibe. Di que quedo
+       fuera y si un /reload lo arregla (si lo arregla, es que falta
+       restaurarlo; si no, es otra cosa).
+    >> Ojo especialmente al MINIMAPA: se le cambia el padre, la escala, la
+       mascara y el nivel de dibujo. Es lo que mas partes tiene que devolver.
+    notas:
+
+[ ] A3  UNA BARRA QUE TENIAS APAGADA SIGUE APAGADA AL SALIR
+    Si tienes alguna barra desactivada en las opciones (MultiBarRight, por
+    ejemplo), entrar y salir NO deberia encenderla.
+    >> Se guarda el estado previo justo por esto. Si aparece encendida, el
+       Show() esta yendo a ciegas.
+    notas:
+
+[ ] A4  ENTRAR Y SALIR EN COMBATE
+    Pegarse con algo y darle al modo RTS dentro del combate. Y otra vez al
+    salir de el.
+    >> Esperado: sale un aviso de que parte de la interfaz es protegida y se
+       aplica al terminar el combate; lo NO protegido (chat, minimapa, buffs)
+       se esconde ya.
+    >> Si sale "blocked from an action only available to the Blizzard UI",
+       hay un frame protegido sin marcar en la lista. Di cual sale en el error.
+    notas:
+
+[ ] A5  LAS VENTANAS SIGUEN FUNCIONANDO (esto es POR QUE se eligio la B)
+    En modo RTS, sin salir: abrir bolsas (B), personaje (C), mapa (M), el menu
+    de escape (ESC), y lootear un cadaver, y hablar con un PNJ.
+    >> Todo eso deberia salir normal. Si no sale, la opcion B no esta dando lo
+       unico que la hace mejor que la A y hay que replantear.
+    notas:
+
+[ ] A6  /rts ui  DICE LA VERDAD
+    Con el comando: la lista de conjuntos, cuantos frames encontro de cada uno
+    y las medidas de la HUD.
+    >> Si un conjunto dice 0/N frames, esos nombres no existen en este cliente
+       y sobran de la lista. Copiame la linea.
+    notas:
+
+[ ] A8  *** INTRO ABRE EL CHAT Y SE PUEDE ESCRIBIR ***
+    En modo RTS, pulsar Intro, escribir algo al grupo, y mirar la respuesta.
+    >> La caja de texto es HIJA de ChatFrame1, asi que al esconder el chat se
+       escribia a ciegas. Ahora Intro asoma el chat entero, y se vuelve a ir
+       solo ~8 segundos despues de soltar el foco.
+    >> Si sigue sin verse nada al pulsar Intro: el enganche de
+       ChatFrame_OpenChat no esta cogiendo, y hay que ir por la otra via
+       (reparentar la caja). Dilo tal cual.
+    >> Si el chat se queda puesto para siempre, el temporizador no caduca.
+    notas:
+
+[ ] A9  EL CHAT DE LOS BOTS SE VE SIN ABRIR EL CHAT
+    Con bots en el grupo, esperar a que hablen (o susurrarte a ti mismo).
+    >> Deberia salir arriba a la izquierda, en la linea de mensajes, con el
+       nombre entre corchetes y color por tipo (grupo azulado, susurro rosa,
+       sistema amarillo). Es lo que hace WC3: texto sobre el mundo.
+    >> /rts ui chatline lo apaga si molesta.
+    notas:
+
+[ ] A7  APAGAR UN CONJUNTO SUELTO Y QUE SE RECUERDE
+    /rts ui chat  -> el chat deja de esconderse. Salir, entrar: sigue igual.
+    /reload y comprobar que lo recuerda. Luego /rts ui chat otra vez.
+    notas:
+
+
+==============================================================================
+B · LA HUD (minimapa y huella)
+==============================================================================
+
+[ ] B1  EL MINIMAPA SALE ABAJO A LA IZQUIERDA, CUADRADO Y CON MARGEN
+    >> Cuadrado es a proposito: WC3 y SC2 lo tienen asi y se hace cambiando la
+       mascara. Si sale redondo, SetMaskTexture no ha cogido.
+    >> Si sale recortado o con el borde redondo de WoW encima, faltan
+       decoraciones por apagar.
+    notas:
+
+[ ] B2  EL MINIMAPA FUNCIONA: SE MUEVE, HAY PUNTOS, SE VE LA ZONA
+    Andar un poco y mirar si el mapa se desplaza y los blips estan donde deben.
+    El nombre de la zona sale encima del panel.
+    >> Es un frame de Blizzard reparentado, asi que lo dibuja el motor. Si se
+       ve congelado, el reparentado ha roto algo y hay que mirarlo.
+    notas:
+
+[ ] B3  *** LA ALTURA DE LA BARRA DE CONTROL ***
+    La pregunta de la ronda. A la derecha del minimapa hay una barra vacia con
+    una rejilla 4x3 (la carta de comandos de WC3) y, escrito encima, cuanto
+    mide en pixeles y que porcentaje del alto de pantalla ocupa.
+    Por defecto ya viene calcada del boton de accion (/rts ui fit). Si aun asi
+    quieres moverla: /rts ui height 200 / 250 / 300
+    Y el tamano del minimapa: /rts ui mini 170 / 210 / 250
+    Ahora tambien dice el tamano de BOTON que da esa altura -- ese es el numero
+    que decide si la carta de comandos se puede usar o no.
+    >> Lo que quiero de vuelta es UN NUMERO de cada uno. Con eso el arte se
+       puede cortar sabiendo la medida, que es lo unico que el estudio pedia
+       decidir antes de dibujar.
+    >> /rts ui default lo devuelve todo.
+    notas:  altura elegida = ____   minimapa = ____   margen = ____
+
+[ ] B4  SE VE NITIDO
+    Mirar de cerca el borde de los paneles y el texto de las medidas.
+    >> La HUD lleva su propia escala para que 1 unidad sea 1 pixel. Si se ve
+       borroso o el texto pastoso, esta leyendo mal la resolucion: mira que
+       dice /rts ui en "pantalla fisica" y compara con tu resolucion real.
+    >> Si dice "no leida", el CVar que se consulta no es el que manda en tu
+       modo (ventana vs pantalla completa) y hay que cambiarlo.
+    notas:  pantalla fisica que reporta = ____________
+
+[ ] B5  LA LINEA DE MENSAJES SUSTITUYE AL CHAT
+    Con el chat escondido, cualquier /rts que imprima algo tiene que salir
+    arriba a la izquierda y desvanecerse solo a los ~14 segundos.
+    Probar con /rts list o /rts ui.
+    >> Sin esto, esconder el chat deja al addon sin diagnostico -- que era el
+       aviso del estudio. Si no sale nada, no se puede seguir escondiendo el
+       chat.
+    notas:
+
+[ ] B6  LA HUD NO ESTORBA AL RATON
+    En modo RTS, con el minimapa abajo a la izquierda: hacer click y arrastrar
+    caja de seleccion por esa zona de la pantalla.
+    >> Si la caja no coge nada cerca del minimapa, la HUD esta comiendose los
+       clicks y hay que quitarle el raton a los paneles vacios.
+    notas:
+
+[ ] B7  CAMBIAR DE RESOLUCION O DE MODO VENTANA EN CALIENTE
+    Solo si te apetece. Cambiar la resolucion con el modo RTS puesto.
+    >> Deberia recolocarse y seguir nitido. Es el unico camino en el que la
+       escala se recalcula sola.
+    notas:
+
+
+==============================================================================
+C · EL VISOR DE TEXTURAS  (/rts art)
+==============================================================================
+
+  Para que sirve: la HUD se puede vestir al estilo WC3 usando texturas que ya
+  vienen en el cliente, sin dibujar arte. Pero una ruta escrita de memoria que
+  no exista NO da error: dibuja nada. Esto las mira antes de construir encima.
+
+[ ] C1  *** EL ORACULO: SIRVE GetTexture() PARA SABER SI UNA RUTA EXISTE? ***
+    /rts art scan
+    >> Si dice que N devuelven nil: |cff00ff00sirve|r, y a partir de ahi se
+       pueden comprobar cientos de rutas a ciegas y en un segundo.
+    >> Si dice que NINGUNA devuelve nil, hay dos lecturas y las distingue C2:
+       o acerte todas (improbable), o GetTexture() no vale de oraculo en
+       3.3.5a y solo queda el ojo.
+    notas:  cuantas devuelven nil = ____
+
+[ ] C2  ABRIR EL VISOR Y MIRAR LAS CUATRO PAGINAS
+    /rts art   ·  rueda del raton para pasar pagina  ·  arrastrable
+    Cada recuadro lleva fondo gris: si se ve gris liso, esa textura NO carga.
+    >> Dime cuales salen VACIAS. Son las que me he inventado y hay que quitar.
+    >> Y dime cuales te gustan para: muro de la barra, borde dorado, aro del
+       retrato y ranura de boton. Con esas cuatro ya se puede vestir la barra.
+    notas:
+
+[ ] C3  FILTRAR Y COPIAR RUTAS
+    /rts art piedra  (o borde / retrato / ranura / barra / pieza)
+    Click en un recuadro escribe su ruta completa.
+    notas:
+
+
+==============================================================================
+D · EL ASPECTO WC3  (/rts skin)
+==============================================================================
+
+  Vestido con las texturas que elegiste en el visor, sin dibujar arte:
+    wall  DialogFrame\UI-DialogBox-Background-Dark
+    edge  DialogFrame\UI-DialogBox-Border      (el reborde dorado)
+    slot  PaperDoll\UI-PaperDoll-Slot-Bag      (las ranuras de la rejilla)
+    ring  TargetingFrame\UI-TargetingFrame-Rare-Elite  (guardado, sin usar)
+
+[ ] D1  ENTRAR EN MODO RTS: LA BARRA SALE CON MARCO DORADO Y RANURAS
+    >> Si sale marco pero el fondo es negro liso, la textura de `wall` no
+       carga y hay que cambiarla: /rts skin wall <ruta>
+    >> Si el marco sale con las esquinas hechas un churro, el edgeSize de 32
+       no es el suyo y hay que ajustarlo. Dilo y lo cambio.
+    notas:
+
+[ ] D2  COMPARAR: /rts skin  ALTERNA PLANO Y WC3 EN VIVO
+    >> Es el comando para decidir. Si el plano se ve mejor, tambien es una
+       respuesta valida y me la dices tal cual.
+    notas:
+
+[ ] D3  EL MINIMAPA NO SE SALE DEL MARCO NUEVO
+    >> El marco dorado es mucho mas gordo que el fino, y el hueco util se
+       recalcula al vestirse. Si el mapa pisa el borde, ese calculo falla.
+    notas:
+
+[ ] D4  CAMBIAR UNA PIEZA SIN RECARGAR
+    Abrir /rts art, click en una textura (escribe su ruta), y pegarla:
+    /rts skin wall Interface\...
+    >> Los dos comandos estan hechos para usarse juntos. Si cambiarla no se ve
+       hasta recargar, el revestido en caliente no funciona.
+    notas:
+
+
+==============================================================================
+SI SOLO TIENES PACIENCIA PARA DOS
+==============================================================================
+  A2 y B3.
+  A2 porque un modo que no devuelve la interfaz no se puede usar ni una vez
+  mas. B3 porque es el numero que desbloquea empezar a dibujar.

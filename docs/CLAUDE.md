@@ -578,18 +578,106 @@ and it would wreck the periodic upstream pull. Test-loop speed comes from cuttin
 random-bot counts in `playerbots.conf` (startup), and from building the
 `worldserver` target with `/m` rather than `ALL_BUILD` → `INSTALL`.
 
-## Siguiente capitulo: la UI del modo RTS
+## Stage 5i — la UI del modo RTS, opcion B (built 2026-08-19, not yet run in-game)
 
-`UI-RTS-ESTUDIO.md` es el estudio previo para sustituir toda la interfaz por una
-HUD estilo WC3/SC2 en modo RTS. Leerlo antes de dibujar arte: tres de sus
-hallazgos obligan a rehacerlo si se descubren tarde -- las texturas son
+`UI-RTS-ESTUDIO.md` es el estudio previo. Leerlo antes de dibujar arte: tres de
+sus hallazgos obligan a rehacerlo si se descubren tarde -- las texturas son
 potencias de dos hasta **512**, la escala de UI hace que 1 unidad sean 1.61
 pixeles en su equipo (arte borroso salvo que la HUD lleve su propia escala), y
 `UIParent:Hide()` esconde tambien el botin, el gossip, las bolsas y el menu de
 escape.
 
-La decision que bloquea todo lo demas esta en su apartado 8: ocultar todo y
-reparentar ventanas, u ocultado selectivo.
+**La decision de su apartado 8 esta tomada: opcion B, ocultado selectivo.** No
+`UIParent:Hide()`. El modo es jugable desde el primer dia y las ventanas siguen
+funcionando solas; mover alguna a la HUD queda como mejora suelta, no como
+requisito previo. Dos ficheros nuevos, `Chrome.lua` y `HUD.lua`, mas `/rts ui`.
+
+- **`Chrome.lua` esconde lo que estaba rodeado en el boceto** y lo devuelve al
+  salir **al estado en que estaba antes**, no con un `Show()` a ciegas -- una
+  barra que el jugador tenia apagada en las opciones tiene que seguir apagada.
+  Es la misma regla dura que Camera.lua aplica a sus CVars.
+- **Un frame protegido no se puede esconder DENTRO de combate.** PlayerFrame,
+  MainMenuBar y las barras de accion lo son. Cada entrada lleva su bandera y lo
+  protegido se aplaza a `PLAYER_REGEN_ENABLED`, igual que las teclas de la
+  camara.
+- **Blizzard repone frames por su cuenta** (salir de un vehiculo, cambiar de
+  zona, entrar un bot al grupo). Un barrido de medio segundo los vuelve a
+  esconder mientras el modo esta activo; perseguir los eventos uno a uno seria
+  una lista que se queda corta.
+- **El tooltip no se esconde con `Hide()`**: vuelve en cada mouseover, asi que
+  se le engancha el `OnShow`. Unico caso especial de la tabla.
+- **La linea de mensajes no es un adorno.** El chat esta en la lista, y con el
+  se va `ns.Print`, el unico canal de diagnostico del addon. `HUD.lua` envuelve
+  `ns.Print` y replica cada linea sobre el mundo, estilo WC3, con desvanecido.
+  Sin eso, esconder el chat es quedarse ciego -- el aviso del estudio.
+- **La HUD lleva su propia escala de pixel** (`768/altoFisico`), calculada
+  contra la escala del padre, de modo que dentro de ella 1 unidad = 1 pixel y
+  el arte no se interpola. Cuelga de `UIParent` mientras la opcion sea la B; si
+  algun dia se pasa a la A, se cambia la constante `PARENT` y nada mas.
+- **`gxWindowedResolution` NO EXISTE en 3.3.5a, y creer que si costo la primera
+  pasada por el juego.** La version original leia ese CVar en modo ventana;
+  `GetCVar` devolvia nil, el patron no casaba, la escala se quedaba en 1 y toda
+  la HUD salia un **45% mas grande** de lo pedido -- se veia como una decision
+  de diseno mala, no como un fallo. Este `Config.wtf` solo tiene `gxResolution`,
+  `gxWindow` y `gxMaximize`. **Misma leccion que `nameplateMaxDistance`:
+  comprobar el CVar contra el cliente, no contra lo que dice internet** -- y
+  aqui la comprobacion era abrir un fichero de texto.
+- **`gxResolution` guarda la resolucion de PANTALLA COMPLETA**, que en ventana
+  maximizada no es el tamano de la ventana (falta la barra de tareas, y el
+  escritorio puede tener otra forma). El alto real sale del ancho y de la
+  relacion de aspecto de `UIParent`, que si es la de la ventana: su alto en
+  unidades es fijo y su ancho cambia con la forma. Se asume ventana a todo lo
+  ancho; `/rts ui` ensena los dos numeros para que un mal supuesto se vea.
+- **El alto de la barra se CALCA del boton de la barra de acciones**, no se
+  elige. Dos intentos a ojo (240 y 210) salieron mal en direcciones opuestas;
+  la medida que el jugador tiene calibrada en la retina es el boton de accion
+  de siempre, asi que se mide `ActionButton1` en pixeles fisicos y se deriva de
+  ahi el alto que hace que la rejilla 4x3 tenga botones iguales. Se recalca
+  solo al cambiar la resolucion, salvo que el jugador haya fijado un alto a
+  mano. En esta pantalla: boton 62 px, barra 249 px (16% del alto).
+- **La caja de texto del chat es HIJA de `ChatFrame1`**, asi que esconder el
+  chat dejaba escribiendo a ciegas al pulsar Intro -- ni lo tecleado ni la
+  respuesta. No se reparenta la caja (Blizzard la reancla ella sola cada vez
+  que la activa, y esa pelea no se gana): se engancha **`ChatFrame_OpenChat`**,
+  que es la funcion que llama la tecla, y el chat *asoma* mientras dure la
+  conversacion mas 8 segundos. Enganchar la funcion global y no el
+  `OnEditFocusGained` de la caja es lo que lo hace funcionar: un frame
+  invisible no coge el foco, asi que su propio script podria no dispararse.
+- **El chat de verdad se copia a la linea de mensajes de la HUD** (grupo,
+  susurros, decir, gritar, criaturas, sistema), con color por tipo. Es lo que
+  hace WC3 -- texto sobre el mundo -- y evita tener que devolver la ventana
+  solo para enterarse de lo que dicen los bots. `/rts ui chatline` lo apaga.
+- **`Skin.lua`: el aspecto en un solo sitio, cambiable en vivo.** Las texturas
+  elegidas mirandolas en el visor -- borde `UI-DialogBox-Border`, ranura
+  `UI-PaperDoll-Slot-Bag`, fondo `UI-DialogBox-Background-Dark` -- viven en UNA
+  tabla, y los frames vestidos se apuntan en una lista para poder revestirlos
+  sin recargar. `/rts skin` alterna WC3 y plano; `/rts skin wall <ruta>` acepta
+  cualquier ruta, que es justo lo que `/rts art` escribe al hacer click. Los
+  dos comandos estan pensados para usarse juntos: mirar, copiar, probar.
+- **Nada de TexCoord todavia, y es deliberado.** Las hojas grandes del cliente
+  traen varias piezas en una imagen y acertar el recorte a ciegas es adivinar;
+  todo lo que se usa hoy se dibuja entero (un marco de nueve trozos y una
+  ranura cuadrada no necesitan recorte). El aro de retrato queda guardado en la
+  tabla, sin usar, para cuando haya retratos y con que mirarlo.
+- **`/rts art` es el visor de texturas del cliente**, y es el paso previo a
+  vestir la HUD al estilo WC3. Un addon puede usar cualquier ruta
+  `Interface\...` del cliente -- miles de piezas, cero bytes, sin la regla de
+  potencias de dos -- pero una ruta que no existe **no da error, dibuja nada**,
+  asi que construir sobre una lista escrita de memoria es descubrir los huecos
+  tarde y confundidos con fallos de anclaje. El visor las ensena a escala de
+  pixel sobre fondo gris (una casilla lisa = no carga) y `/rts art scan`
+  responde ademas si `GetTexture()` sirve de oraculo: si una ruta inexistente
+  devuelve nil, se pueden comprobar cientos a ciegas; si no, solo queda el ojo.
+- **`/rts ui what` nombra lo que siga visible.** Cuando algo no se esconde, la
+  pregunta no es por que sino *como se llama el frame*: anadirlo a la lista es
+  una linea, adivinar el nombre mirando la pantalla es media tarde.
+- **Lo que hay dibujado es a proposito casi nada**: el minimapa de verdad
+  reparentado abajo a la izquierda (cuadrado, con `SetMaskTexture`) y la HUELLA
+  de la barra de control a su derecha, con una rejilla 4x3 vacia -- la carta de
+  comandos de WC3 -- y las medidas escritas encima. La ronda `PRUEBAS-9`
+  existe para devolver **un numero**: la altura de la barra de control. Hasta
+  tenerlo, cualquier arte es una apuesta sobre medidas que aun pueden cambiar.
+  Se ajusta en vivo con `/rts ui height|mini|pad|gap|right <px>`.
 
 ## Where the source lives — one original, one direction
 
@@ -684,7 +772,7 @@ segundo.
 file per round — everything built and installed but not yet seen working. Marked
 `[x]` works, `[!]` fails, `[?]` unclear, with a `notas:` line under each. Each
 entry says what a failure would actually *mean*, so a bad result narrows the
-problem rather than just reporting it. Latest is `PRUEBAS-8.txt`.
+problem rather than just reporting it. Latest is `PRUEBAS-9.txt`.
 
 ## Update policy
 

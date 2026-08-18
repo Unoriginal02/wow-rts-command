@@ -908,7 +908,19 @@ function R:Toggle()
 		end
 		if self.selfBot.auto then self:SelfBotSet(true, true) end
 		self:ApplyFreeLoot(true)
+
+		-- La interfaz va DESPUES de los avisos de arriba: Chrome esconde el
+		-- chat, asi que lo impreso antes se queda en el historial y lo de
+		-- despues sale por la linea de mensajes de la HUD. El HUD entra primero
+		-- porque saca el Minimap de MinimapCluster antes de que Chrome esconda
+		-- el cluster entero.
+		ns.HUD:Enter()
+		ns.Chrome:Enter()
 	else
+		-- Devolver la interfaz de Blizzard lo primero: si algo de lo que viene
+		-- despues falla, el jugador se queda con su UI en vez de sin ella.
+		ns.Chrome:Leave()
+		ns.HUD:Leave()
 		catcher:Hide()
 		ReleaseCapture()
 		down.button = nil

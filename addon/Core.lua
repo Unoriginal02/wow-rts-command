@@ -53,6 +53,8 @@ local function Initialise()
 	ns.Targets:Create()
 	ns.Channel:Create()
 	ns.Camera:Create()
+	ns.Chrome:Create()
+	ns.HUD:Create()
 	if type(RTSCommandDB.selfBotAuto) == "boolean" then
 		ns.RTSMode.selfBot.auto = RTSCommandDB.selfBotAuto
 	end
@@ -257,6 +259,9 @@ local HELP = {
 	"|cffffff00/rts pick|r / |cffffff00pick on|r - what is under the cursor, once or continuously",
 	"|cffffff00/rts debug|r - echo every message to and from the server module",
 	"|cffffff00/rts native|r - rts_core.dll status + offset self-test",
+	"|cffffff00/rts ui|r - que se esconde al entrar en modo RTS, y las medidas de la HUD",
+	"|cffffff00/rts art|r - visor de texturas del cliente (para vestir la HUD sin dibujar)",
+	"|cffffff00/rts skin|r - aspecto WC3 o plano; |cffffff00/rts skin wall <ruta>|r cambia una pieza",
 	"|cffffff00/rts reset|r - move panels back to their default position",
 	"Bind keys under Key Bindings -> RTS Command.",
 }
@@ -409,6 +414,100 @@ SlashCmdList["RTSCOMMAND"] = function(msg)
 			ns.Camera:Off()
 		else
 			ns.Camera:Toggle()
+		end
+
+	elseif cmd == "ui" then
+		-- El interruptor de la opcion B del estudio: ocultado selectivo, mas
+		-- las medidas del prototipo de HUD. Todo por el mismo comando porque
+		-- son la misma pregunta -- que se ve en pantalla en modo RTS.
+		local sub, arg = rest:match("^(%S*)%s*(%S*)$")
+		sub = (sub or ""):lower()
+
+		if sub == "" or sub == "status" or sub == "?" then
+			ns.Chrome:Status()
+			ns.HUD:Report()
+
+		elseif sub == "hud" then
+			ns.HUD:Toggle()
+
+		elseif sub == "what" or sub == "que" then
+			ns.Chrome:What()
+
+		elseif sub == "chatline" or sub == "chatlinea" then
+			ns.HUD:MirrorChat()
+
+		elseif sub == "fit" then
+			-- El alto que hace que los botones midan lo mismo que los de la
+			-- barra de acciones del juego.
+			ns.HUD:Fit()
+
+		elseif sub == "default" or sub == "defaults" then
+			ns.HUD:Reset()
+			ns.Print("medidas de la HUD devueltas a las de fabrica.")
+
+		elseif ns.HUD.cfg[sub] ~= nil then
+			if ns.HUD:Set(sub, arg) then
+				ns.HUD:Report()
+			else
+				ns.Print(("|cffffff00/rts ui %s <px>|r - ahora %d"):format(sub, ns.HUD.cfg[sub]))
+			end
+
+		elseif ns.Chrome.hide[sub] ~= nil then
+			ns.Chrome:SetHidden(sub)
+			ns.Print(("%s: %s"):format(sub,
+				ns.Chrome.hide[sub] and "|cffff4040se oculta en modo RTS|r"
+				or "|cff40ff40se deja como esta|r"))
+
+		else
+			ns.Print("|cffffff00/rts ui|r - estado y medidas")
+			local names = {}
+			for _, sset in ipairs(ns.Chrome.SETS) do names[#names + 1] = sset.k end
+			ns.Print("|cffffff00/rts ui <conjunto>|r - " .. table.concat(names, ", "))
+			ns.Print("|cffffff00/rts ui hud|r - encender o apagar el prototipo de HUD")
+			ns.Print("|cffffff00/rts ui what|r - nombrar lo que sigue visible en pantalla")
+			ns.Print("|cffffff00/rts ui fit|r - botones del tamano de la barra de acciones")
+			ns.Print("|cffffff00/rts ui chatline|r - copiar el chat a la linea de mensajes")
+			ns.Print("|cffffff00/rts ui height / mini / pad / gap / right <px>|r - medidas")
+			ns.Print("|cffffff00/rts ui default|r - devolver las medidas")
+		end
+
+	elseif cmd == "skin" or cmd == "piel" then
+		-- El aspecto de la HUD. Pensado para usarse con /rts art al lado:
+		-- se mira una textura, se copia su ruta con un click, se pega aqui.
+		local sub, arg = rest:match("^(%S*)%s*(.-)$")
+		sub = (sub or ""):lower()
+		if sub == "" then
+			ns.Skin:Toggle()
+		elseif sub == "status" or sub == "?" then
+			ns.Skin:Status()
+		elseif sub == "default" or sub == "reset" then
+			ns.Skin:Reset()
+		elseif ns.Skin.tex[sub] ~= nil then
+			if not ns.Skin:Set(sub, strtrim(arg or "")) then
+				ns.Print(("|cffffff00/rts skin %s <ruta>|r - ahora %s")
+					:format(sub, ns.Skin.tex[sub]))
+			end
+		else
+			ns.Skin:Status()
+		end
+
+	elseif cmd == "art" then
+		-- Que texturas del cliente existen de verdad, mirandolas. Es el paso
+		-- previo a vestir la HUD: una ruta que no carga no da error, dibuja
+		-- nada, y construir encima de eso se descubre tarde.
+		local sub = (rest or ""):lower()
+		if sub == "" then
+			ns.Art:Toggle()
+		elseif sub == "next" or sub == "+" then
+			ns.Art:Page(1)
+		elseif sub == "prev" or sub == "-" then
+			ns.Art:Page(-1)
+		elseif sub == "scan" then
+			ns.Art:Scan()
+		elseif sub == "all" or sub == "todo" then
+			ns.Art:Filter("")
+		else
+			ns.Art:Filter(sub)
 		end
 
 	elseif cmd == "channel" then
