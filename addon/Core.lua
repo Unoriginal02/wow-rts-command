@@ -59,6 +59,12 @@ local function Initialise()
 	if type(RTSCommandDB.freeLoot) == "boolean" then
 		ns.RTSMode.freeLoot = RTSCommandDB.freeLoot
 	end
+	-- Umbral de "esto ha sido un giro de camara, no un click". Depende del raton
+	-- y de la sensibilidad del cliente, asi que se guarda por personaje en vez
+	-- de vivir como constante en el codigo.
+	if type(RTSCommandDB.turnEps) == "number" and RTSCommandDB.turnEps > 0 then
+		ns.RTSMode.turnEps = RTSCommandDB.turnEps
+	end
 	ns.UnitBar:Refresh()
 	ns.CommandCard:Refresh()
 
@@ -235,6 +241,7 @@ local HELP = {
 	"|cffffff00/rts self|r - your own character fights with the playerbots AI; |cffffff00auto|r / |cffffff00status|r",
 	"|cffffff00/rts loot|r - botin libre para todo el grupo (free-for-all)",
 	"|cffffff00/rts tri|r - green triangle over heads (parked; |cffffff00/rts tri help|r)",
+	"|cffffff00/rts turn|r - por que un click se pierde: mide el giro de camara y lo compara con el umbral",
 	"|cffffff00/rts halo <0-2>|r - cursor halo style, |cffffff00/rts halo size <yards>|r",
 	"|cffffff00/rts ring|r - native ground circle under selected units; |cffffff00tint|r adds the model glow, |cffffff00test|r proves the hook",
 	"|cffffff00/rts cam|r - detached RTS camera (WASD pans flat, Q/E lower/raise, right-drag rotates)",
@@ -431,6 +438,35 @@ SlashCmdList["RTSCOMMAND"] = function(msg)
 				        o and (" %.1fs ago"):format(GetTime() - o.at) or "",
 				        unit and tostring(UnitAffectingCombat(unit) and true or false) or "?",
 				        track and ("%.2fs"):format(GetTime() - track.ct) or "not published"))
+		end
+
+	elseif cmd == "turn" then
+		local M = ns.RTSMode
+		local eps = tonumber(rest:match("^eps%s+([%d%.]+)$"))
+		if eps and eps > 0 then
+			M.turnEps = eps
+			RTSCommandDB.turnEps = eps
+			ns.Print(("umbral de giro = %.4f"):format(eps))
+		elseif rest == "reset" then
+			M.turnEps = 0.05
+			RTSCommandDB.turnEps = nil
+			ns.Print("umbral de giro devuelto a 0.0500")
+		elseif rest == "" then
+			M.turnDebug = not M.turnDebug
+			ns.Print("informe de clicks " ..
+				(M.turnDebug and "|cff00ff00ON|r" or "|cffff0000OFF|r")
+				.. (" - umbral actual %.4f"):format(M.turnEps))
+			if M.turnDebug then
+				ns.Print("Cada click dira cuanto giro la camara mientras lo hacias.")
+				ns.Print("Un click quieto deberia dar un numero PEQUENO; un arrastre")
+				ns.Print("para girar, uno GRANDE. El umbral va entre los dos.")
+				ns.Print("Si sale |cffff0000TRAGADO|r en clicks que querias dar, subelo:")
+				ns.Print("|cffffff00/rts turn eps <n>|r")
+			end
+		else
+			ns.Print("|cffffff00/rts turn|r - informe por click (giro medido vs umbral)")
+			ns.Print("|cffffff00/rts turn eps <n>|r - cambiar el umbral; |cffffff00reset|r lo devuelve")
+			ns.Print(("umbral actual %.4f"):format(M.turnEps))
 		end
 
 	elseif cmd == "halo" then

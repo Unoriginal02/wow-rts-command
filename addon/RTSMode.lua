@@ -474,9 +474,37 @@ local catcher, box
 local down = {}
 
 -- How far the camera's forward vector may drift before this counts as a drag.
--- Mouselook turns the camera on the first pixel of real movement, so this trips
--- immediately on a drag and never on a still press.
-local FWD_EPS = 0.0015
+--
+-- RAISED 2026-08-18, from 0.0015 -- about a twelfth of a degree. That number was
+-- picked so it would "trip immediately on a drag", and it did. It also tripped
+-- on everything else, because the RTS camera is driven by the SERVER and keeps
+-- settling for a moment after you stop panning. Any click landing in that
+-- settling window was filed as a camera turn and thrown away, and three separate
+-- bug reports came out of it:
+--
+--   * a right click on the ground fired no order at all -- and always the FIRST
+--     one, because the first click is the one that follows a camera move
+--   * a left click on bare ground never reached Clear(), so the selection
+--     circles looked as though they would not switch off
+--   * and a swallowed click never reaches OnLeftClick, so it never resets the
+--     double-click chain either: click a bot, have the ground click after it
+--     swallowed, click the same bot again, and the two SURVIVING clicks read as
+--     a double click and selected everyone
+--
+-- One bug wearing three faces. It is also the lesson ORBIT_SLOP already carries
+-- for the cursor a few lines up: a threshold for "you meant to drag" has to sit
+-- well clear of hand tremor, not merely above zero. The cursor got that lesson
+-- in an earlier round; the camera never did.
+--
+-- Tunable live, because it CANNOT honestly be a constant: the camera swing a
+-- given hand movement produces scales with mouse DPI and with the client's look
+-- sensitivity, so the right value is not the same on two machines. `/rts turn`
+-- prints what each click actually measured -- set it from that rather than from
+-- anybody's estimate, this default included.
+local FWD_EPS_DEFAULT = 0.05      -- ~3 degrees of camera swing
+
+R.turnEps = FWD_EPS_DEFAULT
+R.turnDebug = false
 
 -- Fallback only, for when rts_core is not injected and there is no camera to
 -- watch: a press held longer than this is a drag whatever the mouse did.
@@ -503,6 +531,7 @@ local function BeginGesture(button)
     -- client's freezes it.
     down.captured = catcher and catcher:IsMouseEnabled() or false
     down.fx, down.fy, down.fz = CamFwd()
+    down.drift = 0
     -- Snapshot now, while the client still owns the mouse.
     down.hover = R:HoverUnit()
 end
@@ -514,11 +543,25 @@ end
 -- for the whole of a camera drag, so the cursor says "no" no matter what the
 -- hand does. The camera vector, which rts_core publishes every tick, says yes on
 -- the first frame of real movement.
-local function CameraTurned()
+-- How far it has drifted since the press, or nil when there is no camera to
+-- compare against. Split out from the decision below so the number can be shown
+-- as well as judged: the threshold is machine-dependent, and the only honest way
+-- to choose it is to look at what real clicks and real drags actually produce.
+local function CamDrift()
     local fx, fy, fz = CamFwd()
-    if not fx or not down.fx then return false end
+    if not fx or not down.fx then return nil end
     return math.abs(fx - down.fx) + math.abs(fy - down.fy)
-         + math.abs(fz - down.fz) > FWD_EPS
+         + math.abs(fz - down.fz)
+end
+
+local function CameraTurned()
+    local d = CamDrift()
+    if not d then return false end
+    -- Latch the peak for the report. It has to be the peak and not the value at
+    -- release: by the time the button comes up the camera has usually settled
+    -- back, so reading it then would under-report every drag.
+    if d > (down.drift or 0) then down.drift = d end
+    return d > R.turnEps
 end
 
 -- Has this press turned into a drag? The hold timer is the fallback for a
@@ -526,6 +569,21 @@ end
 local function BecameDrag()
     if CameraTurned() then return true end
     return down.at ~= nil and (GetTime() - down.at) > HOLD_TO_DRAG
+end
+
+-- What this click measured, and what that got it. Off by default; `/rts turn`
+-- switches it on.
+--
+-- This exists because the threshold above is the kind of number that cannot be
+-- reasoned to, only measured -- and because the failure it guards is SILENT.
+-- A swallowed click looks exactly like a click on nothing: no order, no error,
+-- no message. That is precisely why it took three separate bug reports to
+-- notice it was one bug, so the diagnostic prints the swallowed case loudest.
+local function ReportGesture(button, verdict)
+    if not R.turnDebug then return end
+    local d = down.drift or 0
+    ns.Print(("|cff88ccff%s|r  giro=%.4f  umbral=%.4f  -> %s"):format(
+        button == "LeftButton" and "izq" or "der", d, R.turnEps, verdict))
 end
 
 local function EndGesture(button)
@@ -556,9 +614,13 @@ local function EndGesture(button)
         end
 
         if isDrag then
+            ReportGesture(button, "CAJA")
             R:OnLeftDrag(down.x, down.y, sx, sy, shift)
         elseif down.captured or not down.turned then
+            ReportGesture(button, "click")
             R:OnLeftClick(sx, sy, shift, IsAltKeyDown(), hover)
+        else
+            ReportGesture(button, "|cffff0000TRAGADO|r (giro de camara)")
         end
         -- Si no, fue un GIRO DE CAMARA con el izquierdo (sin Ctrl) y no es ni
         -- arrastre ni click. Antes caia en el else y se leia como "click en
@@ -577,7 +639,10 @@ local function EndGesture(button)
         -- Same mistake the left button had, and the same fix: ask whether the
         -- CAMERA moved, which is the thing that actually changes during a drag.
         if not down.turned then
+            ReportGesture(button, "orden")
             R:OnRightClick(sx, sy, hover)
+        else
+            ReportGesture(button, "|cffff0000TRAGADO|r (giro de camara)")
         end
     end
 
