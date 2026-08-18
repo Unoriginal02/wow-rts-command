@@ -42,7 +42,7 @@ is fine; it just fires the same playerbots chat commands you'd type by hand.
   got removed, not addons in general. A plain client-side addon (pure Lua, no
   bridge, no external API/LLM) that just fires the same playerbots chat commands is
   fine — e.g. the quick-command-bar addon in `Interface\AddOns` on the client at
-  `F:\Games\WOW WOTLK`.
+  `D:\GAMES\WOW WOTLK`.
 - **Native Windows build** (Visual Studio + CMake), not Docker. Docker playerbots
   installs are experimental with limited support.
 - **NOT installing mod-individual-progression.** Normal WotLK rules, everything
@@ -175,7 +175,7 @@ coords), so `go X;Y;Z` is unusable until the DLL lands. `go <playerName>` covers
 ### Layers
 
 1. **Lua addon `RTSCommand`** — edited in `C:\Server\rts-project\addon`, deployed
-   to `F:\Games\WOW WOTLK\Interface\AddOns\RTSCommand` (see *Where the source
+   to `D:\GAMES\WOW WOTLK\Interface\AddOns\RTSCommand` (see *Where the source
    lives* below).
    Selection model, control groups, command card, order dispatch (throttled —
    unthrottled whispers get silently eaten by the client's chat rate limit).
@@ -601,7 +601,7 @@ directions and cost a day.
 
 | Source | Deployed to | Button |
 |---|---|---|
-| `rts-project\addon` | `F:\Games\WOW WOTLK\Interface\AddOns\RTSCommand` | `rts-tools\Deploy_Addon.bat` |
+| `rts-project\addon` | `D:\GAMES\WOW WOTLK\Interface\AddOns\RTSCommand` | `rts-tools\Deploy_Addon.bat` |
 | `rts-project\mod-rts` | `azerothcore\modules\mod-rts` | `rts-tools\Deploy_Mod.bat` |
 | `rts-project\rts-client-mod` | nowhere — compiled in place | — |
 

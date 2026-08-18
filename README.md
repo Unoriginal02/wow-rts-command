@@ -10,7 +10,7 @@ proyecto. Lo que hay en el WoW y dentro de AzerothCore son copias desplegadas.
 
 | Carpeta | Qué es | Se despliega a |
 |---|---|---|
-| `addon/` | Addon Lua: selección, órdenes, cámara, command card | `F:\Games\WOW WOTLK\Interface\AddOns\RTSCommand` |
+| `addon/` | Addon Lua: selección, órdenes, cámara, command card | `D:\GAMES\WOW WOTLK\Interface\AddOns\RTSCommand` |
 | `mod-rts/` | Módulo de servidor: cámara poseída, despacho de órdenes, command mode | `C:\Server\azerothcore\modules\mod-rts` |
 | `rts-client-mod/` | `rts_core.dll` — coordenadas de mundo, raycast del cursor, cámara, círculos nativos | no se despliega: se compila aquí mismo |
 | `docs/` | `CLAUDE.md` y las listas `PRUEBAS-N.txt` | copia manual desde `C:\Server` |

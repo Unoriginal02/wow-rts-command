@@ -46,7 +46,7 @@ Necesitas un disco de **64 GB o mas**. Copia estas carpetas tal cual:
 | `C:\Server\rts-tools` | pequeno | Los botones. **No** esta en GitHub |
 | `C:\Server\dist` (resto) | — | Binarios y los `.conf` con la contrasena |
 | `C:\Program Files\MySQL\MySQL Server 8.4` | 0,6 GB | La version **exacta** que escribio `mysql-data` |
-| `F:\Games\WOW WOTLK` | 19,5 GB | El `Wow.exe` exacto contra el que estan los offsets |
+| `D:\GAMES\WOW WOTLK` | 19,5 GB | El `Wow.exe` exacto contra el que estan los offsets |
 | `%USERPROFILE%\.claude\projects\C--Server` | pequeno | Memoria de Claude Code |
 
 `build\` es opcional: te ahorra 4,4 GB de copia y pagas 1–2 h compilando.
@@ -131,11 +131,14 @@ de `rts-tools` y en el propio `worldserver.conf`.
 | `C:\Server` | Todo |
 | `C:\local\boost_1_81_0` | `CMakeCache.txt` |
 | `C:\Program Files\MySQL\MySQL Server 8.4` | `Iniciar_Servidor.bat`, `CMakeCache.txt` |
-| `F:\Games\WOW WOTLK` | `Jugar.bat`, `Deploy_Addon.bat` |
+| `D:\GAMES\WOW WOTLK` | `Jugar.bat`, `Deploy_Addon.bat` |
 
-**Si el PC nuevo no tiene unidad F:**, pon el cliente donde puedas y hay que
-cambiar la ruta en `rts-tools\Jugar.bat` y en `rts-tools\Deploy_Addon.bat`.
-Dimelo y te los edito — es un `set` en cada uno.
+**La ruta del cliente ya ha cambiado una vez.** El 2026-08-18, en el PC
+`Jehuty`, el cliente quedo en `D:\GAMES\WOW WOTLK` y hubo que reescribir el
+`set` de `rts-tools\Jugar.bat`, `rts-tools\2_Jugar.bat` y
+`rts-tools\Deploy_Addon.bat`. Son tres lineas y no hay nada mas que tocar: el
+servidor no sabe donde esta el cliente, solo lo saben esos .bat. Lo que si
+importa es que el `Wow.exe` siga siendo el mismo binario (ver el MD5 abajo).
 
 ---
 
@@ -204,7 +207,7 @@ El `Wow.exe` tiene que seguir siendo el mismo binario, porque los offsets de
 `rts_core` estan verificados contra el:
 
 ```powershell
-(Get-FileHash "F:\Games\WOW WOTLK\Wow.exe" -Algorithm MD5).Hash
+(Get-FileHash "D:\GAMES\WOW WOTLK\Wow.exe" -Algorithm MD5).Hash
 # 45892BDEDD0AD70AED4CCD22D9FB5984
 ```
 
