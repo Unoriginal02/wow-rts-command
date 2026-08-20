@@ -1,18 +1,38 @@
 --[[
 	Bar.lua -- la barra inferior, con el arte de verdad.
 
-	Siete piezas TGA dibujadas una al lado de otra, de izquierda a derecha:
+	CUATRO PIEZAS, SIETE PANELES. La exportacion de 2026-08-20 dejo de dibujar
+	cada panel por separado: ahora hay cuatro dibujos y dos de ellos se usan DOS
+	VECES, uno espejado. La barra, de izquierda a derecha:
 
-	  left-bar 128 | 16 | left-map 512 | left-hero-portrait 512 |
-	  middle-grow 512 xN | right-embellishment 128 | right-bot-actions 512 |
-	  16 | right-bar 128                                    -- 2464 x 512
+	  left-bar 128 | 16 | minimap 512 | ramp 128 |
+	  middle 512 xN |
+	  ramp' 128 | minimap 512 | 16 | left-bar' 128
 
-	EL ARTE ES 2x Y SE DIBUJA REDUCIDO, ~x0.83 en 2560. La primera exportacion
-	era de 256 de alto y se quedaba corta al lado de las texturas del propio
-	juego, que son bastante mayores; doblarla hace que las piezas del cliente
-	encajen. Los numeros de este fichero son los del DIBUJO, y la escala de
-	pantalla los baja. Reducir es barato y sale nitido -- lo que emborrona es
-	ampliar, y esta barra ya no amplia nunca.
+	(`'` = espejada horizontalmente con SetTexCoord)
+
+	POR QUE ESPEJAR EN VEZ DE EXPORTAR MAS PIEZAS. Un espejo cuesta cuatro
+	numeros en una llamada y no puede desincronizarse del original; dos ficheros
+	dibujados a mano que deberian ser iguales, si. Y baja el arte de 7 TGA
+	(4,2 MB) a 4 (2,6 MB). El precio es que el hueco util de una pieza espejada
+	no esta donde dice el escaneo, sino en su reflejo -- por eso los huecos estan
+	en la tabla `HOLE` medidos UNA vez y con las dos variantes escritas.
+
+	LO QUE ES CADA PANEL, que es lo que decide donde va cada cosa:
+
+	  rail izq    los botones del minimapa (mapa, rastreo, zoom, calendario)
+	  minimapa    el minimapa de verdad, cuadrado
+	  ramp        el hombro: baja del alto completo al alto de la sala
+	  sala        retrato 3D + barras del heroe | grupo | enemigos / acciones
+	  ramp'       el hombro de vuelta
+	  ordenes     rejilla 3x3 de ordenes globales; la ultima casilla SALE del modo
+	  rail der    los iconos del juego (ficha, talentos, misiones, bolsas)
+
+	EL ARTE ES 2x Y SE DIBUJA REDUCIDO, ~x0.56 en 2560x1440. Las piezas de 256
+	se quedaban cortas al lado de las texturas del propio cliente, que son
+	bastante mayores. Los numeros de este fichero son los del DIBUJO (512 de
+	alto) y la escala de pantalla los baja. Reducir sale nitido; lo que emborrona
+	es ampliar, y esta barra ya no amplia nunca.
 
 	EL ALTO LO PONE `share` Y EL ANCHO LO LLENA `grow`. Son dos mandos para dos
 	cosas distintas, y la clave es que `grow` NO es continuo: repetir el panel
@@ -23,50 +43,45 @@
 	  2. con esa escala, cuantas copias del central hacen falta para dejar
 	     `side` = 0.10 de margen a cada lado  -> sale `grow`
 
-	Este es el reparto que faltaba. Un intento anterior fijaba el ancho con
-	`side` y dejaba el alto de consecuencia: como la barra es de proporcion fija
-	y `grow` estaba a mano, el alto salia al 30% de la pantalla y crecer la
-	ENCOGIA. El error no era el knob, era pedirle a la escala que hiciera el
-	trabajo del ancho.
-
 	`grow` ES DISCRETO, asi que el margen casi nunca cae en el 10% clavado: se
-	elige la cuenta de copias que mas se acerca, con un suelo por debajo del
-	cual no se deja bajar. El margen que sale se imprime, no se supone.
+	elige la cuenta que mas se acerca, con un suelo por debajo del cual no se
+	deja bajar. El margen que sale se imprime, no se supone.
 
 	LOS DOS HUECOS DE 16 SON LA UNICA SEPARACION QUE HAY. Los railes de botones
-	de los extremos flotan sueltos; todo lo del centro se toca. Es la regla del
-	boceto, y esta escrita como `gap` en la tabla de piezas en vez de sumada a
-	mano en las coordenadas, para que se pueda ver y cambiar en un sitio.
+	de los extremos flotan sueltos; todo lo del centro se toca.
 
-	`middle-grow` SE REPITE, y es la unica pieza que puede. Su dibujo llega de
-	borde a borde -- el gris ocupa los 256 de ancho y las bandas turquesa de
-	arriba y abajo cruzan enteras -- asi que dos copias seguidas no dejan
-	costura. La barra crece por ahi y solo por ahi: `/rts bar grow <n>`.
+	`middle` SE REPITE, y es la unica pieza que puede: su dibujo llega de borde a
+	borde, asi que dos copias seguidas no dejan costura. `/rts bar grow <n>`.
+
+	TODA POSICION SE DERIVA, NINGUNA SE ESCRIBE. Cada hueco dice a QUE PIEZA
+	pertenece y con que margen, y su x sale de donde acabo la anterior. Es lo que
+	hace que repetir el panel central N veces no obligue a tocar un solo numero
+	de los demas. Un hueco que ABARCA varias piezas -- la sala -- se declara con
+	`toPiece`/`toDx`.
+
+	LAS MEDIDAS DE LOS HUECOS ESTAN MEDIDAS, NO ELEGIDAS. Salen de escanear los
+	PNG de `art-src` buscando, desde el centro de cada pieza hacia fuera, el
+	primer pixel de bisel claro. Cuando el arte cambie se vuelven a escanear.
+
+	LO QUE HAY DENTRO DE UN HUECO NO ESTA EN EL ARTE, asi que no se mide: se
+	reparte. La rejilla de un hueco se declara con `cell` y se CENTRA sola en el
+	area medida, o se alinea a un lado con `align`. `fill` significa "tantas
+	columnas como quepan", que es la unica forma honesta de contarlas cuando el
+	ancho depende de `grow`.
+
+	QUIEN DIBUJA LO DE DENTRO NO ES ESTE FICHERO. Aqui estan el arte, las areas
+	y las celdas; el contenido lo ponen Portrait, Vitals, Roster, Foes, Card,
+	Panel y Rails, cada uno pidiendo su area con `B:SlotFrame(key)` y sus celdas
+	con `B:Cells(key)`, y volviendose a colocar cuando `B:OnLayout` avisa.
 
 	POR QUE NO PASA POR Skin.lua. Skin viste con `SetBackdrop`, cuyo `edgeFile`
-	es una hoja con los ocho trozos del borde en una disposicion interna que
-	nadie aqui ha verificado. Estas piezas son cada una un dibujo entero, asi
-	que se colocan como TEXTURAS EXPLICITAS y se ancla cada una a mano.
+	es una hoja con los ocho trozos del borde en una disposicion que nadie aqui
+	ha verificado. Estas piezas son cada una un dibujo entero, asi que se colocan
+	como TEXTURAS EXPLICITAS y se ancla cada una a mano.
 
-	TODA POSICION SE DERIVA, NINGUNA SE ESCRIBE. La primera version tenia las
-	coordenadas de los huecos en absoluto (`card` en x=1040) y eso deja de valer
-	en cuanto una pieza anterior cambia de ancho. Ahora cada hueco dice a QUE
-	PIEZA pertenece y con que margen, y su x sale de donde acabo la anterior. Es
-	lo que hace que cambiar una pieza de ancho -- o repetir `middle-grow` N
-	veces -- no obligue a tocar un solo numero de los demas.
-
-	LAS MEDIDAS DE LOS HUECOS ESTAN MEDIDAS, NO ELEGIDAS. Salen de escanear el
-	relleno gris de los PNG de `art-src`, pieza por pieza. Cuando el arte
-	cambie se vuelven a escanear: son un reflejo del dibujo, no una decision
-	aparte que haya que mantener sincronizada a ojo.
-
-	EL TAMANO EN PANTALLA sale de `share`, la fraccion del alto de pantalla que
-	debe ocupar la barra, no de un multiplicador. "x1.18" solo significa algo en
-	esta pantalla; "20% del alto" significa lo mismo en todas. Mismo motivo por
-	el que HUD:Fit() calca el boton de la barra de acciones.
-
-	NO TOCA EL RATON. `EnableMouse(false)` en todo: una barra que se come los
-	clicks rompe la caja de seleccion por esa zona (prueba B6).
+	EL ARTE NO TOCA EL RATON. `EnableMouse(false)` en la barra y en las areas:
+	una barra que se come los clicks rompe la caja de seleccion por esa zona
+	(prueba B6). Los BOTONES si lo cogen, pero solo sobre su propio rectangulo.
 ]]
 
 local ADDON, ns = ...
@@ -78,85 +93,169 @@ B.active = false
 
 local ART = "Interface\\AddOns\\RTSCommand\\art\\"
 
--- EL ARTE ES 2x, Y SE DIBUJA REDUCIDO. La primera exportacion era de 256 de
--- alto y quedaba pequena al lado de las texturas del propio juego, que son
--- bastante mas grandes; al doblar el arte, las piezas del cliente encajan.
--- Asi que las medidas de aqui son las del DIBUJO (512 de alto) y la escala de
--- pantalla las baja. Reducir es barato y sale nitido; ampliar es lo que
--- emborrona, y esta barra ya no amplia nunca.
+-- El alto del DIBUJO. La escala de pantalla lo baja.
 local BAR_H = 512
 
 -- La separacion de los railes. Un solo numero, en un solo sitio.
 local GAP = 16
 
--- La pieza que se repite para que la barra crezca.
-local GROW = "middle-grow"
+--- Las piezas -------------------------------------------------------------
+--
+-- `id` es unico y es lo que usan los huecos; `art` es el fichero, que se puede
+-- repetir. `flip` lo dibuja espejado. `gap` es el hueco QUE VA ANTES.
+-- `grow` marca la unica pieza que se repite.
 
--- Las piezas en orden de izquierda a derecha. `gap` es el hueco QUE VA ANTES
--- de la pieza.
+local HALL = "hall"
+
 local PIECES = {
-	{ key = "left-bar",            w = 128 },
-	{ key = "left-map",            w = 512, gap = GAP },
-	{ key = "left-hero-portrait",  w = 512 },
-	{ key = GROW,                  w = 512 },
-	{ key = "right-embellishment", w = 128 },
-	{ key = "right-bot-actions",   w = 512 },
-	{ key = "right-bar",           w = 128, gap = GAP },
+	{ id = "rail-left",  art = "left-bar", w = 128 },
+	{ id = "map",        art = "minimap",  w = 512, gap = GAP },
+	{ id = "ramp-left",  art = "ramp",     w = 128 },
+	{ id = HALL,         art = "middle",   w = 512, grow = true },
+	{ id = "ramp-right", art = "ramp",     w = 128, flip = true },
+	{ id = "orders",     art = "minimap",  w = 512 },
+	{ id = "rail-right", art = "left-bar", w = 128, gap = GAP, flip = true },
 }
 
--- Huecos utiles, medidos del arte escaneando el relleno gris de los PNG.
--- Relativos A SU PIEZA, nunca a la barra.
+--- Los huecos del arte, medidos -------------------------------------------
 --
--- `cols`/`rows`/`pitch` describen una rejilla: la celda de arriba a la
--- izquierda es dx,dy,w,h y las demas salen del paso. Asi la carta de comandos
--- y los railes son la misma clase de cosa que un hueco suelto, y las guias no
--- necesitan un caso especial para cada uno.
+-- Reproducible: por cada PNG de `art-src`, desde el centro hacia fuera hasta el
+-- primer pixel con luminancia > 70 (el bisel) o alfa 0. Lo que queda dentro es
+-- el hueco util, en pixeles de dibujo y relativo a SU pieza.
 --
--- `toPiece`/`toDx` es un hueco que ABARCA varias piezas: su ancho llega hasta
--- ese punto de esa otra pieza, se repita `middle-grow` las veces que se repita.
+-- `railF` y `rampR` son los reflejos de `rail` y `rampL`: espejar una pieza de
+-- ancho W manda el hueco [x, x+w) a [W-x-w, W-x). Escrito, no recalculado a
+-- mano cada vez que hace falta.
+
+local HOLE = {
+	rail  = { x = 29, w = 78,  y = 30,  h = 452 },   -- left-bar
+	railF = { x = 21, w = 78,  y = 30,  h = 452 },   -- left-bar espejada
+	map   = { x = 19, w = 474, y = 30,  h = 452 },   -- minimap
+	rampL = { x = 21, w = 107, y = 122, h = 360 },   -- ramp
+	rampR = { x = 0,  w = 107, y = 122, h = 360 },   -- ramp espejada
+	mid   = { x = 0,  w = 512, y = 122, h = 360 },   -- middle, de borde a borde
+}
+
+--- El reparto de la sala --------------------------------------------------
+--
+-- Lo unico de este fichero que es una DECISION y no una medida. La sala mide
+-- 360 de alto y `214 + 512*grow` de ancho, y hay que meter cinco cosas:
+--
+--   retrato 3D  /  barras del heroe debajo   -- bloque del heroe, ancho fijo
+--   grupo                                    -- 4 filas, ancho fijo
+--   enemigos / divisor / acciones            -- todo lo que sobre
+--
+-- Los dos primeros son de ancho fijo a proposito: un retrato que crece con la
+-- resolucion se ve mal, y una barra de vida de 900 px no dice mas que una de
+-- 440. Lo que se estira es lo que gana con el sitio -- cuantos enemigos caben y
+-- cuantas acciones -- y eso sale de `fill`.
+
+local PAD = 8      -- margen interior de la sala
+local COL = 16     -- separacion entre bloques
+
+local HERO_W  = 256
+local PARTY_W = 440
+
+-- `HALL_Y1` es el borde de ABAJO, exclusivo: `h = HALL_Y1 - y`. Escrito asi
+-- porque la primera version le quitaba un pixel de mas ("la ultima fila es la
+-- 481") y las cuatro filas del grupo salian un pixel mas altas que su hueco --
+-- invisible, pero es la clase de descuadre que luego se busca en el sitio
+-- equivocado. El hueco ocupa las filas 122..481, o sea [122, 482).
+local HALL_Y0 = HOLE.rampL.y + PAD                        -- 130
+local HALL_Y1 = HOLE.rampL.y + HOLE.rampL.h - PAD         -- 474
+
+local PORTRAIT_H = 256
+local VITALS_Y   = HALL_Y0 + PORTRAIT_H + PAD             -- 394
+local FOES_H     = 110
+local RULE_Y     = HALL_Y0 + FOES_H + PAD                 -- 248
+local CARD_Y     = RULE_Y + 3 + PAD                       -- 259
+
+-- La x de cada bloque, relativa a la pieza `ramp-left`, que es donde empieza el
+-- hueco de la sala.
+local HALL_X  = HOLE.rampL.x                              -- 21
+local HERO_X  = HALL_X + PAD                              -- 29
+local PARTY_X = HERO_X + HERO_W + COL                     -- 301
+local RIGHT_X = PARTY_X + PARTY_W + COL                   -- 757
+
+-- Donde acaba la sala: dentro de la rampa espejada, dejando su margen.
+local HALL_END = HOLE.rampR.w - PAD                       -- 99
+
+--- Los huecos --------------------------------------------------------------
+--
+-- `piece`/`dx`/`dy`/`w`/`h` es el AREA. Si lleva `toPiece`/`toDx`, el ancho
+-- llega hasta ese punto de esa otra pieza, y entonces sigue bien se repita el
+-- panel central lo que se repita.
+--
+-- `cell` es la rejilla de dentro: tamano de celda y paso. Se centra en el area,
+-- o se pega a un lado con `align`. `cols`/`rows` la cuentan; `fill = "cols"`
+-- pone tantas columnas como quepan.
+--
+-- `host = true` -> ademas del rectangulo, un Frame de verdad donde otro modulo
+-- mete lo suyo. `line = true` -> una raya, que es todo lo que es el divisor.
+--
+-- El NIVEL importa: las piezas son OPACAS donde esta el hueco, asi que lo
+-- alojado va POR ENCIMA del panel o no se ve. Es el tropiezo que costo el
+-- minimapa la primera vez.
+
 local SLOTS = {
-	-- `host = true` -> ademas del rectangulo medido, un Frame de verdad donde
-	-- otro modulo puede meter algo. El minimapa y el retrato son los dos que lo
-	-- necesitan; los demas huecos son solo coordenadas.
-	{ key = "minimap",    piece = "left-map",
-	  dx = 32, dy = 32, w = 448, h = 448, host = true,
-	  label = "minimapa" },
+	{ key = "rail-left", piece = "rail-left", label = "rail mapa",
+	  dx = HOLE.rail.x, dy = HOLE.rail.y, w = HOLE.rail.w, h = HOLE.rail.h,
+	  cell = { w = 68, h = 68, px = 76, py = 76 }, cols = 1, rows = 6,
+	  host = true },
 
-	{ key = "portrait",   piece = "left-hero-portrait",
-	  dx = 32, dy = 128, w = 256, h = 256, host = true,
-	  label = "retrato" },
+	{ key = "minimap", piece = "map", label = "minimapa",
+	  dx = HOLE.map.x, dy = HOLE.map.y, w = HOLE.map.w, h = HOLE.map.h,
+	  cell = { w = 452, h = 452 }, cols = 1, rows = 1,
+	  host = true },
 
-	{ key = "info",       piece = "left-hero-portrait",
-	  dx = 320, dy = 128, w = 192, h = 352,
-	  label = "datos" },
+	{ key = "portrait", piece = "ramp-left", label = "retrato",
+	  dx = HERO_X, dy = HALL_Y0, w = HERO_W, h = PORTRAIT_H,
+	  host = true },
 
-	{ key = "vitals",     piece = "left-hero-portrait",
-	  dx = 32, dy = 400, w = 256, h = 16, rows = 3, pitch = 32,
-	  label = "barras" },
+	{ key = "vitals", piece = "ramp-left", label = "vida/poder/exp",
+	  dx = HERO_X, dy = VITALS_Y, w = HERO_W, h = HALL_Y1 - VITALS_Y,
+	  host = true },
 
-	{ key = "party",      piece = GROW,
-	  dx = 0, dy = 128, h = 352,
-	  toPiece = "right-embellishment", toDx = 96,
-	  label = "grupo (crece)" },
+	{ key = "party", piece = "ramp-left", label = "grupo",
+	  dx = PARTY_X, dy = HALL_Y0, w = PARTY_W, h = HALL_Y1 - HALL_Y0,
+	  cell = { w = PARTY_W, h = 80, py = 88 }, cols = 1, rows = 4,
+	  align = "top", host = true },
 
-	{ key = "card",       piece = "right-bot-actions",
-	  dx = 32, dy = 32, w = 112, h = 112, cols = 4, rows = 4, pitch = 112,
-	  label = "carta 4x4" },
+	{ key = "foes", piece = "ramp-left", label = "enemigos",
+	  dx = RIGHT_X, dy = HALL_Y0, h = FOES_H,
+	  toPiece = "ramp-right", toDx = HALL_END,
+	  cell = { w = 96, h = FOES_H, px = 104 }, rows = 1, fill = "cols",
+	  align = "left", host = true },
 
-	{ key = "rail-left",  piece = "left-bar",
-	  dx = 32, dy = 44, w = 64, h = 64, rows = 6, pitch = 72,
-	  label = "rail izq" },
+	{ key = "rule", piece = "ramp-left", label = "divisor",
+	  dx = RIGHT_X, dy = RULE_Y, h = 3,
+	  toPiece = "ramp-right", toDx = HALL_END,
+	  line = true },
 
-	{ key = "rail-right", piece = "right-bar",
-	  dx = 32, dy = 44, w = 64, h = 64, rows = 6, pitch = 72,
-	  label = "rail der" },
+	{ key = "card", piece = "ramp-left", label = "acciones",
+	  dx = RIGHT_X, dy = CARD_Y, h = HALL_Y1 - CARD_Y,
+	  toPiece = "ramp-right", toDx = HALL_END,
+	  cell = { w = 103, h = 103, px = 111, py = 111 }, rows = 2, fill = "cols",
+	  align = "topleft", host = true },
+
+	{ key = "orders", piece = "orders", label = "ordenes 3x3",
+	  dx = HOLE.map.x, dy = HOLE.map.y, w = HOLE.map.w, h = HOLE.map.h,
+	  cell = { w = 144, h = 144, px = 154, py = 154 }, cols = 3, rows = 3,
+	  host = true },
+
+	{ key = "rail-right", piece = "rail-right", label = "rail juego",
+	  dx = HOLE.railF.x, dy = HOLE.railF.y, w = HOLE.railF.w, h = HOLE.railF.h,
+	  cell = { w = 68, h = 68, px = 76, py = 76 }, cols = 1, rows = 6,
+	  host = true },
 }
 
 local bar, guides, miniSlot
-local hosts = {}   -- key de hueco -> Frame anfitrion
-local tex = {}      -- key -> lista de texturas (una pieza repetida usa varias)
-local place = {}    -- key -> { x = primera x, right = donde acaba la ultima }
-local order = {}    -- la lista plana, ya con las repeticiones dentro
+local hosts = {}     -- key de hueco -> Frame anfitrion
+local lines = {}     -- key de hueco -> textura de raya
+local tex = {}       -- id de pieza -> lista de texturas (la repetida usa varias)
+local place = {}     -- id de pieza -> { x = primera x, right = donde acaba }
+local order = {}     -- la lista plana, ya con las repeticiones dentro
+local listeners = {}
 local BAR_W = 0
 
 -- `share` da la ESCALA: la fraccion del alto de pantalla que ocupa la barra.
@@ -164,39 +263,33 @@ local BAR_W = 0
 -- alto y la de SC2 ~22%.
 --
 -- `side` da el GROW: el margen que se querria a cada lado, en fraccion del
--- ancho de pantalla. No recorta nada; decide cuantas copias del panel central
--- se dibujan para acercarse a el.
+-- ancho. No recorta nada; decide cuantas copias del panel central se dibujan.
 --
--- `minSide` es el suelo. Existe porque `grow` es discreto: entre dos cuentas de
--- copias, la de abajo deja mucho margen y la de arriba poco, y sin un suelo la
--- de arriba puede llegar a pegar el arte al borde. Por debajo de esto no se
--- elige una cuenta aunque sea la que mas se acerca.
+-- `minSide` es el suelo, y existe porque `grow` es discreto: entre dos cuentas,
+-- la de arriba puede llegar a pegar el arte al borde.
 --
--- `side` en fraccion y `pad` en pixeles a proposito. `pad` es la separacion al
--- SUELO y no tiene nada que ver con el ancho; `side` quiere decir lo mismo en
--- cualquier resolucion y "256 px" solo en esta.
+-- `side` en fraccion y `pad` en pixeles a proposito: `pad` es la separacion al
+-- SUELO y no tiene nada que ver con el ancho.
 B.cfg = { pad = 22, side = 0.10, minSide = 0.045, share = 0.20, scale = 1, grow = 1 }
 
 -- Derivar la escala del alto, y la cuenta de copias del ancho. Fijar cualquiera
--- de los dos a mano apaga SOLO ese: elegir cuantos paneles quieres no deberia
--- congelar tambien el tamano.
+-- de los dos a mano apaga SOLO ese.
 B.autoShare = true
 B.autoGrow = true
 
 -- LO GUARDADO SE ACOTA AL LEERLO, NO SOLO AL ESCRIBIRLO. Un fichero de
 -- SavedVariables no olvida nunca: guarda cualquier clave que se haya escrito
--- alguna vez y sobrevive a la version del addon que la escribio. Este ya
--- traia un `grow = 688` de una version anterior -- que como numero de copias
--- del panel central no significa nada -- y sin acotarlo al cargar habria
--- salido una barra de ocho paneles diminuta, sin nada que dijera por que.
+-- alguna vez y sobrevive a la version del addon que la escribio. Este ya traia
+-- un `grow = 688` de una version anterior -- que como numero de copias no
+-- significa nada -- y sin acotarlo al cargar habria salido una barra de ocho
+-- paneles diminuta, sin nada que dijera por que.
 --
 -- Acotar solo dentro de los `Set*` no vale: esos solo corren cuando el jugador
 -- escribe el comando, y el problema entra por el otro lado.
--- `strict` es la diferencia entre un knob continuo y una cuenta. Pasarse de la
--- raya en `share` o `side` es una intencion que se puede recortar: pediste el
--- 70% del alto, te doy el 60%. Un `grow` de 688 no es una intencion exagerada,
--- es basura -- y recortarla al maximo daria ocho paneles, que se ve mal y
--- ademas parece deliberado. Ahi lo correcto es volver al valor de fabrica.
+--
+-- `strict` es la diferencia entre un knob continuo y una cuenta. Pasarse en
+-- `share` es una intencion que se puede recortar; un `grow` de 688 es basura y
+-- vuelve al valor de fabrica.
 local LIMITS = {
 	grow    = { 1, 8, strict = true },
 	side    = { 0, 0.40 },
@@ -225,16 +318,15 @@ end
 -- asi no hay dos sitios donde `grow` tenga que estar al dia.
 local function BuildOrder()
 	local n = math.floor(B.cfg.grow or 1)
-	if n < 1 then n = 1 end
-	if n > 8 then n = 8 end
+	if n < LIMITS.grow[1] then n = LIMITS.grow[1] end
+	if n > LIMITS.grow[2] then n = LIMITS.grow[2] end
 
 	order = {}
 	for _, p in ipairs(PIECES) do
-		local veces = (p.key == GROW) and n or 1
+		local veces = p.grow and n or 1
 		for i = 1, veces do
 			table.insert(order, {
-				key = p.key,
-				w = p.w,
+				id = p.id, art = p.art, w = p.w, flip = p.flip,
 				-- el hueco va solo antes de la PRIMERA copia
 				gap = (i == 1) and (p.gap or 0) or 0,
 			})
@@ -245,16 +337,17 @@ end
 --- Piezas ------------------------------------------------------------------
 
 -- Las texturas se crean bajo demanda y no se destruyen: bajar `grow` esconde
--- las sobrantes en vez de borrarlas, para que volver a subirlo no tenga que
--- crear nada.
-local function TextureFor(key, i)
-	tex[key] = tex[key] or {}
-	local t = tex[key][i]
+-- las sobrantes en vez de borrarlas, para que volver a subirlo no cree nada.
+local function TextureFor(p, i)
+	tex[p.id] = tex[p.id] or {}
+	local t = tex[p.id][i]
 	if not t then
 		t = bar:CreateTexture(nil, "ARTWORK")
-		t:SetTexture(ART .. key)
+		t:SetTexture(ART .. p.art)
 		t:SetHeight(BAR_H)
-		tex[key][i] = t
+		-- El espejo, y el unico sitio donde ocurre.
+		if p.flip then t:SetTexCoord(1, 0, 0, 1) end
+		tex[p.id][i] = t
 	end
 	return t
 end
@@ -269,32 +362,34 @@ local function LayoutPieces()
 	for _, p in ipairs(order) do
 		x = x + (p.gap or 0)
 
-		usadas[p.key] = (usadas[p.key] or 0) + 1
-		local t = TextureFor(p.key, usadas[p.key])
+		usadas[p.id] = (usadas[p.id] or 0) + 1
+		local t = TextureFor(p, usadas[p.id])
 		t:ClearAllPoints()
 		t:SetWidth(p.w)
 		t:SetPoint("TOPLEFT", bar, "TOPLEFT", x, 0)
 		t:Show()
 
-		place[p.key] = place[p.key] or { x = x }
+		place[p.id] = place[p.id] or { x = x }
 		x = x + p.w
-		place[p.key].right = x
+		place[p.id].right = x
 	end
 
 	-- Las copias que ya no hacen falta.
-	for key, lista in pairs(tex) do
-		for i = (usadas[key] or 0) + 1, #lista do lista[i]:Hide() end
+	for id, lista in pairs(tex) do
+		for i = (usadas[id] or 0) + 1, #lista do lista[i]:Hide() end
 	end
 
 	BAR_W = x
 	bar:SetWidth(BAR_W)
 end
 
--- Donde cae un hueco, en coordenadas de la barra. Sale de su pieza, asi que
--- sigue bien cuando las piezas de su izquierda cambian de ancho o de numero.
-local function SlotRect(s)
+--- Areas y celdas ---------------------------------------------------------
+
+-- Donde cae un area, en coordenadas de la barra (y hacia abajo). Sale de su
+-- pieza, asi que sigue bien cuando lo de su izquierda cambia de numero.
+local function SlotArea(s)
 	local rec = place[s.piece]
-	if not rec then return 0, 0, s.w or 0, s.h or 0 end
+	if not rec then return 0, 0, 0, 0 end
 	local x = rec.x + s.dx
 	local w = s.w
 	if s.toPiece then
@@ -304,29 +399,135 @@ local function SlotRect(s)
 	return x, s.dy, w or 0, s.h or 0
 end
 
--- La celda i de un hueco con rejilla. Sin rejilla, i=1 es el hueco entero.
-local function SlotCell(s, i)
-	local x, y, w, h = SlotRect(s)
+-- Cuantas columnas y filas. `fill` las cuenta contra el area, que es la unica
+-- forma honesta de hacerlo cuando el ancho depende de `grow`.
+local function SlotGrid(s)
+	local cell = s.cell
+	if not cell then return 1, 1 end
+	local _, _, w, h = SlotArea(s)
+
+	-- UN AREA QUE NO CABE NO TIENE CELDAS, y decirlo aqui es lo que evita el
+	-- unico caso feo del reparto: con `grow` a 1 la sala mide 726 y el bloque de
+	-- la derecha empieza en el 757, asi que su ancho sale NEGATIVO. Devolviendo
+	-- cero, `Cells` devuelve una lista vacia, los paneles esconden sus botones y
+	-- no queda ninguno flotando sobre la rampa. La barra se ve pequena, que es
+	-- exactamente lo que se pidio.
+	if w <= 0 or h <= 0 then return 0, 0 end
+
 	local cols, rows = s.cols or 1, s.rows or 1
-	if cols == 1 and rows == 1 then return x, y, w, h end
+	if s.fill == "cols" or s.fill == "both" then
+		local px = cell.px or cell.w
+		cols = (px > 0) and (math.floor((w - cell.w) / px) + 1) or 1
+		if cols < 1 then cols = 1 end
+	end
+	if s.fill == "rows" or s.fill == "both" then
+		local py = cell.py or cell.h
+		rows = (py > 0) and (math.floor((h - cell.h) / py) + 1) or 1
+		if rows < 1 then rows = 1 end
+	end
+	return cols, rows
+end
+
+-- La celda i, en coordenadas de la barra. Sin rejilla, i=1 es el area entera.
+--
+-- LA REJILLA SE CENTRA SOLA en el area medida. Es lo que permite que `dx`/`dy`
+-- sigan siendo el hueco del arte tal cual salio del escaneo, en vez de un
+-- numero ajustado a mano que ya no se puede comprobar contra el PNG.
+local function SlotCell(s, i)
+	local x, y, w, h = SlotArea(s)
+	local cell = s.cell
+	if not cell then return x, y, w, h end
+
+	local cols, rows = SlotGrid(s)
+	local px = cell.px or cell.w
+	local py = cell.py or cell.h
+	local gw = (cols - 1) * px + cell.w
+	local gh = (rows - 1) * py + cell.h
+
+	local align = s.align or ""
+	local ox = string.find(align, "left") and 0
+		or (string.find(align, "right") and (w - gw) or math.floor((w - gw) / 2))
+	local oy = string.find(align, "top") and 0
+		or (string.find(align, "bottom") and (h - gh) or math.floor((h - gh) / 2))
+
 	local c = (i - 1) % cols
 	local r = math.floor((i - 1) / cols)
-	return x + c * s.pitch, y + r * s.pitch, s.w, s.h
+	return x + ox + c * px, y + oy + r * py, cell.w, cell.h
 end
 
 local function SlotCount(s)
-	return (s.cols or 1) * (s.rows or 1)
+	local cols, rows = SlotGrid(s)
+	return cols * rows
+end
+
+local function SlotByKey(key)
+	for _, s in ipairs(SLOTS) do
+		if s.key == key then return s end
+	end
+end
+
+-- EL MINIMAPA ES CUADRADO Y SU HUECO NO. El hueco medido de la pieza es 474x452,
+-- asi que escalar el mapa al ANCHO del hueco lo saca 22 px por arriba y por
+-- abajo -- y un frame hijo no se recorta en 3.3.5a, asi que se comeria el borde
+-- del arte por los dos lados. Lo que se le pasa es el lado de la CELDA, que es
+-- el cuadrado ya centrado dentro del hueco.
+local function MiniBox()
+	local s = SlotByKey("minimap")
+	if s and s.cell then return math.min(s.cell.w, s.cell.h) end
+	return miniSlot and miniSlot:GetWidth() or 0
+end
+
+--- La interfaz que usan los modulos de contenido --------------------------
+
+-- El marco de un area. Es el padre de todo lo que se dibuje ahi dentro.
+function B:SlotFrame(key)
+	self:Create()
+	return hosts[key]
+end
+
+-- Las celdas de un area, EN COORDENADAS DEL MARCO (x hacia la derecha, y hacia
+-- abajo, desde su esquina de arriba a la izquierda). Asi el que las usa hace
+-- SetPoint("TOPLEFT", host, "TOPLEFT", c.x, -c.y) y no necesita saber nada de
+-- la barra ni de `grow`.
+function B:Cells(key)
+	self:Create()
+	local s = SlotByKey(key)
+	if not s then return {} end
+	local ax, ay = SlotArea(s)
+	local out = {}
+	for i = 1, SlotCount(s) do
+		local cx, cy, cw, ch = SlotCell(s, i)
+		out[i] = { x = cx - ax, y = cy - ay, w = cw, h = ch }
+	end
+	return out
+end
+
+function B:SlotSize(key)
+	self:Create()
+	local s = SlotByKey(key)
+	if not s then return 0, 0 end
+	local _, _, w, h = SlotArea(s)
+	return w, h
+end
+
+-- Avisar cuando la barra se ha vuelto a distribuir. Cambiar `grow`, `share` o
+-- la resolucion cambia el NUMERO de celdas, no solo su tamano, asi que el
+-- contenido no puede colocarse una vez y olvidarse.
+function B:OnLayout(fn)
+	table.insert(listeners, fn)
+	if bar then fn() end
+end
+
+local function Announce()
+	for _, fn in ipairs(listeners) do
+		-- Un modulo que falle no puede llevarse por delante a los demas ni
+		-- dejar la barra a medio colocar.
+		local ok, err = pcall(fn)
+		if not ok then ns.Print("|cffff0000barra:|r " .. tostring(err)) end
+	end
 end
 
 --- Los huecos con marco ----------------------------------------------------
---
--- Frames de verdad para que otro modulo pueda alojar algo dentro: el `Minimap`
--- de Blizzard en uno, el modelo 3D del heroe en el otro. No dibujan nada: son
--- solo un sitio con coordenadas que se mueve y se reescala con la barra.
---
--- El NIVEL importa: las piezas son OPACAS donde esta el hueco (alfa 255 en
--- todos sus pixeles, medido), asi que lo alojado tiene que ir POR ENCIMA del
--- panel o no se ve. Es el mismo tropiezo que costo el minimapa la primera vez.
 
 local function BuildSlotFrames()
 	for _, s in ipairs(SLOTS) do
@@ -336,34 +537,40 @@ local function BuildSlotFrames()
 			f:EnableMouse(false)
 			hosts[s.key] = f
 		end
+		if s.line then
+			local t = bar:CreateTexture(nil, "OVERLAY")
+			t:SetTexture(0.55, 0.58, 0.66, 0.55)
+			lines[s.key] = t
+		end
 	end
 	miniSlot = hosts.minimap
 end
 
 local function LayoutSlotFrames()
 	for _, s in ipairs(SLOTS) do
+		local x, y, w, h = SlotArea(s)
 		local f = hosts[s.key]
 		if f then
-			local x, y, w, h = SlotRect(s)
-			f:SetWidth(w)
-			f:SetHeight(h)
+			f:SetWidth(w > 0 and w or 1)
+			f:SetHeight(h > 0 and h or 1)
 			f:ClearAllPoints()
 			f:SetPoint("TOPLEFT", bar, "TOPLEFT", x, -y)
+		end
+		local t = lines[s.key]
+		if t then
+			t:SetWidth(w > 0 and w or 1)
+			t:SetHeight(h > 0 and h or 1)
+			t:ClearAllPoints()
+			t:SetPoint("TOPLEFT", bar, "TOPLEFT", x, -y)
 		end
 	end
 end
 
--- El marco de un hueco, para quien quiera meter algo dentro.
-function B:SlotFrame(key)
-	self:Create()
-	return hosts[key]
-end
-
 --- Guias -------------------------------------------------------------------
 --
--- Donde acaba cada pieza, donde estan los huecos y cada una de sus celdas, y
--- un cuadrado de 64 px para comprobar el 1:1 de un vistazo. Se CREAN una vez y
--- se COLOCAN en cada distribucion, por lo mismo que las piezas.
+-- Donde acaba cada pieza, donde estan los huecos y cada una de sus celdas, y un
+-- cuadrado de 64 px para comprobar el 1:1 de un vistazo. Se CREAN una vez y se
+-- COLOCAN en cada distribucion, por lo mismo que las piezas.
 
 local function Line(parent, r, g, b, a)
 	local t = parent:CreateTexture(nil, "OVERLAY")
@@ -384,6 +591,7 @@ local function BuildGuides()
 	guides = CreateFrame("Frame", "RTSBarGuides", bar)
 	guides:SetAllPoints(bar)
 	guides:EnableMouse(false)
+	guides:SetFrameLevel(bar:GetFrameLevel() + 9)
 	guides:Hide()
 
 	g.ref = Line(guides, 1, 1, 1, 0.25)
@@ -408,8 +616,8 @@ local function Box(edges, x, y, w, h)
 	end
 end
 
--- Las divisiones son tantas como piezas DIBUJADAS, y eso cambia con `grow`,
--- asi que se agrupan bajo demanda igual que las texturas.
+-- Las divisiones son tantas como piezas DIBUJADAS, y eso cambia con `grow`, asi
+-- que se agrupan bajo demanda igual que las texturas.
 local function Divider(i)
 	if not g.div[i] then
 		g.div[i] = Line(guides, 1, 0.2, 0.2, 0.85)
@@ -444,7 +652,7 @@ local function LayoutGuides()
 		div:Show()
 		lbl:ClearAllPoints()
 		lbl:SetPoint("BOTTOMLEFT", guides, "TOPLEFT", x + 2, 2)
-		lbl:SetText(("%s %d"):format(p.key, p.w))
+		lbl:SetText(("%s %d%s"):format(p.id, p.w, p.flip and " '" or ""))
 		lbl:Show()
 		x = x + p.w
 	end
@@ -466,15 +674,17 @@ local function LayoutGuides()
 			local cx, cy, cw, ch = SlotCell(s, c)
 			Box(rec.cells[c], cx, cy, cw, ch)
 		end
+		rec = rec or SlotGuide(i, 1)
 		for c = total + 1, #rec.cells do
 			for e = 1, 4 do rec.cells[c][e]:Hide() end
 		end
 
-		local sx, sy, sw, sh = SlotRect(s)
+		local sx, sy, sw, sh = SlotArea(s)
+		local cols, rows = SlotGrid(s)
 		rec.label:ClearAllPoints()
 		rec.label:SetPoint("TOPLEFT", guides, "TOPLEFT", sx + 3, -(sy + 3))
 		rec.label:SetText(("%s\n%dx%d%s"):format(s.label, sw, sh,
-			total > 1 and (" x%d"):format(total) or ""))
+			total > 1 and (" %dx%d"):format(cols, rows) or ""))
 	end
 
 	g.ref:ClearAllPoints()
@@ -554,8 +764,8 @@ function B:MaxScale()
 end
 
 -- La escala que pide el alto. NO depende del ancho del arte, y por eso se puede
--- calcular ANTES de decidir cuantas copias hay -- que es lo que rompe el pez
--- que se muerde la cola entre escala y `grow`.
+-- calcular ANTES de decidir cuantas copias hay -- que es lo que rompe el pez que
+-- se muerde la cola entre escala y `grow`.
 function B:ShareScale()
 	local h = ns.HUD.pixels
 	if not h or h <= 0 then return nil end
@@ -581,7 +791,7 @@ end
 local function WidthFor(n)
 	local w = 0
 	for _, p in ipairs(PIECES) do
-		w = w + (p.gap or 0) + p.w * ((p.key == GROW) and n or 1)
+		w = w + (p.gap or 0) + p.w * (p.grow and n or 1)
 	end
 	return w
 end
@@ -631,19 +841,69 @@ function B:Place()
 	bar:SetPoint("BOTTOM", UIParent, "BOTTOM", 0, self.cfg.pad)
 	-- El mapa se reescala con la barra: su hueco puede haber cambiado de tamano.
 	if self.active then
-		ns.HUD:HostMinimap(miniSlot, miniSlot:GetWidth())
+		ns.HUD:HostMinimap(miniSlot, MiniBox())
 		if ns.Portrait then ns.Portrait:Relayout() end
 	end
+	-- Y lo demas, que puede haber cambiado de NUMERO de celdas, no solo de
+	-- tamano: `fill` cuenta columnas contra un ancho que depende de `grow`.
+	Announce()
 end
 
 --- Entrar y salir ----------------------------------------------------------
 
+-- Los paneles de contenido, en el orden en que se leen de izquierda a derecha.
+-- Una lista y no siete llamadas sueltas: anadir un panel no deberia obligar a
+-- tocar `Enter` y `Leave` por separado y descubrir un mes despues que uno de los
+-- dos se quedo sin la linea.
+local function Panels()
+	return { ns.Rails, ns.Vitals, ns.Roster, ns.Foes, ns.Card, ns.Panel }
+end
+
+--- Los paneles flotantes de antes -----------------------------------------
+--
+-- `UnitBar` (retratos del grupo), `CommandCard` (rejilla 4x3) y `Targets`
+-- (lista de objetivos) dicen ahora lo mismo que la sala de la barra: grupo,
+-- acciones y enemigos. Dejarlos encima seria la misma informacion dos veces, y
+-- ademas flotando sobre el arte.
+--
+-- SE APARTAN, NO SE BORRAN. Siguen siendo la interfaz cuando la barra esta
+-- apagada (`/rts bar`), que es como se prueba media cosa.
+--
+-- Y SE DEVUELVEN AL ESTADO EN QUE ESTABAN, no con un `Show()` a ciegas: si el
+-- jugador tenia la carta escondida con `/rts toggle`, tiene que seguir
+-- escondida al salir. Es la misma regla dura que Chrome aplica a los frames de
+-- Blizzard y Camera a sus CVars, y las dos veces que se rompio fue por
+-- suponer el estado anterior en vez de guardarlo.
+local floatWas
+
+local function ParkFloating(park)
+	local list = { ns.UnitBar, ns.CommandCard, ns.Targets }
+
+	if park then
+		if floatWas then return end        -- ya apartados
+		floatWas = {}
+		for i, m in ipairs(list) do
+			local f = m and m.frame
+			if f then
+				floatWas[i] = f:IsShown()
+				f:Hide()
+			end
+		end
+		return
+	end
+
+	if not floatWas then return end
+	for i, m in ipairs(list) do
+		local f = m and m.frame
+		if f and floatWas[i] then f:Show() end
+	end
+	floatWas = nil
+end
+
 -- Sin retorno temprano a proposito: todo lo de dentro se puede repetir sin dano
 -- y hace falta poder repetirlo. Si /rts bar se enciende ANTES de entrar en modo
 -- RTS, el HUD todavia no existe, asi que esconder la huella y alojar el mapa no
--- tienen efecto; al entrar hay que volver a aplicarlo. Con un
--- `if self.active then return end` esa segunda pasada se perdia y la huella
--- reaparecia debajo del arte.
+-- tienen efecto; al entrar hay que volver a aplicarlo.
 function B:Enter()
 	self:Create()
 	self.active = true
@@ -652,10 +912,14 @@ function B:Enter()
 	-- aparta. La LINEA DE MENSAJES se queda: con el chat escondido por
 	-- Chrome.lua es el unico canal de diagnostico que hay.
 	ns.HUD:ShowFootprint(false)
-	ns.HUD:HostMinimap(miniSlot, miniSlot:GetWidth())
-	-- Guardado porque Bar.lua carga antes que Portrait.lua: al CARGAR no existe
-	-- todavia, al ENTRAR si.
+	ns.HUD:HostMinimap(miniSlot, MiniBox())
+	-- Se pregunta por `ns.X` en vez de guardarlo arriba porque Bar.lua carga
+	-- antes que los paneles: al CARGAR no existen todavia, al ENTRAR si.
 	if ns.Portrait then ns.Portrait:Host(hosts.portrait) end
+	for _, m in ipairs(Panels()) do
+		if m and m.Enter then m:Enter() end
+	end
+	ParkFloating(true)
 
 	self:Place()
 	if self.showGuides then guides:Show() else guides:Hide() end
@@ -670,6 +934,10 @@ function B:Leave()
 	-- con el panel visible y vacio.
 	ns.HUD:HostMinimap(nil)
 	if ns.Portrait then ns.Portrait:Host(nil) end
+	for _, m in ipairs(Panels()) do
+		if m and m.Leave then m:Leave() end
+	end
+	ParkFloating(false)
 	ns.HUD:ShowFootprint(true)
 end
 
@@ -698,8 +966,8 @@ local function Save(k, v)
 	RTSCommandDB.bar[k] = v
 end
 
--- El alto, en % de la pantalla. Acepta 20 o 0.20. Es la escala, y como `grow`
--- se elige DESPUES con esa escala, cambiar el alto puede cambiar la cuenta de
+-- El alto, en % de la pantalla. Acepta 20 o 0.20. Es la escala, y como `grow` se
+-- elige DESPUES con esa escala, cambiar el alto puede cambiar la cuenta de
 -- paneles -- que es justo lo que tiene que pasar.
 function B:SetShare(v)
 	self:Create()
@@ -717,7 +985,7 @@ function B:SetShare(v)
 	return true
 end
 
--- Cuantas copias de `middle-grow`. `auto` devuelve la eleccion al reparto
+-- Cuantas copias de la pieza central. `auto` devuelve la eleccion al reparto
 -- normal; un numero la fija y deja de seguir a `side`.
 function B:SetGrow(v)
 	self:Create()
@@ -764,6 +1032,16 @@ function B:PrintFit()
 		(h and h > 0) and (BAR_H * s / h * 100) or 0, (self.cfg.share or 0) * 100,
 		w > 0 and hueco / w * 100 or 0, (self.cfg.side or 0) * 100,
 		math.floor(hueco + 0.5), s))
+
+	-- Cuantas celdas han salido en lo que se estira. Es la consecuencia de
+	-- `grow` que se ve en pantalla, y la que no se deduce del margen.
+	local foes, card = SlotByKey("foes"), SlotByKey("card")
+	if foes and card then
+		local fc = SlotGrid(foes)
+		local cc, cr = SlotGrid(card)
+		ns.Print(("sala: |cffffff00%d|r enemigos  |cffffff00%dx%d|r acciones")
+			:format(fc, cc, cr))
+	end
 end
 
 -- Multiplicador a mano, o alto en pixeles. Se distinguen por el valor: nadie
@@ -802,8 +1080,8 @@ end
 -- El margen que se querria a cada lado, en % del ancho. Acepta 10 o 0.10.
 --
 -- NO RECORTA NADA: elige cuantas copias del panel central se dibujan. Bajarlo
--- suele meter un panel mas, subirlo quitarlo, y el salto es de 512 px de arte
--- de golpe -- por eso el margen que sale casi nunca es el pedido, y por eso se
+-- suele meter un panel mas, subirlo quitarlo, y el salto es de 512 px de arte de
+-- golpe -- por eso el margen que sale casi nunca es el pedido, y por eso se
 -- imprime.
 function B:SetSide(v)
 	self:Create()
@@ -835,16 +1113,22 @@ end
 
 function B:Report()
 	self:Create()
-	local missing = {}
+
+	-- Las que faltan son FICHEROS, no paneles: dos paneles comparten dibujo, y
+	-- decir "no carga minimap" dos veces no ayuda a nadie.
+	local vistos, files, missing = {}, 0, {}
 	for _, p in ipairs(PIECES) do
-		local lista = tex[p.key]
-		if not lista or not lista[1] or not lista[1]:GetTexture() then
-			table.insert(missing, p.key)
+		if not vistos[p.art] then
+			vistos[p.art] = true
+			files = files + 1
+			local lista = tex[p.id]
+			if not lista or not lista[1] or not lista[1]:GetTexture() then
+				table.insert(missing, p.art)
+			end
 		end
 	end
 
 	local s = self:ArtScale()
-	local w = BAR_W * s
 	ns.Print(("arte |cffffff00%d x %d|r   escala |cffffff00x%.3f|r %s  %s   " ..
 		"separacion de los railes %d px"):format(
 		BAR_W, BAR_H, s,
@@ -880,7 +1164,8 @@ function B:Report()
 		ns.Print(("suelo |cffffff00%d px|r"):format(self.cfg.pad))
 	end
 	if #missing == 0 then
-		ns.Print("las |cff00ff007 piezas|r cargaron.")
+		ns.Print(("las |cff00ff00%d piezas|r cargaron (7 paneles, 2 espejados)")
+			:format(files))
 	else
 		ns.Print(("|cffff0000NO cargan: %s|r"):format(table.concat(missing, ", ")))
 	end

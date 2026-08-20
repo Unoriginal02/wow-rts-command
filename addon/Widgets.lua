@@ -1,0 +1,226 @@
+--[[
+	Widgets.lua -- las cuatro piezas que todos los paneles de la barra repiten.
+
+	Una barra de estado, un texto, un boton de icono y el color de clase. Nada
+	mas. Existe porque los seis paneles nuevos (Vitals, Roster, Foes, Card,
+	Panel, Rails) los necesitaban todos, y la alternativa era la misma docena de
+	lineas copiada seis veces -- que es como se acaba con seis fuentes distintas
+	y cinco texturas de barra distintas en la misma pantalla.
+
+	TODAS LAS MEDIDAS SON PIXELES DE DIBUJO, no de pantalla. La barra es arte 2x
+	dibujado reducido (ver Bar.lua), asi que dentro de ella un texto de 22 se ve
+	como uno de 12. Los tamanos de aqui estan elegidos para eso, y por eso hay
+	`ns.W.FONT` en vez de un numero suelto en cada panel.
+
+	EL COLOR DE CLASE SE PREGUNTA POR TOKEN, NO POR NOMBRE. `RAID_CLASS_COLORS`
+	esta indexado por el token en ingles ("MAGE"), que es el SEGUNDO valor que
+	devuelve UnitClass -- el primero esta traducido y no vale como clave. Con el
+	cliente en espanol el primero es "Mago" y la tabla devuelve nil, que se ve
+	como "todas las barras grises" y no como un error.
+]]
+
+local ADDON, ns = ...
+
+local W = {}
+ns.W = W
+
+-- Tamanos de fuente en pixeles de DIBUJO. ~2x lo que se quiere ver.
+W.FONT = { tiny = 18, small = 22, normal = 26, big = 32 }
+
+-- La textura de barra del propio cliente. Lisa, con un brillo suave arriba, y
+-- es la que el jugador ya tiene en la retina de los marcos de objetivo.
+W.BAR_TEX = "Interface\\TargetingFrame\\UI-StatusBar"
+
+--- Colores ----------------------------------------------------------------
+
+local GREY = { r = 0.55, g = 0.55, b = 0.58 }
+
+-- El color de la clase de una unidad. Devuelve gris si no se sabe, nunca nil:
+-- un color que falta tiene que verse como "no lo se", no reventar el que lo usa.
+function W:ClassColor(unit)
+	if not unit or not UnitExists(unit) then return GREY end
+	local _, token = UnitClass(unit)
+	local c = token and RAID_CLASS_COLORS and RAID_CLASS_COLORS[token]
+	return c or GREY
+end
+
+-- El color de un tipo de poder. `PowerBarColor` existe en 3.3.5a pero no cubre
+-- los tipos raros, asi que la tabla es propia y corta -- son los cinco que un
+-- personaje jugable puede tener en WotLK.
+local POWER = {
+	[0] = { r = 0.20, g = 0.40, b = 0.90 },   -- mana
+	[1] = { r = 0.80, g = 0.20, b = 0.20 },   -- ira
+	[2] = { r = 1.00, g = 0.60, b = 0.20 },   -- concentracion
+	[3] = { r = 0.95, g = 0.90, b = 0.30 },   -- energia
+	[6] = { r = 0.00, g = 0.70, b = 0.90 },   -- poder runico
+}
+
+function W:PowerColor(unit)
+	local t = unit and UnitPowerType and UnitPowerType(unit) or 0
+	return POWER[t] or POWER[0]
+end
+
+--- Numeros ----------------------------------------------------------------
+
+-- 18400 -> "18,4k". En una barra de 256 px de dibujo no cabe "18400 / 23150" a
+-- un tamano legible, y el numero exacto no es lo que se mira de un vistazo.
+function W:Short(n)
+	n = tonumber(n) or 0
+	if n >= 1000000 then return ("%.1fM"):format(n / 1000000) end
+	if n >= 10000 then return ("%.0fk"):format(n / 1000) end
+	if n >= 1000 then return ("%.1fk"):format(n / 1000) end
+	return tostring(math.floor(n))
+end
+
+--- Piezas -----------------------------------------------------------------
+
+function W:Text(parent, size, layer)
+	local fs = parent:CreateFontString(nil, layer or "OVERLAY")
+	fs:SetFont(GameFontNormal:GetFont(), size or W.FONT.small, "OUTLINE")
+	fs:SetTextColor(1, 1, 1)
+	return fs
+end
+
+-- Una barra de estado con fondo negro y, si se pide, un texto encima. El fondo
+-- NO es opcional: sin el, una barra vacia es un agujero en el arte y no se
+-- distingue de una barra que no existe.
+function W:Bar(parent, withText)
+	local b = CreateFrame("StatusBar", nil, parent)
+	b:SetStatusBarTexture(W.BAR_TEX)
+	b:SetMinMaxValues(0, 1)
+	b:SetValue(1)
+
+	b.bg = b:CreateTexture(nil, "BACKGROUND")
+	b.bg:SetAllPoints()
+	b.bg:SetTexture(0, 0, 0, 0.7)
+
+	if withText then
+		b.text = self:Text(b, W.FONT.small)
+		b.text:SetPoint("LEFT", b, "LEFT", 6, 0)
+		b.right = self:Text(b, W.FONT.small)
+		b.right:SetPoint("RIGHT", b, "RIGHT", -6, 0)
+	end
+
+	return b
+end
+
+-- Poner una barra a una fraccion sin repetir la division ni el caso de max=0,
+-- que es lo que devuelve una unidad que acaba de aparecer.
+function W:Fill(b, cur, max)
+	local frac = (max and max > 0) and (cur / max) or 0
+	if frac < 0 then frac = 0 elseif frac > 1 then frac = 1 end
+	b:SetValue(frac)
+	return frac
+end
+
+function W:Color(b, c)
+	if c then b:SetStatusBarColor(c.r, c.g, c.b) end
+end
+
+-- Un boton de icono, del tamano que le digan. El recorte de 0.07 quita el borde
+-- que traen dibujado los iconos del cliente, para que quede a ras como los de la
+-- barra de acciones.
+--
+-- NO USA PLANTILLA. `ActionButtonTemplate` arrastra la maquinaria de hechizos y
+-- ademas es un frame PROTEGIDO: heredarlo aqui seria pedir que Blizzard bloquee
+-- la mitad de lo que hace este addon. Estos botones mandan texto por el canal de
+-- ordenes, que no esta protegido.
+function W:Button(parent, size, icon)
+	local b = CreateFrame("Button", nil, parent)
+	b:SetWidth(size)
+	b:SetHeight(size)
+
+	b.bg = b:CreateTexture(nil, "BACKGROUND")
+	b.bg:SetAllPoints()
+	b.bg:SetTexture(0, 0, 0, 0.55)
+
+	b.icon = b:CreateTexture(nil, "ARTWORK")
+	b.icon:SetPoint("TOPLEFT", b, "TOPLEFT", 3, -3)
+	b.icon:SetPoint("BOTTOMRIGHT", b, "BOTTOMRIGHT", -3, 3)
+	b.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+	if icon then b.icon:SetTexture(icon) end
+
+	b:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
+	b:SetPushedTexture("Interface\\Buttons\\UI-Quickslot-Depress")
+
+	b.label = self:Text(b, W.FONT.tiny)
+	b.label:SetPoint("BOTTOM", b, "BOTTOM", 0, 2)
+	b.label:SetJustifyH("CENTER")
+
+	return b
+end
+
+-- Encender y apagar un boton dejandolo VISIBLE pero apagado, que es distinto de
+-- esconderlo: una casilla vacia significa "no hay orden aqui" y una apagada
+-- "esta orden necesita algo que no tienes".
+function W:Enable(b, on)
+	if on then
+		b:Enable()
+		b.icon:SetVertexColor(1, 1, 1)
+		b.icon:SetAlpha(1)
+	else
+		b:Disable()
+		b.icon:SetVertexColor(0.4, 0.4, 0.4)
+		b.icon:SetAlpha(0.7)
+	end
+end
+
+-- El tooltip de un boton, en dos lineas. Repetido en los cuatro paneles con
+-- ordenes, asi que vive aqui.
+--
+-- EL TEXTO SE GUARDA EN EL BOTON Y LOS SCRIPTS SE PONEN UNA SOLA VEZ. Se llama
+-- desde los refrescos -- la fila de enemigos la llama por cada cuadrado cinco
+-- veces por segundo -- y crear dos cierres nuevos en cada llamada son cientos de
+-- funciones por segundo que solo existen para ser recogidas por el GC. Los
+-- manejadores leen `self.tipTitle`, asi que cambiar el texto no necesita
+-- cambiar el script.
+function W:Tip(b, title, body)
+	b.tipTitle, b.tipBody = title, body
+	if b.tipWired then return end
+	b.tipWired = true
+
+	b:SetScript("OnEnter", function(self)
+		if not self.tipTitle then return end
+		GameTooltip:SetOwner(self, "ANCHOR_TOP")
+		-- `SetOwner` NO borra las lineas anteriores, y con `AddLine` eso
+		-- significa que el tooltip crece cada vez que se pasa por encima. Es lo
+		-- que hace `CommandCard.lua` desde la etapa 5a y nadie lo ha mirado de
+		-- cerca; aqui va con ClearLines desde el principio.
+		GameTooltip:ClearLines()
+		GameTooltip:AddLine(self.tipTitle)
+		if self.tipBody then
+			GameTooltip:AddLine(self.tipBody, 0.8, 0.8, 0.8, 1)
+		end
+		GameTooltip:Show()
+	end)
+	b:SetScript("OnLeave", function() GameTooltip:Hide() end)
+end
+
+--- Latido -----------------------------------------------------------------
+
+-- Un temporizador compartido. Los paneles quieren refrescar vida, poder y
+-- estado varias veces por segundo, y hacerlo con eventos son cuarenta registros
+-- (UNIT_HEALTH, UNIT_MANA, UNIT_RAGE, UNIT_ENERGY, UNIT_RUNIC_POWER,
+-- UNIT_MAXMANA...) que aun asi no cubren "el bot se ha movido".
+--
+-- UN SOLO OnUpdate, no uno por panel. Cinco OnUpdate con su propio acumulador
+-- son cinco sitios donde ajustar el ritmo y cinco veces el coste de la llamada.
+local ticks = {}
+local acc = 0
+local heart
+
+function W:Every(fn)
+	table.insert(ticks, fn)
+	if not heart then
+		heart = CreateFrame("Frame", "RTSWidgetHeartbeat")
+		heart:SetScript("OnUpdate", function(_, e)
+			acc = acc + e
+			if acc < 0.2 then return end
+			acc = 0
+			for _, f in ipairs(ticks) do
+				-- Un panel que falle no puede parar el latido de los demas.
+				pcall(f)
+			end
+		end)
+	end
+end

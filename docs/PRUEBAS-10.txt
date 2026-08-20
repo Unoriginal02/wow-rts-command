@@ -1,0 +1,306 @@
+RTS COMMAND - LISTA DE PRUEBAS  #10
+Generada 2026-08-20   ·   addon 0.33.0 · mod-rts sin tocar · rts_core sin tocar
+
+QUE HAY EN ESTA RONDA
+  La barra de abajo, LLENA. Arte nuevo (cuatro piezas, dos usadas dos veces y
+  una espejada) y siete modulos de contenido dentro de ella.
+
+  De izquierda a derecha:
+    rail izq    6 botones del minimapa: mapa, rastreo, zoom +, zoom -,
+                calendario, aviso de correo
+    minimapa    el de verdad, cuadrado, 452x452 de dibujo
+    sala        retrato 3D del heroe + sus barras | 4 filas de grupo |
+                fila de enemigos / divisor / 2 filas de acciones
+    ordenes     rejilla 3x3: 8 ordenes al GRUPO ENTERO, y abajo a la derecha
+                SALIR del modo RTS
+    rail der    6 botones del juego: ficha, talentos, libro, misiones, bolsas,
+                menu
+
+  Ficheros nuevos: Widgets.lua Vitals.lua Roster.lua Foes.lua Card.lua
+                   Panel.lua Rails.lua      (+ Bar.lua recompuesto)
+
+  Borrados del repo: los 6 TGA de la exportacion anterior que ya no se usan.
+
+LO QUE YA ESTA COMPROBADO Y NO HACE FALTA MIRAR
+  - La GEOMETRIA. El reparto se simulo fuera del juego a pantalla completa y en
+    ventana maximizada: areas, celdas, solapes y desbordes. Nada se sale de su
+    hueco, los tres bloques de la sala dejan 16 px entre ellos, y en las dos
+    resoluciones salen 4 paneles centrales (margen 10,3% y 11,6%).
+  - La SINTAXIS y el orden de las locales: check_addon.py, 30 ficheros, limpio.
+  Asi que si algo sale mal aqui, NO es una medida: es una llamada del cliente
+  que no se puede probar desde fuera. Eso acota mucho.
+
+ANTES DE EMPEZAR
+  1. rts-tools\Deploy_Addon.bat  (ya ejecutado)
+  2. Arrancar con rts-tools\2-Jugar.bat  (desde el Explorador, no Git Bash)
+  3. /rts version  ->  addon 0.33.0
+  4. Fuera de combate, en una ciudad, con 2-4 bots en el grupo
+  5. Entrar en modo RTS con la tecla de siempre
+
+  Si al entrar NO sale la barra nueva sino la huella con la rejilla vacia, es
+  que el arte no carga: /rts bar status lo dice en una linea.
+
+---------------------------------------------------------------------------
+A. EL ARTE
+---------------------------------------------------------------------------
+
+[ ] A1  La barra sale entera y sin costuras: los dos railes sueltos, los dos
+        paneles cuadrados, y el centro mas bajo con los dos hombros bajando.
+        notas:
+        FALLO = si hay una costura vertical en el centro, la pieza `middle` no
+        empalma consigo misma y hay que reexportarla. Si falta un panel entero,
+        /rts bar status dice que fichero no carga.
+
+[ ] A2  Los dos hombros (`ramp`) apuntan cada uno hacia su lado: el izquierdo
+        baja de izquierda a derecha, el derecho de derecha a izquierda.
+        notas:
+        FALLO = si los dos apuntan igual, el espejo (SetTexCoord) no se aplico;
+        si apuntan al contrario, hay que espejar el otro.
+
+[ ] A3  /rts bar status dice "las 4 piezas cargaron (7 paneles, 2 espejados)" y
+        un margen de ~10%.
+        notas:
+
+[ ] A4  /rts bar guides encima: cada hueco lleva su nombre y sus medidas, y las
+        celdas de las rejillas caen DENTRO del hueco oscuro del arte, sin pisar
+        el bisel.
+        notas:
+        Es la prueba que valida la tabla HOLE de un vistazo. Si una rejilla se
+        monta en el borde, ese hueco esta mal medido.
+
+[ ] A5  /rts bar grow 5 y luego grow 3: la barra se ensancha y se estrecha, y
+        SOLO cambian cuantos enemigos y cuantas acciones caben. El retrato, las
+        barras del heroe y las filas del grupo NO cambian de tamano.
+        notas:
+        FALLO = si el retrato crece, algun hueco esta usando `toPiece` cuando
+        deberia tener ancho fijo.
+
+[ ] A6  /rts bar grow 1 (el caso raro): la barra sale corta y la parte de
+        enemigos y acciones desaparece LIMPIAMENTE, sin botones flotando sobre
+        el hombro derecho. Luego /rts bar grow auto.
+        notas:
+
+---------------------------------------------------------------------------
+B. EL HEROE (retrato + barras)
+---------------------------------------------------------------------------
+
+[ ] B1  El retrato 3D sale en su hueco, vivo (respira, se mueve).
+        notas:
+        Si sale el cuerpo entero y no la cara, es el encuadre de la etapa
+        anterior: /rts portrait try va pasando por los siete encuadres.
+
+[ ] B2  Debajo: vida con tu nombre y nivel dentro y la cantidad a la derecha,
+        poder con su color (azul mana / rojo ira / amarillo energia / cian
+        poder runico), y una raya dorada fina de experiencia abajo.
+        notas:
+
+[ ] B3  Gastar vida y poder: las dos barras se mueven en menos de medio segundo.
+        notas:
+        Van por el latido compartido a 5 Hz, no por eventos.
+
+[ ] B4  El renglon del recurso de clase (entre poder y experiencia):
+          - picaro o druida en forma: 5 casillas amarillas, se encienden al
+            acumular puntos de combate
+          - caballero de la muerte: 6 casillas con el color de cada runa
+          - cualquier otra clase: el hueco esta vacio pero SIGUE AHI (la
+            experiencia no sube de sitio)
+        notas:
+        FALLO en picaro = GetComboPoints se esta llamando con la firma que este
+        cliente no entiende. No da error, devuelve nil. Es el fallo mas probable
+        de toda la ronda.
+
+[ ] B5  A nivel 80: la raya de experiencia se queda apagada, no desaparece.
+        notas:
+
+[ ] B6  Seleccionar tu propio personaje (click en el mundo): la barra de vida
+        del heroe se rodea de un marco amarillo, igual que las filas del grupo.
+        notas:
+
+---------------------------------------------------------------------------
+C. EL GRUPO
+---------------------------------------------------------------------------
+
+[ ] C1  Una fila por bot, con su nombre y nivel dentro de la barra de vida, en
+        el COLOR DE SU CLASE, y la barra de poder debajo.
+        notas:
+        FALLO = si TODAS salen grises, el color se esta pidiendo por el nombre
+        de clase traducido en vez de por el token en ingles.
+
+[ ] C2  Click en una fila: ese bot queda seleccionado (marco amarillo en la
+        fila, halo en el mundo) y la carta de acciones cambia.
+        notas:
+
+[ ] C3  Shift-click o ctrl-click en otra fila: se SUMA a la seleccion, no la
+        reemplaza.
+        notas:
+
+[ ] C4  Un bot muerto pone "muerto" en rojo a la derecha y su barra a cero.
+        notas:
+
+[ ] C5  Meter y sacar un bot del grupo (.playerbots bot add / remove): las filas
+        se rehacen sin dejar ninguna vacia ni con datos del anterior.
+        notas:
+
+---------------------------------------------------------------------------
+D. LOS ENEMIGOS
+---------------------------------------------------------------------------
+
+[ ] D1  Con un objetivo hostil seleccionado, aparece el primer cuadrado, con su
+        CARA de verdad (es tu objetivo, asi que el cliente da su retrato) y su
+        barrita de vida roja debajo.
+        notas:
+
+[ ] D2  En combate con varios: sale uno por enemigo, y los que llevan mas de una
+        unidad tuya encima llevan un numero amarillo en la esquina.
+        notas:
+        FALLO = si solo sale tu objetivo, no esta llegando TGTS del servidor;
+        /rts targets lo enciende y apaga, /rts debug ensena los mensajes.
+
+[ ] D3  Click en un cuadrado que NO es tu objetivo: la seleccion va a por el.
+        notas:
+        Esto usa ATTACK con guid, que necesita mod-rts. Sin el cae al `attack`
+        de siempre, que solo vale para TU objetivo -- y entonces esta prueba
+        parece un fallo del panel y no lo es.
+
+[ ] D4  Los enemigos muertos desaparecen de la fila en medio segundo.
+        notas:
+
+---------------------------------------------------------------------------
+E. LA CARTA DE ACCIONES (dos filas, bajo el divisor)
+---------------------------------------------------------------------------
+
+[ ] E1  Sin nada seleccionado: la fila de arriba esta APAGADA (gris) pero
+        visible, y la de las marcas encendida.
+        notas:
+        Apagado y vacio son cosas distintas a proposito: vacio = "aqui no hay
+        orden", apagado = "esta orden necesita algo que no tienes".
+
+[ ] E2  Con un bot seleccionado se enciende la fila de arriba: Mover, Quieto,
+        Seguir, Atacar, Traer, Tanque, A saco, Huir, Cazar. Pulsar Quieto y
+        Seguir hace lo que dice.
+        notas:
+
+[ ] E3  Fila de abajo: los 8 iconos de marca del juego (estrella, circulo,
+        rombo, triangulo, luna, cuadrado, cruz, craneo) SIN recortar -- se ven
+        enteros, no con las puntas cortadas.
+        notas:
+
+[ ] E4  Con un objetivo hostil, click en la marca CRANEO: aparece el craneo
+        sobre el bicho Y los bots seleccionados van a por el.
+        notas:
+        FALLO en la mitad del icono = SetRaidTarget no existe con ese nombre en
+        este cliente (se prueba tambien SetRaidTargetIcon).
+
+[ ] E5  Click DERECHO en la marca LUNA: pone la luna y manda `rti cc moon`.
+        Con un mago seleccionado, deberia acabar convirtiendo en oveja al de la
+        luna cuando toque.
+        notas:
+        Es la peticion original. La mitad del bot depende de su IA, no del
+        addon: si la marca se pone y el mensaje sale, esta prueba ya paso.
+
+[ ] E6  Con UN SOLO bot seleccionado, detras de las marcas salen 5 hechizos de
+        SU clase (mago: Oveja, Contra, Nova, Hielo, Parpadeo). Con dos bots
+        seleccionados desaparecen.
+        notas:
+
+[ ] E7  Pulsar un hechizo: el bot lo lanza (o dice por que no puede).
+        notas:
+
+[ ] E8  Si algun icono sale en blanco, apuntar CUAL. La etiqueta de debajo sigue
+        diciendo que es, asi que se puede seguir jugando.
+        notas:
+
+---------------------------------------------------------------------------
+F. LAS NUEVE ORDENES GLOBALES (panel cuadrado de la derecha)
+---------------------------------------------------------------------------
+
+[ ] F1  Nueve botones grandes, 3x3, con su etiqueta. El de abajo a la derecha
+        dice "Salir" y esta en rojo.
+        notas:
+
+[ ] F2  Seguir y Quieto funcionan SIN NADA SELECCIONADO: van al grupo entero.
+        Es la diferencia con la fila de arriba de la carta.
+        notas:
+        FALLO = si dicen "No units selected", estan usando Send en vez de
+        Broadcast.
+
+[ ] F3  Formar abre la lista de las 9 formaciones ENCIMA del boton, y elegir una
+        la aplica y cierra la lista.
+        notas:
+
+[ ] F4  Reunir trae a todo el grupo a donde estas.
+        notas:
+
+[ ] F5  Salir devuelve la interfaz de Blizzard completa y la camara al
+        personaje. LA PRUEBA IMPORTANTE DE LA RONDA: si algo no vuelve, afecta
+        al juego normal.
+        notas:
+
+---------------------------------------------------------------------------
+G. LOS DOS RAILES
+---------------------------------------------------------------------------
+
+[ ] G1  /rts rails: doce lineas, cada una con el frame del cliente del que salio
+        su icono. Ningun interrogante.
+        notas:
+        Un interrogante NO es un fallo grave: ese boton sigue funcionando, solo
+        lleva el icono de desconocido. Apuntar cual.
+
+[ ] G2  Rail izquierdo: Mapa abre el mapa del mundo. Zoom + y - acercan y alejan
+        el minimapa de la barra. Dias abre el calendario. Rastro abre el
+        desplegable de rastreo.
+        notas:
+
+[ ] G3  El boton de Correo esta apagado sin correo y se enciende (amarillo) con
+        correo sin leer.
+        notas:
+
+[ ] G4  Rail derecho: Ficha, Talentos, Libro, Mision y Bolsas abren su ventana
+        estando en modo RTS -- las ventanas se ven aunque el resto de la
+        interfaz este escondida.
+        notas:
+        Esto es lo que valida la OPCION B del estudio: ocultado selectivo, las
+        ventanas siguen funcionando solas.
+
+[ ] G5  Menu abre el menu del juego (lo mismo que Escape).
+        notas:
+
+[ ] G6  Los iconos de los micro-botones se ven con su forma (altos y estrechos,
+        centrados), no estirados a cuadrado.
+        notas:
+
+---------------------------------------------------------------------------
+H. LO QUE SE APARTO, Y VOLVER
+---------------------------------------------------------------------------
+
+[ ] H1  Al entrar en modo RTS, los tres paneles flotantes de antes (retratos del
+        grupo, rejilla 4x3, lista de objetivos) NO se ven: lo dice la sala.
+        notas:
+
+[ ] H2  /rts bar (apaga el arte): vuelven los tres paneles flotantes y la huella
+        de medir. /rts bar otra vez: vuelve la barra y se apartan.
+        notas:
+
+[ ] H3  Si antes de entrar tenias la rejilla flotante ESCONDIDA (/rts toggle),
+        al salir del modo RTS sigue escondida -- no reaparece.
+        notas:
+        Es la regla dura: se devuelve al estado en que estaba, no con un Show()
+        a ciegas.
+
+[ ] H4  La caja de seleccion (ctrl + arrastrar) sigue funcionando por encima de
+        la barra: el ARTE no se come los clicks, solo los botones.
+        notas:
+
+[ ] H5  Nada de esto imprime errores de Lua. scriptErrors esta a 1, asi que si
+        hay uno sale con numero de linea: copiarlo tal cual.
+        notas:
+
+---------------------------------------------------------------------------
+LO QUE DECIDE ESTA RONDA
+---------------------------------------------------------------------------
+  1. B4 dice si GetComboPoints se esta llamando bien en este cliente.
+  2. E4 dice cual de los dos nombres de SetRaidTarget existe.
+  3. G1 dice cuantos iconos de los railes hay que escribir a mano.
+  4. D2/D3 dicen si la fila de enemigos necesita mod-rts para ser util.
+  5. A5 y A6 dicen si el reparto fijo/estirado de la sala es el correcto, o si
+     el retrato y el grupo deberian crecer tambien.

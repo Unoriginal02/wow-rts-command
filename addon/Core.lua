@@ -264,6 +264,8 @@ local HELP = {
 	"|cffffff00/rts ui|r - que se esconde al entrar en modo RTS, y las medidas de la HUD",
 	"|cffffff00/rts art|r - visor de texturas del cliente (para vestir la HUD sin dibujar)",
 	"|cffffff00/rts skin|r - aspecto WC3 o plano; |cffffff00/rts skin wall <ruta>|r cambia una pieza",
+	"|cffffff00/rts bar|r - la barra de abajo: |cffffff00share|r alto, |cffffff00side|r margen, |cffffff00grow|r paneles, |cffffff00guides|r medidas",
+	"|cffffff00/rts rails|r - de que frame del cliente salio el icono de cada boton de los railes",
 	"|cffffff00/rts reset|r - move panels back to their default position",
 	"Bind keys under Key Bindings -> RTS Command.",
 }
@@ -535,6 +537,12 @@ SlashCmdList["RTSCOMMAND"] = function(msg)
 		else
 			ns.Bar:Report()
 		end
+
+	elseif cmd == "rails" or cmd == "railes" then
+		-- Los iconos de los railes se le piden al cliente, asi que la pregunta
+		-- util no es "que ruta se uso" sino "de que frame salio" -- y si alguno
+		-- no estaba, cual lleva interrogante.
+		ns.Rails:Report()
 
 	elseif cmd == "portrait" or cmd == "retrato" then
 		-- El modelo 3D del heroe en el hueco del retrato. Los ajustes son de

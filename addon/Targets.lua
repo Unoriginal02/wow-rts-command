@@ -119,6 +119,17 @@ function T:OnDataEnd()
 	self:Refresh()
 end
 
+-- La lista tal cual, para quien quiera dibujarla de otra forma. `Foes.lua` pinta
+-- los hostiles como cuadrados en la barra del modo RTS y este panel flotante
+-- sigue existiendo para cuando la barra esta apagada.
+--
+-- DEVUELVE LA TABLA VIVA, no una copia: se reemplaza entera en cada `TGTS`, asi
+-- que quien la guarde se queda con la de hace medio segundo. Se pide en cada
+-- refresco, no se cachea.
+function T:Entries()
+	return entries
+end
+
 function T:Refresh()
 	if not frame then return end
 

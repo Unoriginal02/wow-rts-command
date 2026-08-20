@@ -1043,3 +1043,28 @@ fallar (prueba B6).
 `facing <grados>`, `scale <n>`, `light on|off`, `refresh`, `default`. Todos en
 vivo y guardados — el encuadre de un modelo 3D se busca mirándolo, no
 calculándolo.
+
+---
+
+## 13. LA TERCERA EXPORTACIÓN — 2026-08-20
+
+Cuatro piezas en vez de siete (dos se usan dos veces, una espejada) y la sala
+llena: retrato 3D, barras del héroe, barras del grupo, fila de enemigos, carta de
+acciones, nueve órdenes globales y los dos raíles de botones.
+
+Está escrito aparte, en **`UI-RTS-SALA.md`**, porque no es una corrección de este
+documento: es la continuación. Aquí se decidió la ALTURA de la barra y cómo se
+parte el arte; allí, qué hay dentro y de dónde sale cada número.
+
+Lo que este documento se lleva por delante:
+
+- **La tabla de piezas del apartado 9 ya no vale.** `bar-centre`,
+  `left-hero-portrait`, `left-map`, `right-bot-actions` y `right-embellishment`
+  no existen; sus TGA están borrados del repo. Lo que hay es `left-bar`,
+  `minimap`, `middle` y `ramp`.
+- **La rejilla 4x3 de la carta tampoco.** Ahora son dos filas de tantas columnas
+  como quepan (13x2 en esta pantalla), y las órdenes globales van en una rejilla
+  3x3 propia en el panel cuadrado de la derecha.
+- **El ancho sigue siendo `1568 + 512N`** con la misma mecánica del apartado 11
+  (el alto es la escala, el ancho son los paneles). Solo han cambiado los
+  sumandos.
