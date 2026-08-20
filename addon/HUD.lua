@@ -348,9 +348,9 @@ local function GrabMinimap()
 		end
 	end
 
-	Minimap:SetParent(miniPanel)
+	Minimap:SetParent(H.host or miniPanel)
 	Minimap:ClearAllPoints()
-	Minimap:SetPoint("CENTER", miniPanel, "CENTER", 0, 0)
+	Minimap:SetPoint("CENTER", H.host or miniPanel, "CENTER", 0, 0)
 	Minimap:SetMaskTexture("Interface\\Buttons\\WHITE8X8")
 	-- El ESTRATO se hereda del nuevo padre solo, asi que no se toca: ponerselo
 	-- a mano seria una cosa mas que devolver al salir. El NIVEL no se hereda, y
@@ -403,7 +403,10 @@ local function Layout()
 	-- redimensionarse: cambiar el TAMANO del Minimap cambia cuanto mundo se ve,
 	-- escalarlo no -- y para juzgar la distribucion interesa que la vista sea
 	-- la misma de siempre, solo mas grande.
-	if miniWas then
+	-- Si el mapa vive en el hueco del arte (Bar.lua), su tamano lo manda el
+	-- arte y no esta distribucion: reescalarlo aqui lo sacaria del marco en
+	-- cuanto se toque cualquier medida de la huella.
+	if miniWas and not H.host then
 		-- El hueco util depende del marco: el dorado de WC3 es mucho mas gordo
 		-- que el fino, y si nadie lo pregunta el mapa se dibuja por debajo.
 		local inner = c.mini - ns.Skin:Inset() * 2
@@ -559,6 +562,50 @@ end
 -- marco cambia el hueco util, asi que el minimapa hay que reescalarlo.
 function H:Relayout()
 	Layout()
+end
+
+-- La HUELLA son los dos paneles de medir: el del minimapa y la tira de la
+-- barra de control. Bar.lua los aparta cuando pone el arte de verdad encima,
+-- porque eran su sustituto provisional.
+--
+-- Lo que NO se aparta es la linea de mensajes: con el chat escondido por
+-- Chrome.lua es el unico canal de diagnostico del addon, asi que se queda
+-- puesta pase lo que pase. Es el aviso del apartado 2.2 del estudio.
+-- Donde vive el Minimap mientras el modo RTS esta puesto. Por defecto el panel
+-- de la huella; Bar.lua pide su propio hueco cuando pone el arte encima.
+--
+-- EL CAMINO DE VUELTA NO CAMBIA, y es a proposito: ReleaseMinimap sigue
+-- devolviendolo al padre de Blizzard que guardo miniWas la primera vez. Asi
+-- que mover el anfitrion NO anade una forma nueva de dejarselo puesto al
+-- salir -- que es el fallo grave que persigue la prueba A2. Un anfitrion mas
+-- es un SetParent mas, no una ruta de restauracion mas.
+function H:HostMinimap(frame, inner)
+	self.host = frame
+	if not miniWas then return end   -- todavia no se ha entrado en modo RTS
+
+	local parent = frame or miniPanel
+	Minimap:SetParent(parent)
+	Minimap:ClearAllPoints()
+	Minimap:SetPoint("CENTER", parent, "CENTER", 0, 0)
+	Minimap:SetFrameLevel(parent:GetFrameLevel() + 3)
+
+	-- El mapa se ESCALA, nunca se redimensiona: cambiar su tamano cambia
+	-- cuanto mundo se ve, y el hueco del arte quiere la vista de siempre, solo
+	-- mas grande o mas pequena.
+	local box = inner or (self.cfg.mini - ns.Skin:Inset() * 2)
+	Minimap:SetScale(box / (miniWas.w > 0 and miniWas.w or 140))
+end
+
+function H:ShowFootprint(on)
+	self.footprint = on and true or false
+	if not miniPanel then return end
+	if on then
+		miniPanel:Show()
+		strip:Show()
+	else
+		miniPanel:Hide()
+		strip:Hide()
+	end
 end
 
 function H:Enter()

@@ -2,7 +2,7 @@
 ## Title: RTS Command
 ## Notes: RTS-style command layer for playerbots. Unit selection, control groups, WC3-style command card.
 ## Author: Jairo
-## Version: 0.26.0
+## Version: 0.32.0
 ## SavedVariables: RTSCommandDB
 
 Bridge.lua
@@ -22,6 +22,8 @@ RTSMode.lua
 Skin.lua
 Chrome.lua
 HUD.lua
+Bar.lua
+Portrait.lua
 Art.lua
 UnitBar.lua
 CommandCard.lua

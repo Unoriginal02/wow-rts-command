@@ -240,6 +240,8 @@ local HELP = {
 	"|cffffff00/rts markers|r - halo that follows the mouse pointer (off by default)",
 	"|cffffff00/rts command|r - borrow the selected bot's action bar and cast as them",
 	"|cffffff00/rts targets|r - panel with everything the group is engaged with",
+	"|cffffff00/rts bar|r - la barra de arte; |cffffff00share|r alto, |cffffff00side|r margen, |cffffff00grow|r paneles, |cffffff00guides|r medidas",
+	"|cffffff00/rts portrait|r - modelo 3D del heroe en el hueco del retrato; |cffffff00cam/zoom/x/y/facing|r lo encuadran",
 	"|cffffff00/rts self|r - your own character fights with the playerbots AI; |cffffff00auto|r / |cffffff00status|r",
 	"|cffffff00/rts loot|r - botin libre para todo el grupo (free-for-all)",
 	"|cffffff00/rts tri|r - green triangle over heads (parked; |cffffff00/rts tri help|r)",
@@ -469,6 +471,97 @@ SlashCmdList["RTSCOMMAND"] = function(msg)
 			ns.Print("|cffffff00/rts ui chatline|r - copiar el chat a la linea de mensajes")
 			ns.Print("|cffffff00/rts ui height / mini / pad / gap / right <px>|r - medidas")
 			ns.Print("|cffffff00/rts ui default|r - devolver las medidas")
+		end
+
+	elseif cmd == "bar" or cmd == "barra" then
+		-- El arte de verdad de la barra inferior: siete TGA a tamano nativo,
+		-- con la pieza central repetible.
+		-- Separado de /rts ui porque aquel mide huecos y este ensena el dibujo;
+		-- encender uno aparta la huella del otro.
+		local sub, arg = rest:match("^(%S*)%s*(%S*)$")
+		sub = (sub or ""):lower()
+		if sub == "" then
+			ns.Bar:Toggle()
+		elseif sub == "status" or sub == "?" then
+			ns.Bar:Report()
+		elseif sub == "guides" or sub == "guias" then
+			ns.Bar:ToggleGuides()
+		elseif sub == "scale" or sub == "escala" or sub == "size" then
+			-- Acepta multiplicador (0.55) o alto en pixeles (288). Apaga el
+			-- derivado del alto; `/rts bar share 20` lo devuelve.
+			if not ns.Bar:SetScale(arg) then
+				ns.Print("|cffffff00/rts bar scale <n>|r multiplicador, o " ..
+					"|cffffff00<px>|r alto en pixeles. Prueba 0.56, 0.5, 288")
+				ns.Bar:Report()
+			end
+		elseif sub == "share" or sub == "alto" then
+			-- El alto, que es la escala. `grow` se elige DESPUES con esa
+			-- escala, asi que cambiar el alto puede cambiar los paneles.
+			if not ns.Bar:SetShare(arg) then
+				ns.Print("|cffffff00/rts bar share <%>|r - alto en % de la " ..
+					"pantalla. WC3 ~25, SC2 ~22. Prueba 20, 22, 25")
+				ns.Bar:Report()
+			end
+		elseif sub == "grow" or sub == "crecer" or sub == "paneles" then
+			-- Cuantas copias de la pieza central. Es la unica que empalma sin
+			-- costura, asi que es por donde la barra se hace mas ancha. Por
+			-- defecto la cuenta la elige `side`; esto la fija a mano.
+			if not ns.Bar:SetGrow(arg) then
+				ns.Print("|cffffff00/rts bar grow <n>|r - copias del panel " ..
+					"central, de 1 a 8, o |cffffff00auto|r para que la elija " ..
+					"el margen. Cada copia son 512 px mas de arte.")
+				ns.Bar:Report()
+			end
+		elseif sub == "side" or sub == "lados" then
+			-- No recorta: elige cuantos paneles centrales se dibujan para
+			-- acercarse a ese margen. `pad` es solo el suelo.
+			if not ns.Bar:SetSide(arg) then
+				ns.Print("|cffffff00/rts bar side <%>|r - margen que se quiere " ..
+					"a cada lado. Decide los paneles del centro, no recorta. " ..
+					"Prueba 10, 8, 6")
+				ns.Bar:Report()
+			end
+		elseif sub == "wide" or sub == "ancho" or sub == "fill" then
+			-- Todo lo ancho que quepa: es pedir el margen minimo, no un modo.
+			ns.Bar:FitWidth()
+		elseif sub == "default" or sub == "defaults" then
+			ns.Bar:Reset()
+		elseif sub == "pad" then
+			if ns.Bar:SetPad(arg) then
+				ns.Bar:Report()
+			else
+				ns.Print(("|cffffff00/rts bar pad <px>|r - ahora %d"):format(ns.Bar.cfg.pad))
+			end
+		else
+			ns.Bar:Report()
+		end
+
+	elseif cmd == "portrait" or cmd == "retrato" then
+		-- El modelo 3D del heroe en el hueco del retrato. Los ajustes son de
+		-- ENCUADRE y se buscan a ojo, asi que todos son en vivo y se guardan.
+		local sub, arg = rest:match("^(%S*)%s*(%S*)$")
+		sub = (sub or ""):lower()
+		if sub == "" or sub == "status" or sub == "?" then
+			ns.Portrait:Report()
+		elseif sub == "try" or sub == "probar" or sub == "encuadre" then
+			-- Pasar al siguiente encuadre de la tabla. Existe porque los signos de
+			-- SetPosition no estan documentados en 3.3.5a: se mira, no se deduce.
+			ns.Portrait:Framing(arg ~= "" and arg or nil)
+		elseif sub == "refresh" or sub == "rearmar" then
+			ns.Portrait:Refresh()
+		elseif sub == "default" or sub == "defaults" then
+			ns.Portrait:Reset()
+		elseif sub == "cam" or sub == "camara" or sub == "zoom" or sub == "x"
+		    or sub == "y" or sub == "facing" or sub == "giro"
+		    or sub == "scale" or sub == "escala" or sub == "light" or sub == "luz" then
+			local k = ({ camara = "cam", giro = "facing", escala = "scale",
+			             luz = "light" })[sub] or sub
+			if not ns.Portrait:Set(k, arg) then
+				ns.Print("|cffffff00/rts portrait " .. sub .. " <n>|r - hace falta un numero")
+				ns.Portrait:Report()
+			end
+		else
+			ns.Portrait:Report()
 		end
 
 	elseif cmd == "skin" or cmd == "piel" then

@@ -915,11 +915,17 @@ function R:Toggle()
 		-- porque saca el Minimap de MinimapCluster antes de que Chrome esconda
 		-- el cluster entero.
 		ns.HUD:Enter()
+		-- El arte va INMEDIATAMENTE despues del HUD y antes de Chrome. Entrar
+		-- en modo RTS tiene que dar la interfaz de verdad, no la huella de
+		-- medir: la huella era el sustituto mientras no habia arte, y ya lo
+		-- hay. Bar aparta la huella y se lleva el Minimap a su hueco.
+		ns.Bar:Enter()
 		ns.Chrome:Enter()
 	else
 		-- Devolver la interfaz de Blizzard lo primero: si algo de lo que viene
 		-- despues falla, el jugador se queda con su UI en vez de sin ella.
 		ns.Chrome:Leave()
+		ns.Bar:Leave()
 		ns.HUD:Leave()
 		catcher:Hide()
 		ReleaseCapture()
