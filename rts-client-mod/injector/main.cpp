@@ -6,6 +6,7 @@
 #include <windows.h>
 #include <tlhelp32.h>
 
+#include <cstdint>
 #include <cstdio>
 #include <string>
 
@@ -13,6 +14,45 @@ namespace {
 
 const wchar_t* kTargetExe = L"Wow.exe";
 const wchar_t* kDllName = L"rts_core.dll";
+
+// Base address of a module already loaded in the target, or 0.
+//
+// This is the difference between "injected" and "was already in there". A second
+// LoadLibraryW on a DLL the process already holds returns the EXISTING handle --
+// non-zero, indistinguishable from success -- but DllMain does NOT run again, so
+// nothing re-initialises and nothing new reaches the log. Reporting that as a
+// fresh injection is how the launcher ended up validating the previous session's
+// log and calling it this one's.
+uintptr_t FindRemoteModule(DWORD pid, const wchar_t* name) {
+    // TH32CS_SNAPMODULE32 so this works whichever way the OS enumerates a 32-bit
+    // target. The snapshot fails with ERROR_BAD_LENGTH while the target is still
+    // loading modules -- which is exactly when we ask -- so retry briefly.
+    for (int attempt = 0; attempt < 10; ++attempt) {
+        HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32, pid);
+        if (snap == INVALID_HANDLE_VALUE) {
+            if (GetLastError() != ERROR_BAD_LENGTH) return 0;
+            Sleep(50);
+            continue;
+        }
+
+        MODULEENTRY32W me = {};
+        me.dwSize = sizeof(me);
+
+        uintptr_t base = 0;
+        if (Module32FirstW(snap, &me)) {
+            do {
+                if (_wcsicmp(me.szModule, name) == 0) {
+                    base = reinterpret_cast<uintptr_t>(me.modBaseAddr);
+                    break;
+                }
+            } while (Module32NextW(snap, &me));
+        }
+
+        CloseHandle(snap);
+        return base;
+    }
+    return 0;
+}
 
 DWORD FindProcess(const wchar_t* exeName) {
     HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
@@ -82,6 +122,16 @@ int wmain(int argc, wchar_t** argv) {
     }
     printf("[*] target : Wow.exe (pid %lu)\n", pid);
 
+    if (uintptr_t already = FindRemoteModule(pid, kDllName)) {
+        printf("[=] rts_core.dll is ALREADY loaded at 0x%08zX -- nothing to do.\n", already);
+        printf("    DllMain does not run twice, so no new log lines will appear\n");
+        printf("    and this is NOT a failed injection.\n");
+        printf("    If RTS mode misbehaves, close the client and inject once.\n");
+        printf("\nPress Enter to close...");
+        (void)getchar();
+        return 2;
+    }
+
     HANDLE process = OpenProcess(PROCESS_CREATE_THREAD | PROCESS_QUERY_INFORMATION |
                                      PROCESS_VM_OPERATION | PROCESS_VM_WRITE | PROCESS_VM_READ,
                                  FALSE, pid);
@@ -138,12 +188,17 @@ int wmain(int argc, wchar_t** argv) {
     if (module == 0) {
         fprintf(stderr, "[!] LoadLibraryW returned NULL - the DLL failed to load.\n");
         fprintf(stderr, "    Most likely a missing VC++ runtime in the target.\n");
-    } else {
-        printf("[+] injected, module at 0x%08lX\n", module);
-        printf("[+] check rts_core.log next to the DLL for details\n");
+        printf("\nPress Enter to close...");
+        (void)getchar();
+        return 1;
     }
 
-    printf("\nPress Enter to close...");
-    (void)getchar();
-    return module == 0 ? 1 : 0;
+    printf("[+] injected, module at 0x%08lX\n", module);
+    printf("[+] check rts_core.log next to the DLL for details\n");
+
+    // No pause on success. This runs in the launcher's own console window, and the
+    // getchar() that used to be here left the .bat sitting at step [2/3] looking
+    // hung until someone pressed a key -- so the check that follows never ran on
+    // its own. Failures still pause, because there the text IS the point.
+    return 0;
 }

@@ -30,8 +30,16 @@ void Init() {
         wcscpy_s(path, L"rts_core.log");
     }
 
-    g_file = CreateFileW(path, FILE_APPEND_DATA, FILE_SHARE_READ, nullptr,
-                         OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    // FILE_SHARE_DELETE matters as much as FILE_SHARE_READ. Without it nothing
+    // outside can delete or rename this file while the client is alive, and the
+    // launcher's "borra el log viejo" step failed in silence -- so the check that
+    // followed it was validating the PREVIOUS session's log. Note the Windows
+    // semantics: with the share flag a delete only unlinks the name once the last
+    // handle closes, so the file stays visible (and we keep appending to it) until
+    // the client exits. That is why the launcher compares SIZE rather than trusting
+    // the delete; this flag just stops the delete from erroring.
+    g_file = CreateFileW(path, FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_DELETE,
+                         nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
     g_ready = true;
 
     SYSTEMTIME st;
