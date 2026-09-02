@@ -278,6 +278,12 @@ end
 --
 -- Solo los tipos que importan aqui. El resto (comercio, canales publicos,
 -- registro de combate) es ruido en una partida de un jugador.
+--
+-- EL BOTIN ENTRA DESDE 2026-08-22 (PRUEBAS-11 D3: "no veo el texto de has
+-- recibido X"). No es cosmetico: en modo RTS el chat esta escondido, asi que
+-- sin esta linea recoger algo no produce NINGUNA senal -- ni sabes que ha
+-- caido, ni si lo has cogido tu o un bot. Son los dos unicos tipos que hacen
+-- falta, `LOOT` para los objetos y `MONEY` para el dinero.
 
 local CHAT_COLOUR = {
 	CHAT_MSG_SAY            = "ffffff",
@@ -290,6 +296,15 @@ local CHAT_COLOUR = {
 	CHAT_MSG_MONSTER_SAY    = "ffff80",
 	CHAT_MSG_MONSTER_YELL   = "ff6060",
 	CHAT_MSG_SYSTEM         = "ffff00",
+	CHAT_MSG_LOOT           = "40ff40",
+	CHAT_MSG_MONEY          = "ffd000",
+}
+
+-- Los que NO llevan autor: el mensaje ya dice quien ha recogido que, asi que
+-- anteponerle "[Nombre]" lo diria dos veces.
+local CHAT_NO_AUTHOR = {
+	CHAT_MSG_LOOT  = true,
+	CHAT_MSG_MONEY = true,
 }
 
 H.mirrorChat = true
@@ -528,7 +543,7 @@ function H:Create()
 		if colour then
 			if not (H.active and H.mirrorChat) then return end
 			if not msg or msg == "" then return end
-			H:Message(author and author ~= ""
+			H:Message((author and author ~= "" and not CHAT_NO_AUTHOR[event])
 				and ("|cff%s[%s]|r %s"):format(colour, author, msg)
 				or  ("|cff%s%s|r"):format(colour, msg))
 			return

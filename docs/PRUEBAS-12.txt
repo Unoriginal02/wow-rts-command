@@ -1,0 +1,690 @@
+RTS COMMAND - LISTA DE PRUEBAS  #12
+Generada 2026-08-22   ·   addon 0.35.0 · mod-rts RECOMPILADO · rts_core sin tocar
+
+QUE HAY EN ESTA RONDA
+  Las respuestas de PRUEBAS-11. Es una ronda CORTA: casi todo lo de la anterior
+  paso, asi que aqui solo esta lo que cambio.
+
+  Cerrado en PRUEBAS-11 y no se vuelve a mirar:
+    - el click que se perdia tras mover la camara (E1-E4, limpio)
+    - el botin de los bots, grises incluidos (D2/D4)
+    - las rutas con shift, en todo lo demas (F2-F9)
+    - la barra, el panel 4x3, la carta de una fila, lo borrado (B, G, H)
+
+  Lo que se ha tocado:
+    C1  el retrato: el encuadre NO se estaba aplicando -- se arregla de raiz
+    C2  se puede seleccionar pinchando el retrato y las barras del heroe
+    D1  el botin ya no pasa por el chat: verbo LOOT en mod-rts
+    D3  el botin sale en la linea de mensajes de la HUD
+    F1  rutas: puntos redondos y pequenos, disco a la mitad, y cada unidad
+        avanza por su cuenta al llegar al 95% del tramo
+    G8  salir en combate: la camara vuelve ya, la interfaz al acabar la pelea
+
+LO QUE YA ESTA COMPROBADO Y NO HACE FALTA MIRAR
+  - check_addon.py: 28 ficheros, limpio -- y AHORA SI SIRVE. En la primera
+    entrega dijo que todo estaba bien sobre un Portrait.lua que el cliente no
+    podia cargar (una cadena sin cerrar; luaparser se la traga). Lleva dos
+    comprobaciones nuevas propias, probadas contra ficheros rotos a proposito.
+  - sim\route_advance.py: el avance de las rutas, cuatro escenarios. Encontro
+    un fallo real antes de que llegara al juego (ver seccion D).
+  - El addon desplegado es IDENTICO al repo (diff -rq).
+  - mod-rts compila y enlaza (worldserver.exe nuevo en build\bin\Release).
+  - mod-rts desplegado es IDENTICO al repo.
+
+EL SERVIDOR HAY QUE REINICIARLO
+  Hay worldserver.exe nuevo. 1_Iniciar_Servidor.bat lo recoge solo del build,
+  pero hay que PARAR y ARRANCAR: sin eso, la seccion D entera da falso negativo
+  porque el verbo LOOT no existe en el binario viejo.
+
+ANTES DE EMPEZAR
+  1. 3_Detener_Servidor + 1_Iniciar_Servidor
+  2. rts-tools\Deploy_Addon.bat  (ya ejecutado)
+  3. rts-tools\2-Jugar.bat  (desde el Explorador, no Git Bash)
+  4. /rts version  ->  addon 0.35.0, mod-rts contestando, rts_core inyectado
+  5. En una ciudad, con 2-4 bots en el grupo
+
+---------------------------------------------------------------------------
+A. EL RETRATO   (lo primero: es lo unico que se quedo sin diagnosticar)
+---------------------------------------------------------------------------
+
+  POR QUE ESTABA MAL. Que los SIETE encuadres se vieran iguales, con escalas de
+  x1.8 a x3.4 entre ellos, solo puede significar una cosa: ninguna de las
+  llamadas de encuadre llegaba al modelo. `SetUnit` no termina cuando vuelve --
+  pide la carga y el widget REINICIA camara, posicion y escala al acabarla --
+  asi que todo lo que se hacia justo despues lo borraba el cargador. Ahora el
+  encuadre se reaplica cuando el cliente avisa de que ya tiene el modelo.
+
+[ ] A1  El retrato sale como BUSTO -- cara y hombros -- y no de cuerpo entero.
+        notas:
+        Si SIGUE saliendo el cuerpo entero pero AHORA los siete `try` se ven
+        DISTINTOS entre si, el arreglo funciono y solo falta elegir: pasar por
+        ellos con /rts portrait try y apuntar el numero del bueno.
+
+[ ] A2  /rts portrait try siete veces: cada uno se ve DISTINTO del anterior.
+        notas:
+        ES LA PRUEBA QUE DECIDE, mas que A1. Siete encuadres iguales = el
+        encuadre sigue sin llegar. Siete distintos = llega, y solo hay que
+        escoger.
+
+[ ] A3  Si siguen viendose todos iguales: /rts portrait api set
+        y copiar aqui la lista entera.
+        notas:
+        Vuelca los metodos que este widget tiene DE VERDAD, sacados de su
+        metatabla. Si no aparece SetModelScale o no aparece SetPosition, el
+        encuadre a mano no existe en este cliente y hay que cambiar de idea
+        (retrato 2D, o recortar el modelo con el hueco). Es la unica pregunta
+        que queda sin contestar de todo el retrato, y se contesta en un
+        comando.
+
+[ ] A4  /rts portrait status dice "ok" en SetUnit, SetModelScale y SetPosition,
+        y dice si OnUpdateModel / OnModelLoaded se engancharon.
+        notas:
+
+---------------------------------------------------------------------------
+B. SELECCIONAR PINCHANDO
+---------------------------------------------------------------------------
+
+[ ] B1  Click en el RETRATO del heroe: te selecciona (marco dorado + modelo
+        iluminado).
+        notas:
+
+[ ] B2  Click en las BARRAS del heroe (vida/poder): lo mismo.
+        notas:
+
+[ ] B3  DOBLE click en cualquiera de los dos: selecciona a TODOS.
+        notas:
+
+[ ] B4  Doble click en una fila del grupo: tambien selecciona a todos.
+        notas:
+
+[ ] B5  Shift-click o ctrl-click en el retrato: te SUMA a la seleccion en vez
+        de reemplazarla.
+        notas:
+
+[ ] B6  Click en un bot y despues, rapido, click en el retrato: NO se lee como
+        doble click. Son dos unidades distintas.
+        notas:
+        El reloj del doble click es uno solo para toda la consola, justo para
+        que esto no pase.
+
+[ ] B7  El retrato y las barras siguen SIN comerse la caja de seleccion:
+        ctrl + arrastrar por encima de ellos sigue dibujando la caja.
+        notas:
+        FALLO = los botones de click son mas grandes de lo que deberian, o
+        estan cogiendo el arrastre ademas del click.
+
+---------------------------------------------------------------------------
+C. EL BOTIN SIN CHAT
+---------------------------------------------------------------------------
+
+[ ] C1  Al entrar en modo RTS sale "botin de los bots: TODO, grises incluidos"
+        UNA vez, y NO aparece ninguna linea de chat de grupo con `ll all`.
+        notas:
+        Ahora va por el verbo LOOT de mod-rts, directo al contexto de la IA.
+        FALLO = si sigue saliendo la linea de chat, mod-rts no contesto y cayo
+        al respaldo; /rts version dice si el modulo esta vivo.
+
+[ ] C2  Matar algo: los bots siguen recogiendo TODO, grises incluidos.
+        notas:
+        Lo que se ha cambiado es POR DONDE viaja la orden, no la orden. Si
+        esto falla y C1 salio bien, el verbo llega pero no hace lo que debe.
+
+[ ] C3  Meter un bot nuevo al grupo y matar algo: ese bot tambien recoge
+        grises, y tampoco sale nada por el chat.
+        notas:
+
+[ ] C4  /rts lootall lo apaga ("solo lo util") y lo vuelve a encender.
+        notas:
+
+[ ] C5  El texto de "Recibes objeto: X" y el del dinero SALEN en la linea de
+        mensajes sobre el mundo, en verde y dorado.
+        notas:
+        Es D3 de la ronda anterior. Sin esto, recoger algo en modo RTS no
+        produce ninguna senal.
+
+---------------------------------------------------------------------------
+D. LAS RUTAS, AFINADAS
+---------------------------------------------------------------------------
+
+[ ] D1  Los puntos de la linea son REDONDOS y pequenos, y hay muchos mas que
+        antes.
+        notas:
+
+[ ] D2  El disco del destino es la mitad de grande que antes.
+        notas:
+
+[ ] D3  Con tres bots y una ruta de cuatro puntos: NO se paran a esperarse.
+        Cada uno sigue al siguiente punto en cuanto llega al suyo.
+        notas:
+        ES LA PRUEBA IMPORTANTE DE LA SECCION. Antes el grupo se paraba en
+        cada punto a esperar al ultimo y por eso iba lento.
+
+[ ] D4  Un aro de la ruta desaparece cuando ha pasado por el el ULTIMO bot, no
+        el primero.
+        notas:
+
+[ ] D5  /rts route dice por que punto va CADA unidad ("Bot 3/5   Otro 2/5").
+        notas:
+
+[ ] D6  En un tramo largo, los bots pasan al siguiente punto sin llegar a
+        pisarlo del todo -- no se quedan los ultimos metros recolocandose.
+        notas:
+        Es el 95% del tramo. Si se pasan DEMASIADO pronto y la ruta se ve
+        cortada, bajar con /rts route near 0.03
+
+[ ] D7  La formacion no gira sola: cada bot mantiene su hueco relativo a lo
+        largo de toda la ruta.
+        notas:
+
+[ ] D8  EL CASO QUE CAZO LA SIMULACION. Con dos bots de velocidad distinta:
+        clic derecho a un sitio lejos, esperar a que el RAPIDO llegue y se
+        quede parado (el lento aun andando), y ENTONCES shift+clic en otro
+        punto. El rapido tiene que IR a ese punto nuevo.
+        notas:
+        Antes se lo saltaba entero: su indice ya apuntaba al punto nuevo pero
+        nadie se lo habia mandado, asi que medía la llegada contra el punto
+        anterior -- donde estaba parado -- y se daba por llegado. Arreglado
+        con `u.sent`, y reproducido en sim\route_advance.py.
+
+---------------------------------------------------------------------------
+D-BIS. LA RUTA SIN TRAZO: MARCADOR Y NUMERO (rehecho DESPUES de esta ronda)
+---------------------------------------------------------------------------
+
+El trazo entre puntos esta QUITADO -- ni linea ni puntitos. Cada punto de la
+ruta es un marcador tumbado en el suelo con su NUMERO encima, y nada mas.
+
+Por que, en orden:
+
+  1. La linea continua se vio en juego y salio como una escalera de rectangulos
+     azules opacos, con el cliente escupiendo "TexCoord out of range".
+  2. Los dos fallos que lo causaban estan arreglados y entendidos (ver abajo),
+     asi que esto NO es rendirse ante un bug.
+  3. Aun arreglada, el veredicto fue que un trazo proyectado en la capa de
+     interfaz no se parece a una ruta de RTS: no tiene profundidad, se dibuja
+     sobre la colina que deberia taparlo, y al girar la camara la linea entera
+     nada de lado. Un PUNTO en el suelo no se compara con nada y aguanta eso;
+     una linea de cien pixeles se compara con el terreno en toda su longitud.
+     Es el mismo argumento de la etapa 5e -- y la etapa 5m lo tenia escrito al
+     reves para las rutas ("aqui SI vale"), que valia para los puntos y no para
+     la linea.
+
+LO QUE SE APRENDIO Y NO SE TIRA, porque la tecnica sirve para otras cosas:
+
+  * `DrawRouteLine` no dibuja un rectangulo girado: dibuja el CONTENEDOR
+    horizontal y mete el trazo dentro con ocho coordenadas de textura. Lo que
+    sobra del contenedor cae fuera de [0,1], y una textura de WoW no repite:
+    RECORTA, o sea que devuelve el pixel del borde. Con una textura blanca de
+    borde a borde, el borde es blanco y el contenedor entero sale relleno. Hace
+    falta una textura con la primera y la ultima FILA transparentes -- que es
+    exactamente lo que significa el 32/30 de `TAXIROUTE_LINEFACTOR`.
+  * La esquina del contenedor, medida a lo ANCHO, cae a `(l/w)*sen*cos`: crece
+    con lo largo y con lo fino. Con 2 px de grosor se sale del limite del
+    cliente hasta en un tramo de 50 px, y el error ABORTA el dibujo entero --
+    por eso quedaban congelados los rectangulos de la vuelta anterior.
+  * El limite se puede MEDIR con `pcall` en vez de suponerlo, y la formula se
+    puede anclar contra los ocho numeros que el propio error trae en sus
+    locales. Eso es lo que distingue "esta es la cuenta del cliente" de "esta
+    es una cuenta plausible".
+
+[ ] D9  Shift+clic derecho pone un marcador tumbado en el suelo con un numero
+        encima, y NADA entre marcador y marcador.
+        notas:
+        Con una sola unidad seleccionada, el color de su clase; con varias,
+        verde.
+
+[ ] D10 Los numeros son 1, 2, 3... en el orden en que los pusiste, y NO se
+        renumeran al pasar por los primeros: el punto 3 sigue siendo el 3.
+        notas:
+        A proposito: es el mismo numero que imprime /rts route ("Bot 3/5"), asi
+        que los dos dicen lo mismo. FALLO = si al pasar el punto 1 el 2 pasa a
+        llamarse 1, el numero de pantalla y el del informe dejan de casar.
+
+[ ] D11 El numero se LEE sobre hierba clara, no solo sobre tierra.
+        notas:
+        Va con contorno por eso. La captura donde se vio la linea estaba sobre
+        tierra oscura, que es el fondo facil.
+
+[ ] D12 De lejos el marcador sigue viendose (no desaparece) y de cerca no llena
+        la pantalla.
+        notas:
+        Esta acotado por los dos lados: minpx 10 y maxpx 200. Sin tope de abajo
+        la ruta parece acabar antes de donde acaba.
+
+[ ] D13 El marcador esta TUMBADO en el suelo (elipse), no de cara a la camara.
+        notas:
+        Un aro circular sobre el suelo se lee como una pegatina en el monitor.
+        Se ajusta con /rts route ring <yardas> y /rts route num <cuerpo>.
+
+---------------------------------------------------------------------------
+E. SALIR EN COMBATE
+---------------------------------------------------------------------------
+
+[ ] E1  Fuera de combate, Salir devuelve todo como siempre.
+        notas:
+        Lo primero, porque es el camino normal y no debe haberse roto.
+
+[ ] E2  EN COMBATE, pulsar Salir: la camara vuelve a tu personaje AL INSTANTE
+        y salen dos mensajes explicando que las barras vuelven al acabar.
+        notas:
+
+[ ] E3  Durante ese rato la consola RTS SIGUE PUESTA: ves tu vida, tu poder,
+        el grupo y los enemigos.
+        notas:
+
+[ ] E4  Y puedes seguir peleando CON LAS TECLAS (1, 2, 3...), aunque la barra
+        de accion no se vea.
+        notas:
+        Es lo mismo que pasa con el Alt-Z del propio juego. Si NO funciona,
+        toda la idea de aplazar la salida se cae y hay que replantearla.
+
+[ ] E5  Al acabar el combate, la interfaz de Blizzard vuelve SOLA y completa,
+        y la consola RTS desaparece.
+        notas:
+
+[ ] E6  Salir en combate y, antes de que acabe la pelea, volver a ENTRAR en
+        modo RTS: al acabar el combate NO se desmonta la consola.
+        notas:
+        Es la guarda contra un aplazamiento que dispara cuando su motivo ya
+        no existe.
+
+---------------------------------------------------------------------------
+F. QUE NO SE HA ROTO
+---------------------------------------------------------------------------
+
+[ ] F1  El click derecho sigue saliendo a la primera despues de mover la
+        camara (era E1 de la ronda anterior).
+        notas:
+
+[ ] F2  Quieto y Seguir siguen borrando la ruta.
+        notas:
+
+[ ] F3  Nada de esto imprime errores de Lua.
+        notas:
+
+---------------------------------------------------------------------------
+G. EL MARCADOR DE SUELO DE VERDAD (mod-rts 0.7.0, addon 0.37.0)
+---------------------------------------------------------------------------
+
+El marcador del punto de ruta ya NO es una textura de interfaz: es un
+DynamicObject que coloca el servidor y que pinta EL CLIENTE con el visual
+persistente de un hechizo -- lo mismo que una mancha de Consagracion. Con
+profundidad correcta, sin proyectar nada, y sin nadar al girar la camara.
+
+QUE HECHIZO ES LA PREGUNTA ABIERTA, y por eso esta ronda trae una herramienta
+en vez de una decision. La lista de candidatos NO esta escrita a mano: el
+servidor la saca del almacen de hechizos que ya tiene cargado de las DBC de
+este cliente, quedandose con los que tienen efecto de aura de area persistente
+-- que son exactamente aquellos para los que el cliente tiene un visual de
+suelo. Cuantos son lo dice el log del worldserver al arrancar.
+
+  /rts mark              estado: visual actual, id, tamano, modo, cuantas hay
+  /rts mark next|prev    recorre la lista; los marcadores ya puestos CAMBIAN
+  /rts mark find <texto> busca por nombre (repetir salta al siguiente)
+  /rts mark <id>         un id concreto
+  /rts mark size <n>     radio en yardas
+  /rts mark mode 0|1     quien decide el tamano (ver G4)
+  /rts mark list [n]     una pagina de la lista
+  /rts mark test         pone una donde apunta el raton (test off la quita)
+  /rts mark off|on       marcadores del mundo si o no
+
+[ ] G1  Con una ruta puesta, en cada punto hay una marca EN EL SUELO -- se
+        tapa detras de una cuesta y no se mueve al girar la camara.
+        notas:
+        ES LA PRUEBA QUE DECIDE TODO ESTO. Si no aparece nada, el visual del
+        hechizo por defecto no dibuja en el suelo: /rts mark next hasta que
+        algo salga. Si NINGUNO sale, el problema es el objeto y no el visual --
+        entonces /rts mark test con la camara encima del cursor.
+
+[ ] G2  /rts mark next cambia el visual de las marcas QUE YA ESTAN puestas, no
+        solo de la siguiente.
+        notas:
+        Es lo que hace usable la herramienta: se elige mirando la ruta de
+        verdad, no imaginando.
+
+[ ] G3  /rts mark size 8 se nota. Si no se nota, /rts mark mode 0 y otra vez.
+        notas:
+        NO ES UN FALLO SI CON modo 1 NO SE NOTA. El nucleo lo dice donde
+        escribe el campo: con el modo de hechizo de area el CLIENTE decide el
+        radio visual de casi todas las manchas de suelo e ignora el nuestro.
+        El modo 0 le obliga a usar el nuestro, a cambio de que muchos visuales
+        salgan con el tamano descompensado. Los dos estan expuestos porque cual
+        necesita cada visual es cosa de mirarlo.
+
+[ ] G4  Al llegar el ULTIMO bot a un punto, su marca desaparece; las de
+        delante siguen.
+        notas:
+        Cada punto lleva un numero propio que no cambia, asi que llegar a uno
+        es una sola orden de quitar. Si desaparecen varias o la equivocada, el
+        numero de punto y el slot del servidor no estan casando.
+
+[ ] G5  Cambiar de mapa (portal, barco, mazmorra) y volver a hacer una ruta:
+        las marcas vuelven a aparecer.
+        notas:
+        El nucleo tira todos los dynobjects del jugador al cambiar de mapa --
+        que ademas es lo que evita que el servidor se caiga, porque
+        DynamicObject::Update afirma que su lanzador esta en el mismo mapa. El
+        addon tiene que OLVIDAR lo que creia puesto; si no, no vuelve a mandar
+        nada porque cree que ya estan.
+
+[ ] G6  El visual y el tamano elegidos SOBREVIVEN a un /reload y a un
+        relog.
+        notas:
+        El servidor no los guarda: los guarda el addon y se los recuerda al
+        entrar en modo RTS, con el mismo retraso que el botin y por el mismo
+        motivo (HasServer() todavia es falso en ese instante).
+
+[ ] G7  El numero del punto sigue saliendo encima de la marca.
+        notas:
+        No hay forma conocida de dibujar texto arbitrario en el mundo en
+        3.3.5a, asi que la cifra es y seguira siendo interfaz.
+
+[ ] G8  Nada de esto deja objetos sueltos: /rts mark off, o borrar la ruta, y
+        el suelo queda limpio.
+        notas:
+        Cada marca vive 30 minutos como mucho por si acaso, asi que una que se
+        escape se va sola en vez de decorar el mundo hasta el reinicio.
+
+CUANDO HAYA UN GANADOR: decirme el id y el tamano y los fijo como valores por
+defecto en Marks.lua. Hasta entonces son ajustes guardados, no constantes.
+
+---------------------------------------------------------------------------
+H. EL SERVIDOR SE MATABA AL MORIR CON LA CAMARA PUESTA (mod-rts 0.7.1)
+---------------------------------------------------------------------------
+
+    Player Antonio is not able to uncharm unit (Creature Entry: 15214)
+    Charmed unit has charmer Player 1018
+    >> ABORTED  Player.cpp:9556  Player::StopCastingCharm
+
+No es un fallo de los marcadores ni de nada de hoy: es una mina que la camara
+lleva puesta desde la etapa 6 y que solo estalla cuando algo del nucleo intenta
+deshacer el hechizo de dominacion.
+
+LA CAUSA, ENTERA. La camara se posee con un `Unit::SetCharmedBy` a pelo -- sin
+hechizo y sin aura -- y eso es justo lo que la hace una camara y no un Control
+Mental. Pero el nucleo deshace las dominaciones QUITANDO AURAS:
+`Player::StopCastingCharm` quita los cuatro tipos de aura de dominacion y, si
+despues de eso el jugador sigue dominando algo, llama a `ABORT()`. Y hace bien:
+para el nucleo, una dominacion que no puede deshacer es su propio estado
+corrompido.
+
+Asi que TODO camino del nucleo que deshaga dominaciones es un aborto mientras la
+camara este puesta, y no son casos raros: `Player::RemoveFromWorld`,
+`Unit::CleanupBeforeRemoveFromMap`, `Unit::setDeathState` (via
+`RemoveAllControlled`), empezar un vuelo, cambiar de especializacion. El que
+estallo fue MORIR -- que con el personaje enraizado por la propia posesion es de
+lo mas facil que hay.
+
+LOS FUSIBLES QUE LLEVA AHORA. Suelta la camara antes de que el nucleo llegue:
+
+  * `OnPlayerBeforeTeleport` -- salta en TeleportTo:1496, muy antes de la
+    limpieza de 1591. Cubre portales, piedra de hogar, entradas de mazmorra,
+    teleports de GM y el final de un vuelo.
+  * `OnPlayerMapChanged` -- red de seguridad para lo que cambie de mapa sin
+    pasar por TeleportTo.
+  * `OnDamage` -- el fusible de la muerte, y hacia falta uno propio porque
+    `Player::setDeathState` no tiene gancho. Salta en DealDamage:999 y la muerte
+    esta en 1240, asi que hay sitio para soltar. Cubre TODO tipo de dano --
+    golpes, hechizos, caidas, ahogarse, lava -- que es el punto: un fusible que
+    solo cubriera el cuerpo a cuerpo pareceria funcionar hasta la primera caida.
+    Solo actua si el golpe MATA, y sale por lo barato con una comparacion
+    mientras nadie este en modo RTS.
+
+NO ES UN JUEGO COMPLETO DE FUSIBLES Y NO PUEDE SERLO: empezar un vuelo y cambiar
+de especializacion no tienen gancho. El arreglo de verdad es que la posesion
+lleve un aura, para que el nucleo pueda deshacerla el solo en cualquier camino,
+incluidos los que no se nos ocurran. Esta pendiente de decidir.
+
+[ ] H1  Morir con la camara RTS puesta. El servidor NO se cae, la camara vuelve
+        al personaje y sale la ventana de espiritu como siempre.
+        notas:
+        ES LA PRUEBA IMPORTANTE. Lo mas facil de provocar: entrar en modo RTS
+        al lado de algo hostil y dejarse pegar.
+
+[ ] H2  Usar la piedra de hogar / un portal con la camara puesta. No se cae y la
+        camara se queda en el personaje al llegar.
+        notas:
+
+[ ] H3  Entrar en una mazmorra con la camara puesta. Igual.
+        notas:
+
+[ ] H4  Recibir hostias sin morir NO suelta la camara.
+        notas:
+        El fusible solo salta si el golpe mata. Si la camara se cae con cada
+        arañazo, la condicion esta mal y es peor que el fallo original.
+
+[ ] H5  /rts version dice mod-rts |cffffff000.7.1|r.
+        notas:
+        Las tres piezas reportan version; si dice 0.7.0 el worldserver que esta
+        corriendo es el de antes y nada de H1-H4 prueba nada.
+
+---------------------------------------------------------------------------
+I. LA PUNTERIA DEL PUNTO DE SUELO   (addon 0.38.0, mod-rts 0.9.1)
+---------------------------------------------------------------------------
+
+LO QUE SE VIO: "solo hay una zona pequena en el centro de la pantalla donde
+puedo pinchar y la marca se pone alli; si pincho mas lejos, la marca se me
+viene a esa zona en vez de irse a lo lejos".
+
+QUE LO CAUSA. La ronda anterior cambio el punto de suelo del cursor: en vez de
+desproyectar el cursor sobre un plano, se devuelve DIRECTAMENTE el impacto del
+rayo que tira rts_core. Ese rayo lo tira el DLL con el cursor de WINDOWS
+(`GetCursorPos`), leido en su vuelta de 30 Hz -- y ese cursor no siempre es
+donde el jugador cree que apunta: mientras el cliente se queda con el raton, lo
+mueve el. Un rayo tirado desde otro pixel no da un error de unas yardas: da un
+punto de otro sitio.
+
+EL ARREGLO ES UNA COMPROBACION, NO UNA VUELTA ATRAS. Un punto que este SOBRE el
+rayo del cursor se proyecta EXACTAMENTE en el pixel del cursor, este a diez
+yardas o a doscientas -- proyectar es el inverso de desproyectar. Asi que el
+impacto se proyecta de vuelta y se mira donde cae: si cae encima del cursor, el
+DLL uso nuestro cursor y su respuesta es exacta (y se queda la precision en
+cuestas que era el motivo del cambio); si cae lejos, se descarta y se
+desproyecta como antes, con el plano anclado en la Z del impacto. La
+comprobacion usa la misma proyeccion que ya esta verificada contra los
+marcadores de las unidades, asi que no puede discrepar del resto del addon.
+
+[ ] I1  Pinchar con el boton derecho en las CUATRO esquinas de la pantalla y en
+        el centro: la orden va a donde pinchaste, no a un trozo del medio.
+        notas:
+        ES LA PRUEBA QUE DECIDE. Si sigue viniendose al centro, el respaldo
+        tampoco esta usando el cursor bueno y el problema esta antes de todo
+        esto.
+
+[ ] I2  /rts aim  ->  se enciende y escupe una linea por segundo. MOVER el raton
+        despacio del centro a una esquina y copiar aqui cuatro o cinco lineas.
+        notas:
+        ES LA QUE DICE POR QUE, y las dos averias posibles se distinguen a
+        simple vista en esas lineas:
+          * el impacto se proyecta SIEMPRE cerca del mismo pixel, vaya donde
+            vaya el cursor  ->  el DLL esta leyendo otro cursor.
+          * el impacto se proyecta en el cursor ENCOGIDO hacia el centro, con
+            una k estable (0.6, 0.7...)  ->  el DLL abre el abanico de rayos
+            con un tamano de ventana o un fov que no son los del fotograma.
+        La primera se arregla en el DLL leyendo el cursor de otra manera; la
+        segunda, corrigiendo esos dos numeros. Sin esta linea es adivinar.
+
+[ ] I3  Con el raton QUIETO en un sitio cualquiera: la linea dice EXACTO y d es
+        de pocos pixeles.
+        notas:
+        Si con el raton quieto tambien sale RECHAZADO, la averia no tiene nada
+        que ver con que el cliente se quede el raton.
+
+[ ] I4  Las marcas de la ruta caen donde caen los numeros de la ruta.
+        notas:
+        Los dos salen del MISMO punto, asi que si se separan el fallo esta en
+        el servidor (la marca) y no en la punteria (los dos).
+
+---------------------------------------------------------------------------
+J. EL TAMANO DE LA MARCA: EL SEGUNDO MANDO
+---------------------------------------------------------------------------
+
+`/rts mark size` llegaba, se guardaba y se contestaba -- y la marca seguia igual
+de grande. El radio (DYNAMICOBJECT_RADIUS) es una PETICION: el cliente decide si
+el visual de suelo que sea se estira con el, y el que no, lo ignora en silencio.
+No hay forma de obligarle desde el servidor.
+
+Asi que hay un segundo mando que no pasa por esa decision: `/rts mark obj <n>`
+escala el MODELO (OBJECT_FIELD_SCALE_X), el mismo campo que hace grande o
+pequena a una criatura. Los dos estan expuestos porque cual escucha cada visual
+es cosa de mirarlo.
+
+[ ] J1  /rts mark obj 0.5  ->  las marcas que YA ESTAN puestas se ven a la
+        mitad.
+        notas:
+        ES LA PRUEBA QUE DECIDE. Si esto tampoco mueve nada, el tamano de este
+        visual no lo controla el servidor por ningun campo, y la salida es
+        elegir otro visual (/rts mark next) en vez de encoger este.
+
+[ ] J2  /rts mark obj 0.2 y /rts mark obj 2: se nota en las dos direcciones.
+        notas:
+
+[ ] J3  /rts mark size 8 con mode 0: probar otra vez ahora que se ve el radio y
+        la escala juntos en /rts mark.
+        notas:
+        Puede seguir sin hacer nada y NO seria un fallo nuevo -- seria la
+        respuesta a la pregunta de arriba.
+
+[ ] J4  Lo elegido sobrevive a un /reload (el addon se lo recuerda al servidor).
+        notas:
+
+[ ] J5  /rts mark dice el radio, la escala del modelo y el modo en dos lineas, y
+        recuerda que el aro con el numero es otra cosa (/rts route ring).
+        notas:
+        No es cosmetico: el aro de interfaz y la marca del mundo se dibujan uno
+        encima del otro, y creer que se esta ajustando uno cuando se ajusta el
+        otro es media tarde.
+
+---------------------------------------------------------------------------
+K. EL PUNTO DEL SUELO LO DECIDE EL SERVIDOR   (addon 0.39.0, mod-rts 0.10.0)
+---------------------------------------------------------------------------
+
+LO QUE SE VIO: "pincho en la cara visible de un monticulo y, al acercarme, el
+punto esta DETRAS del monticulo y clipeado bajo el nivel del suelo".
+
+ESA ES LA FIRMA EXACTA DEL PLANO, y confirma de paso que el rayo del DLL se
+esta descartando (la comprobacion de la seccion I lo rechaza y cae al respaldo).
+El respaldo corta el rayo del cursor contra un PLANO horizontal, porque en Lua
+no hay mapa y no hay nada mejor que hacer. Un plano no es una colina: pinchando
+la ladera, el corte con el plano cae mas alla de la ladera y por debajo de ella.
+Con la camara alta el error es de decenas de yardas.
+
+  sim\ground_ray.py reproduce las dos cuentas sin el juego, y con el monticulo
+  de la queja: pinchando su cara visible a 80 yardas, el plano contesta 91.4 --
+  16 yardas BAJO la ladera. La marcha contesta 80.00, encima del suelo.
+
+LA ESTRATEGIA NUEVA: EL RAYO SE MANDA, EL PUNTO SE PREGUNTA. El cliente sabe
+con exactitud las dos mitades que le tocan -- el pixel del cursor (se lo dice
+Lua, que no se entera de que el cliente le haya cogido el raton) y la base de
+la camara (se la publica rts_core cada fotograma) -- y con ellas arma un RAYO
+que es correcto por construccion. Lo que no puede hacer es cortarlo contra el
+suelo. Eso lo hace ahora mod-rts, que tiene los mapas: anda el rayo contra la
+altura del terreno paso a paso, lo cruza tambien contra los modelos de colision
+(edificios, puentes, arboles) y se queda con el corte mas cercano.
+
+Y no es solo mas exacto: es el suelo que el BOT va a pisar, que es la unica
+definicion de "ahi" que sirve para una orden.
+
+  * En el click derecho el rayo viaja DENTRO de la orden, asi que el destino
+    sale ya corregido y no hay que esperar a nada. Todos los destinos de la
+    formacion se desplazan en bloque, asi que la formacion se conserva.
+  * En shift + click derecho (que no manda orden todavia) se pregunta aparte y
+    el aro salta a su sitio al contestar.
+  * Sin respuesta -- rayo al cielo, o servidor sin mod-rts -- se queda la
+    estimacion del plano, que es lo que habia.
+
+[ ] K1  Pinchar la CARA VISIBLE de un monticulo o una cuesta. Acercarse y
+        mirar: el punto esta en la ladera que pinchaste, no detras ni bajo
+        tierra.
+        notas:
+        ES LA PRUEBA QUE DECIDE. Sirve igual el aro de la ruta que el sitio
+        donde se paran los bots -- los dos salen del mismo punto.
+
+[ ] K2  Pinchar en cuatro sitios muy separados de la pantalla (esquinas y
+        centro), en terreno con desnivel: los cuatro caen donde apuntaste.
+        notas:
+        Esto es lo de la seccion I visto desde el otro lado. Si TODAVIA se
+        vienen al centro, el fallo esta en el rayo (la camara o el pixel) y no
+        en el corte, y entonces /rts aim es lo que lo dice.
+
+[ ] K3  El aro y el numero de la ruta SALTAN un poco justo despues del click en
+        terreno con cuesta, y se quedan quietos.
+        notas:
+        El salto es esperado: se dibuja en la estimacion y se corrige cuando
+        contesta el servidor, unos 100 ms. En llano no se ve porque las dos
+        cuentas coinciden. Si salta MUCHO y muy lejos, la estimacion esta peor
+        de lo que creiamos -- que tambien es informacion.
+
+[ ] K4  Los bots NO se paran y rearrancan justo despues de cada click.
+        notas:
+        La orden ya sale corregida, asi que la respuesta solo mueve el dibujo.
+        Si se ve un tiron a los 100 ms de cada orden, el aviso de "ya iba
+        corregido" no esta llegando y se esta remandando el tramo.
+
+[ ] K5  Shift + click derecho encadenando cuatro puntos por una ladera: los
+        cuatro aros quedan sobre el suelo.
+        notas:
+
+[ ] K6  Pinchar en un edificio, un puente o un tejado: el punto cae en la
+        superficie que se ve, no en el terreno de debajo.
+        notas:
+        Esto lo da el cruce contra los modelos de colision, que es una
+        interseccion de verdad y no una marcha. Un bot puede no saber llegar
+        ahi -- eso es otra cosa y no es este fallo.
+
+[ ] K7  Pinchar al cielo o al horizonte lejano: no pasa nada raro (se queda la
+        estimacion de siempre, o no hay orden).
+        notas:
+
+[ ] K8  El avance con ataque (attack-move) tambien cae donde apuntas en una
+        cuesta.
+        notas:
+        Sale del cursor igual que el click derecho, asi que tenia el mismo
+        fallo y lleva el mismo tramo de rayo. Si K1 sale bien y esto no, lo que
+        falla es el tramo de AMOVE y no el corte.
+
+---------------------------------------------------------------------------
+L. LAS MARCAS DE SUELO, APAGADAS
+---------------------------------------------------------------------------
+
+`obj 0.1` daba el tamano bueno, pero la marca nacia con un estallido enorme.
+Eso es el visual del hechizo NACIENDO: cada visual persistente trae su propia
+animacion de entrada, y esa animacion vive en el cliente, dentro del kit del
+hechizo. El servidor decide donde, cual y cuanto de grande -- radio y escala --
+pero no hay ningun campo con el que decirle al cliente que se salte una
+animacion, la acorte o la empiece a medias.
+
+Lo unico que quedaba era rebuscar entre los 572 visuales uno que naciera
+quieto: una caza a ciegas de las que este proyecto ya ha pagado varias. Con los
+aros de la ruta cumpliendo, no vale la pena. Apagadas de fabrica; la
+herramienta entera se queda para cuando alguien quiera volver a mirar.
+
+[ ] L1  Con una ruta puesta NO hay ninguna mancha de hechizo en el suelo: solo
+        el aro y el numero.
+        notas:
+        Se apagan aunque el cliente tuviera `on = 1` guardado de ayer -- los
+        ajustes guardados llevan version por eso mismo. Sale un aviso una vez.
+
+[ ] L2  /rts mark on las devuelve, con el tamano de antes (obj 0.1), y
+        /rts mark off las quita.
+        notas:
+
+[ ] L3  Al salir del modo RTS y volver, no queda ninguna marca suelta en el
+        suelo.
+        notas:
+
+---------------------------------------------------------------------------
+LO QUE DECIDE ESTA RONDA
+---------------------------------------------------------------------------
+  1. A2 dice si el encuadre del retrato ya LLEGA al modelo. Si sigue sin
+     llegar, A3 dice por que y cambia el plan entero del retrato.
+  2. E4 dice si aplazar la salida es una buena idea o hay que buscar otra.
+  3. D3 dice si las rutas ya se sienten rapidas.
+  4. C1 dice si el verbo LOOT del servidor esta vivo.
+  5. G1 dice si el marcador del mundo funciona; G3, si el tamano es ajustable.
+  6. H1 dice si morir con la camara puesta ya no mata el servidor -- y si hace
+     falta el arreglo de fondo (posesion con aura) o basta con los fusibles.
+
+PENDIENTE DE ACLARAR
+  En PRUEBAS-11, G1 (la fila de doce acciones) esta marcada [x] y la nota dice
+  solo "vuelve". No he sabido leerla y no he tocado nada por si acaso: la fila
+  esta como estaba. Si era una peticion, decirla entera.

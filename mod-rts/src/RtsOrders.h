@@ -6,6 +6,7 @@
 #include <string>
 
 class Player;
+class WorldObject;
 
 namespace rts
 {
@@ -40,6 +41,32 @@ namespace rts
         // Release a bot back to following its master.
         bool FollowBot(Player* master, std::string const& botName);
 
+        // Every bot in the master's group loots everything, greys included --
+        // or back to the default "only what it can use".
+        //
+        // This is the loot STRATEGY (what a bot bothers to pick up), which is
+        // not the same thing as the group's loot METHOD (who is allowed to).
+        // Both were needed and they fought each other: see the note next to
+        // AiPlayerbot.FreeMethodLoot in playerbots.conf.
+        //
+        // Returns the number of bots changed.
+        int SetGroupLoot(Player* master, bool everything);
+
+        // Where every bot in the master's group is, right now.
+        //
+        // The addon can normally read this from rts_core, but only for units
+        // the CLIENT can see -- and a bot walking a long route leaves the
+        // visibility bubble, at which point the addon stops being able to tell
+        // whether it arrived. A route then advances only on its 40-second
+        // timeout, which in game looks exactly like "the bot forgot it was
+        // walking".
+        //
+        // The server never loses track. One string, all bots, so a route can
+        // poll it a couple of times a second for the price of one packet:
+        //
+        //   "name,x,y,z;name,x,y,z"
+        std::string GroupPositions(Player* master);
+
         // Send a bot at one specific unit.
         //
         // The `attack` chat command cannot do this: it resolves as "attack my
@@ -73,6 +100,34 @@ namespace rts
         // can be diagnosed from the chat frame instead of guessed at.
         bool MoveSelf(Player* player, float x, float y, float z, std::string* why = nullptr);
 
+        // Baja una Z al suelo que `who` tiene permitido pisar. UN SOLO SITIO lo
+        // decide, y lo usan tanto las ordenes como los marcadores de ruta: si el
+        // marcador y el destino no usaran la misma cuenta, el bot se pararia en
+        // un sitio distinto del que la marca ensena, que es peor que no tener
+        // marca.
+        void GroundZ(WorldObject const* who, float x, float y, float& z);
+
+        // DONDE CORTA EL SUELO EL RAYO DEL CURSOR, decidido con los mapas del
+        // SERVIDOR y no con lo que el cliente cree ver.
+        //
+        // El addon sabe dos cosas exactas -- el pixel del cursor (se lo dice
+        // Lua) y la base de la camara (se la publica rts_core) -- y con ellas
+        // arma un rayo que es correcto por construccion. Lo que NO puede es
+        // cortarlo contra el terreno: en Lua no hay mapa, asi que hasta ahora
+        // se cortaba contra un PLANO horizontal, y un plano no es una colina.
+        // De ahi el fallo que se veia en juego: pinchar en la cara de un
+        // monticulo y que el punto acabara detras de el y bajo tierra.
+        //
+        // Aqui si hay mapa. Se anda el rayo contra la altura del terreno y
+        // contra los modelos de colision (WMO y doodads), se coge el corte mas
+        // cercano, y ese es el sitio. Ademas es el suelo que el bot va a pisar,
+        // que es la unica definicion de "ahi" que importa.
+        bool GroundRay(Player const* who,
+                       float ox, float oy, float oz,
+                       float dx, float dy, float dz,
+                       float maxDist,
+                       float& hx, float& hy, float& hz);
+
         // Undo everything this module did to a player's bots. For logout.
         void ForgetPlayer(Player* master);
 
@@ -96,6 +151,19 @@ namespace rts
 
         ClickIntent ClassifyClick(Player* master, ObjectGuid targetGuid);
 
+        // ¿Ese bot esta en "Esperar" (la estrategia `passive` de playerbots)?
+        //
+        // EXISTE PARA QUE UNA ORDEN IGNORADA NO SEA SILENCIOSA. `AttackBot`
+        // dispara la accion de ataque del propio bot y eso funciona aunque este
+        // pasivo -- pero lo que SOSTIENE la pelea son sus estrategias, y
+        // `passive` las anula todas. Asi que el bot sale, llega, y se queda
+        // parado: la orden reporto exito y en pantalla no paso nada. Es
+        // indistinguible de "la orden no llego", y en PRUEBAS-18 se reporto
+        // justo asi ("no se el motivo, puede ser que no tenga los bots en modo
+        // de que ataquen a mi orden"). No se corrige por nuestra cuenta -- el
+        // rol lo puso el jugador -- se DICE.
+        bool IsPassive(Player* master, std::string const& botName);
+
         // Send a bot to talk to an NPC. Same shape as AttackBot, and it failed
         // for the same reason before: GossipHelloAction reads the MASTER's
         // target (GossipHelloAction.cpp:22), which was never set, so `talk`
@@ -107,6 +175,22 @@ namespace rts
         // for you -- but your body is server-driven while the camera holds
         // client control, so it cannot use the normal client paths.
         bool SelfAttack(Player* player, ObjectGuid targetGuid);
+
+        // Cast one of the player's OWN spells, from the console's skill row.
+        //
+        // WHY THE SERVER AND NOT THE CLIENT. `CastSpellByName` is protected in
+        // 3.3.5a, and the usual way round that -- a secure action button -- does
+        // not fit here: the row's contents change with the selection, and
+        // changing a secure button's attributes is blocked IN COMBAT, which is
+        // exactly when the row is used. The bots' half of the row already goes
+        // through the server (CastAs), so this makes both halves the same shape
+        // rather than adding a second mechanism.
+        //
+        // `targetGuid` may be empty, in which case the player's own selection is
+        // used, and a friendly-or-missing target falls back to a self-cast the
+        // same way CastAs does.
+        bool SelfCast(Player* player, uint32 spellId, ObjectGuid targetGuid,
+                      std::string* why = nullptr);
         // Walks into range first when the target is too far, and completes the
         // interaction on arrival -- a right-click on a distant NPC should mean
         // "go and talk to it", not nothing at all.

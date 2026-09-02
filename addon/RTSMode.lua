@@ -122,6 +122,22 @@ function R:UnitAt(sx, sy)
 	local best, bestD
 	for _, m in ipairs(self:Roster()) do
 		local ux, uy = ns.Markers:UnitScreen(m.guid)
+
+		-- TU PROPIO PERSONAJE TIENE UNA SEGUNDA FUENTE, y hace falta.
+		--
+		-- `UnitScreen` sale de la lista que publica el DLL, y esa lista se
+		-- centra en la CAMARA: con la camara despegada lejos de tu cuerpo, tu
+		-- cuerpo puede quedarse fuera. Y el otro camino -- el mouseover del
+		-- cliente -- tampoco es fiable sobre uno mismo mientras la camara esta
+		-- poseida. Con los dos fallando a la vez el heroe solo se podia
+		-- seleccionar desde la consola, que es lo reportado en PRUEBAS-18.
+		--
+		-- `RTS_PX/PY/PZ` es tu posicion y se publica SIEMPRE, esta la camara
+		-- donde este: es la fuente que no puede faltar.
+		if not ux and m.isPlayer and RTS_HasPos == 1 then
+			ux, uy = ns.Markers:Project(RTS_PX, RTS_PY, RTS_PZ + 1.0)
+		end
+
 		if ux then
 			local d = (ux - sx) ^ 2 + (uy - sy) ^ 2
 			if d <= PICK_RADIUS * PICK_RADIUS and (not bestD or d < bestD) then
@@ -242,35 +258,7 @@ end
 function R:MoveSelectionTo(x, y, z)
 	local sel = ns.Selection:Get()
 	if #sel == 0 then return end
-
-	local playerName = UnitName("player")
-
-	-- Your own character is a unit like any other here: it takes a slot in the
-	-- spread and gets ordered with everyone else. It moves by a different route
-	-- (see Orders:MoveSelfTo) because the server can only drive your body while
-	-- the RTS camera holds client control -- but that is exactly when you are
-	-- giving orders, so the distinction never shows.
-	local offsets = ns.Orders:SpreadOffsets(#sel, ns.Orders:FacingTo(x, y))
-	local batch = {}
-	local movedSelf = false
-
-	for i, name in ipairs(sel) do
-		local o = offsets[i]
-		if name == playerName then
-			ns.Orders:MoveSelfTo(x + o[1], y + o[2], z)
-			movedSelf = true
-		else
-			tinsert(batch, { name, x + o[1], y + o[2], z })
-		end
-	end
-
-	if #batch > 0 then ns.Orders:MoveBatch(batch) end
-	ns.Flare:Show(x, y, z, "move")
-
-	local total = #batch + (movedSelf and 1 or 0)
-	if total > 0 then
-		ns.Print(("Move order -> %d unit%s"):format(total, total == 1 and "" or "s"))
-	end
+	ns.Orders:MoveGroupTo(sel, x, y, z)
 end
 
 --- Click handling ----------------------------------------------------------
@@ -295,7 +283,10 @@ function R:OnLeftClick(sx, sy, shift, alt, hover)
 			ns.Print("That is your own character - you already have its bars.")
 		else
 			ns.Selection:SelectOnly(m.name)
-			ns.CommandMode:Enter(m.name)
+			-- Seleccionar una unidad ES tomar el mando desde 2026-08-24: sus
+			-- habilidades salen en la consola sin ningun modo que encender.
+			-- Antes esto abria el panel flotante de `CommandMode.lua`.
+			ns.Print(("|cff33ccff%s|r: sus habilidades, en la consola."):format(m.name))
 		end
 		return
 	end
@@ -339,8 +330,31 @@ function R:OnLeftClick(sx, sy, shift, alt, hover)
 	-- itself and does its own targeting -- against real model geometry, exactly
 	-- as it does outside RTS mode. We were asking for something that had already
 	-- happened. The workaround for a captured mouse outlived the capture.
-	if hover then return end
+	--
+	-- FIJAR UN BICHO DEL MUNDO EN LA CONSOLA SE FUE CON LA FILA DE ENEMIGOS,
+	-- borrada en 2026-09-02. El gesto era click izquierdo sobre un hostil (shift
+	-- suma) y esta escrito aqui porque, si la sala vuelve a tener una fila de
+	-- objetivos, esta es la linea donde se enganchaba -- y la razon de que fuera
+	-- shift + IZQUIERDO y no derecho sigue en pie: shift + derecho encadena un
+	-- punto de ruta desde la etapa 5l, y darle un segundo significado segun lo
+	-- que hubiera bajo el cursor haria que encadenar una ruta dependiera de con
+	-- cuanta punteria pasaste por encima de un lobo.
+	--
+	-- Hoy un click izquierdo sobre algo que no es tuyo no hace nada nuestro: el
+	-- cliente lo apunta por su cuenta, como fuera del modo RTS.
+	if hover and not hover.ours then
+		return
+	end
 
+	-- SIN MOUSEOVER NO SE FIJA NADA, aunque el DLL este publicando bichos ahi
+	-- mismo. La proyeccion sabe DONDE esta una criatura pero no si es hostil --
+	-- publica el tipo 3, que incluye al tabernero -- asi que fijar por
+	-- proyeccion meteria PNJs amistosos en una fila que se llama "enemigos" y
+	-- cuyo click izquierdo es una orden de ataque. El click derecho si tira de
+	-- la proyeccion, y puede: alli la clasificacion la hace el SERVIDOR.
+	--
+	-- Y aqui no hace falta: desde la etapa 5h el raton esta libre, asi que el
+	-- cliente marca mouseover en cada click del mundo.
 	if not shift then ns.Selection:Clear() end
 end
 
@@ -360,10 +374,26 @@ end
 -- Right-click means three different things depending on what is under it:
 -- an enemy is an attack order, a friendly NPC is an interaction, and bare
 -- ground is a move.
-function R:OnRightClick(sx, sy, hover)
+function R:OnRightClick(sx, sy, hover, shift)
 	if ns.Selection:IsEmpty() then return end
 
 	local x, y, z = ns.Markers:CursorGroundPoint()
+
+	-- SHIFT ENCADENA UN PUNTO DE RUTA, y no llega a preguntar que hay debajo.
+	-- Es deliberado: shift + click derecho sobre un bicho en un RTS sigue
+	-- siendo "y luego ve ahi", no "y luego atacale" -- y mezclar las dos cosas
+	-- en un gesto haria que la ruta dependiera de con cuanta punteria pasaste
+	-- por encima de un lobo.
+	if shift and x then
+		-- El punto se apunta con la estimacion y se le pregunta al servidor
+		-- donde esta el suelo de verdad de ese rayo. Aqui NO hay orden que
+		-- mandar -- el punto encadenado se manda cuando le toque -- asi que la
+		-- pregunta va sola, con el numero del punto para que la respuesta
+		-- corrija el que se pregunto y no el que este de moda al llegar.
+		local id = ns.Route:Add(x, y, z)
+		ns.Orders:AskGround(tonumber(id))
+		return
+	end
 
 	-- The guid now comes from the client's own raycast rather than from
 	-- projecting published positions and hoping something lands within 48
@@ -397,8 +427,56 @@ function R:OnRightClick(sx, sy, hover)
 		end
 	end
 
-	if ns.Orders:HasServer() and x then
-		ns.Orders:Click(guid, x, y, z)
+	-- SIN PUNTO DE SUELO PERO CON OBJETIVO, EL PUNTO ES EL OBJETIVO.
+	--
+	-- `CursorGroundPoint` puede devolver nil, y no es raro: cuando el rayo del
+	-- DLL no acierta terreno se cae a cortar un PLANO horizontal a la altura del
+	-- jugador, y un rayo que sube -- pinchar algo cuesta arriba, o alto en la
+	-- pantalla -- no cruza ese plano nunca (`k <= 0`). Devuelve nil, y hasta hoy
+	-- todo lo de abajo estaba guardado tras `and x`: la orden no salia, no se
+	-- imprimia nada, y el click se perdia ENTERO. Reportado en PRUEBAS-18 como
+	-- "selecciono varios y click derecho en un enemigo y no van a atacarle".
+	--
+	-- El arreglo no es aflojar la estimacion: es que cuando hay un GUID la
+	-- estimacion no hace falta. La posicion de ese objetivo la publica el DLL
+	-- treinta veces por segundo, es su sitio de verdad, y sirve para las tres
+	-- lecturas -- atacar (los destinos se reparten a su alrededor), interactuar
+	-- y lootear. Solo el click al SUELO necesita el corte del rayo, que es
+	-- justo el caso donde el corte existe.
+	if not x and guid ~= "0" then
+		x, y, z = ns.Markers:UnitWorld(guid)
+	end
+
+	-- Y si sigue sin haber nada, se DICE. Un click que no hace nada y no imprime
+	-- nada es indistinguible de un click sobre hierba, y esa confusion es la que
+	-- ha costado tres rondas de pruebas en este mismo gesto.
+	if not x then
+		ns.Print("|cffff8800No se donde has pinchado|r " ..
+			"(el rayo no corta el suelo y ahi no hay nada). Prueba mas cerca del horizonte.")
+		return
+	end
+
+	-- Un click derecho sin shift EMPIEZA DE NUEVO: la ruta anterior se tira, y
+	-- si esto fue un click al suelo se anota como ruta de un punto.
+	--
+	-- ANOTAR NO ES MANDAR. La orden de este primer tramo la manda igualmente el
+	-- camino de siempre (`Orders:Click`, que ademas deja al servidor decidir si
+	-- era atacar, hablar o lootear); la ruta solo se queda con el destino para
+	-- que el SIGUIENTE shift+click tenga de donde encadenar. Mandarlo dos veces
+	-- seria dos ordenes por click, que es lo que pasaba en el primer borrador.
+	local rayId
+	if x and guid == "0" then
+		rayId = tonumber(ns.Route:Set(x, y, z))
+	else
+		ns.Route:ClearFor(ns.Selection:Get())
+	end
+
+	-- El rayo viaja DENTRO de la orden, no en una pregunta aparte: el servidor
+	-- corta el suelo antes de repartir los destinos, asi que la orden sale ya
+	-- corregida y no hay que esperar a nada. Lo que si llega despues es la
+	-- respuesta para el dibujo (`GROUNDAT`), y por eso va el numero del punto.
+	if ns.Orders:HasServer() then
+		ns.Orders:Click(guid, x, y, z, rayId)
 		return
 	end
 
@@ -506,6 +584,31 @@ local FWD_EPS_DEFAULT = 0.05      -- ~3 degrees of camera swing
 R.turnEps = FWD_EPS_DEFAULT
 R.turnDebug = false
 
+-- CUANDO SE TOMA LA REFERENCIA DEL GIRO, que es la otra mitad del problema y la
+-- que seguia rota despues de subir `turnEps`.
+--
+-- PRUEBAS-10 H4: "los comandos de click en el mundo a veces no se registran a
+-- la primera, al siguiente click si". Siempre el primero, nunca el segundo, y
+-- eso es la firma exacta de lo que pasa: la camara RTS la mueve el SERVIDOR, y
+-- despues de soltar una panoramica sigue asentandose unas decimas. Un click que
+-- cae en esa ventana mide el resto del movimiento ANTERIOR y se archiva como
+-- "giro de camara". El siguiente click ya cae con la camara quieta y funciona.
+--
+-- Subir el umbral no lo arregla: el asentamiento de una panoramica larga puede
+-- ser mayor que un giro corto de verdad, asi que cualquier umbral que trague lo
+-- uno traga tambien lo otro. Lo que hay que arreglar es CONTRA QUE se mide.
+--
+-- La referencia se vuelve a tomar `TURN_ARM` despues de la pulsacion, no en la
+-- pulsacion. Con eso:
+--
+--   * un click corto suelta antes de que haya referencia -- no se puede juzgar
+--     como giro, asi que nunca se traga. La deriva se mide desde cero.
+--   * un arrastre de verdad dura mucho mas que esto, y todo lo que mueva la
+--     camara despues del rearme cuenta entero.
+--   * lo que la camara traia de antes se descarta por construccion, que es
+--     justo lo que sobraba.
+local TURN_ARM = 0.12
+
 -- Fallback only, for when rts_core is not injected and there is no camera to
 -- watch: a press held longer than this is a drag whatever the mouse did.
 local HOLD_TO_DRAG = 0.15
@@ -530,7 +633,10 @@ local function BeginGesture(button)
     -- measured further down: our own capture leaves the cursor alone, the
     -- client's freezes it.
     down.captured = catcher and catcher:IsMouseEnabled() or false
-    down.fx, down.fy, down.fz = CamFwd()
+    -- Sin referencia todavia: la toma `ArmTurn` pasado TURN_ARM. Hasta entonces
+    -- CamDrift devuelve nil y nada se puede archivar como giro.
+    down.fx, down.fy, down.fz = nil, nil, nil
+    down.armed = false
     down.drift = 0
     -- Snapshot now, while the client still owns the mouse.
     down.hover = R:HoverUnit()
@@ -554,6 +660,15 @@ local function CamDrift()
          + math.abs(fz - down.fz)
 end
 
+-- Tomar la referencia, una vez, TURN_ARM despues de la pulsacion. Llamada desde
+-- el OnUpdate, que es el unico sitio que corre mientras el boton esta abajo.
+local function ArmTurn()
+    if down.armed or not down.at then return end
+    if (GetTime() - down.at) < TURN_ARM then return end
+    down.armed = true
+    down.fx, down.fy, down.fz = CamFwd()
+end
+
 local function CameraTurned()
     local d = CamDrift()
     if not d then return false end
@@ -567,6 +682,15 @@ end
 -- Has this press turned into a drag? The hold timer is the fallback for a
 -- client with no DLL injected, where CameraTurned can never answer.
 local function BecameDrag()
+    -- Con Ctrl el raton lo tiene el catcher, asi que el cursor NO esta
+    -- congelado: es la medida honesta y ademas la inmediata. Antes esto caia
+    -- en el temporizador de abajo y la caja tardaba 150 ms en aparecer.
+    if down.captured then
+        local sx, sy = CursorXY()
+        if math.abs(sx - down.x) + math.abs(sy - down.y) > CLICK_SLOP then
+            return true
+        end
+    end
     if CameraTurned() then return true end
     return down.at ~= nil and (GetTime() - down.at) > HOLD_TO_DRAG
 end
@@ -640,13 +764,14 @@ local function EndGesture(button)
         -- CAMERA moved, which is the thing that actually changes during a drag.
         if not down.turned then
             ReportGesture(button, "orden")
-            R:OnRightClick(sx, sy, hover)
+            R:OnRightClick(sx, sy, hover, shift)
         else
             ReportGesture(button, "|cffff0000TRAGADO|r (giro de camara)")
         end
     end
 
     down.button, down.hover, down.dragging, down.turned = nil, nil, false, false
+    down.armed, down.fx, down.fy, down.fz = false, nil, nil, nil
     ReleaseCapture()
 end
 
@@ -708,6 +833,12 @@ local function EnsureFrames()
             if box:IsShown() then box:Hide() end
             return
         end
+
+        -- La referencia se toma aqui, no en la pulsacion: ver TURN_ARM. Hasta
+        -- que se toma, CameraTurned no puede decir que si, y un click corto
+        -- suelta antes -- que es exactamente lo que arregla los clicks que se
+        -- perdian justo despues de mover la camara.
+        ArmTurn()
 
         -- Tracked for BOTH buttons, before the left-only work below. The right
         -- button needs it to tell an orbit from an order, and it has to be
@@ -784,6 +915,100 @@ function R:ApplyFreeLoot(quiet)
     if not quiet then ns.Print("botin |cff00ff00libre|r - puedes lootear todo.") end
 end
 
+--- Que los bots recojan TODO, grises incluidos ------------------------------
+--
+-- Botin libre (arriba) es de quien PUEDE lootear; esto es de que RECOGEN los
+-- bots. Son dos cosas distintas y las dos hacian falta:
+--
+--   * `ll all` pone la estrategia de botin "all" (`LootStrategyValue.cpp`:
+--     `AllLootStrategy::CanLoot` devuelve true a secas). La de fabrica es
+--     "normal", que pasa por `ItemUsageValue` y deja los grises en el suelo.
+--   * Y hay una TRAMPA en la conf del servidor que anula esto entero:
+--     `LootAction::isUseful()` es
+--         freeMethodLoot || !grupo || metodo != FREE_FOR_ALL || esJugadorReal
+--     asi que con `AiPlayerbot.FreeMethodLoot = 0` -- el valor por defecto --
+--     poner el grupo en botin libre, que es justo lo que hace ApplyFreeLoot,
+--     APAGA el loot de todos los bots. Las dos mitades de la peticion se
+--     estorbaban. Se arregla en `playerbots.conf` con FreeMethodLoot = 1; sin
+--     eso, esto no hace nada y no hay forma de notarlo desde el cliente.
+--
+-- SIN PASAR POR EL CHAT, desde 2026-08-22 (PRUEBAS-11 D1: "quiero que sea una
+-- orden por defecto, no que tengan que susurrarlo en el chat cada vez").
+--
+-- Tenia razon y ademas el reproche era exacto: todas las demas ordenes dejaron
+-- el chat hace tres etapas, y esta se quedo atras sin ningun motivo. El motivo
+-- que YO creia -- que mod-rts no puede hablar con playerbots -- resulto ser
+-- falso al mirarlo: `RtsOrders.cpp` ya incluye `PlayerbotAI.h` y lee y escribe
+-- el contexto de la IA para mover bots. La estrategia de botin es un valor mas
+-- de ese contexto, asi que se pone directamente (verbo `LOOT`), sin chat, sin
+-- retardo de cola y sin que se vea.
+--
+-- El chat se queda SOLO como respaldo para un servidor sin mod-rts. Ahi no hay
+-- otra forma, y es mejor una linea fea que un botin que no funciona.
+--
+-- Se repite al cambiar el grupo en los dos caminos, porque la estrategia vive
+-- en la memoria de cada bot y uno que entra despues nace con la de fabrica.
+-- Eso no es un apano: es lo mismo que hace el metodo de botin del grupo.
+R.lootAll = true
+
+function R:ApplyLootAll(quiet)
+    if not self.lootAll then return end
+    if GetNumPartyMembers() == 0 and GetNumRaidMembers() == 0 then return end
+
+    if ns.Orders:HasServer() then
+        ns.SendServer("LOOT 1")
+        if not quiet then
+            ns.Print("botin de los bots: |cff00ff00TODO|r, grises incluidos")
+        end
+        return
+    end
+
+    ns.Orders:Broadcast("ll all", quiet and nil
+        or "botin de los bots: |cff00ff00TODO|r, grises incluidos (por chat: " ..
+           "mod-rts no responde)")
+end
+
+-- ESPERAR A QUE EL SERVIDOR CONTESTE ANTES DE DECIDIR POR DONDE MANDARLO.
+--
+-- `HasServer()` se pone a true con la PRIMERA respuesta de mod-rts, y esa
+-- respuesta es un viaje de ida y vuelta que todavia no ha llegado cuando se
+-- entra en modo RTS. Aplicar en ese instante en la primera entrada de la sesion
+-- elegiria el respaldo de chat teniendo mod-rts delante -- y se veria como que
+-- el arreglo no se aplico.
+--
+-- EL BUCLE QUE HABIA AQUI ES AHORA `Link:WhenServer`. Era una de cuatro copias
+-- del mismo `si contesta o han pasado 2,5 s`; las otras tres estaban en el
+-- recordatorio de `Marks` y en las filas de habilidades y roles de la sala.
+--
+-- LA GUARDA DE `R.active` SE QUEDA, y es lo unico que no podia irse a la
+-- funcion comun: si sales del modo mientras se espera, la estrategia de botin
+-- ya no se quiere. Un temporizador que dispara despues de que su motivo haya
+-- desaparecido es su propio fallo -- la misma regla que cancela la salida
+-- aplazada de `Chrome` si vuelves a entrar.
+function R:ApplyLootAllSoon()
+    if not self.lootAll then return end
+    ns.Link:WhenServer(function()
+        if R.active and R.lootAll then R:ApplyLootAll(true) end
+    end)
+end
+
+function R:ToggleLootAll()
+    self.lootAll = not self.lootAll
+    RTSCommandDB.lootAll = self.lootAll
+
+    if self.lootAll then
+        self:ApplyLootAll()
+        return
+    end
+
+    if ns.Orders:HasServer() then
+        ns.SendServer("LOOT 0")
+    else
+        ns.Orders:Broadcast("ll normal")
+    end
+    ns.Print("botin de los bots: |cffffff00solo lo util|r")
+end
+
 function R:ToggleFreeLoot()
     self.freeLoot = not self.freeLoot
     RTSCommandDB.freeLoot = self.freeLoot
@@ -809,10 +1034,17 @@ end
 -- tabla de comandos (PlayerbotCommandScript.cpp:36). Sin el salia la lista de
 -- ayuda amarilla y no pasaba nada.
 --
--- Va por comando de chat y no por mod-rts a proposito. El comando ya existe y
--- lo mantiene playerbots; replicarlo en nuestro modulo obligaria a enlazar
--- mod-rts contra las cabeceras de playerbots, y ataria dos modulos que hoy no
--- se conocen -- por un interruptor.
+-- Va por comando de chat y no por mod-rts porque el comando ya existe y lo
+-- mantiene playerbots: replicarlo seria trabajo por un interruptor.
+--
+-- OJO, LA RAZON QUE AQUI PONIA ANTES ERA FALSA. Decia que hacerlo en mod-rts
+-- "obligaria a enlazar contra las cabeceras de playerbots y ataria dos modulos
+-- que hoy no se conocen". Ya se conocen, y ya se conocian cuando se escribio:
+-- `RtsOrders.cpp` incluye `PlayerbotAI.h` y lee y escribe el contexto de la IA
+-- para mover bots. Creerse esa frase costo que la estrategia de botin siguiera
+-- saliendo por el chat una etapa entera de mas (PRUEBAS-11 D1). Si alguna vez
+-- hace falta mover ESTO al servidor, no hay ningun impedimento tecnico -- solo
+-- que no compensa.
 --
 -- LA PEGA, y conviene saberla: el comando es un TOGGLE y no devuelve el estado,
 -- asi que aqui se lleva la cuenta a mano. Si se desincroniza (por ejemplo si lo
@@ -885,6 +1117,10 @@ function R:Toggle()
 	self.active = not self.active
 
 	if self.active then
+		-- Vuelves a entrar: si quedaba una salida aplazada por combate, se
+		-- cancela, y el espejo de hechizos sobra -- la consola vuelve a estar.
+		self.pendingLeave = false
+		ns.Standby:Hide()
 		catcher:Show()
 		catcher:EnableMouse(false)
 		ns.Camera:On()
@@ -908,6 +1144,14 @@ function R:Toggle()
 		end
 		if self.selfBot.auto then self:SelfBotSet(true, true) end
 		self:ApplyFreeLoot(true)
+		self:ApplyLootAllSoon()
+		-- El aspecto de los marcadores de ruta vive en el servidor y se pierde
+		-- al desconectar, asi que el addon -- que es donde persisten los
+		-- ajustes -- se lo recuerda. Con la misma espera que el botin y por el
+		-- mismo motivo, que ahora esta escrito una sola vez en `Link`.
+		if ns.Marks then
+			ns.Link:WhenServer(function() ns.Marks:Apply() end)
+		end
 
 		-- La interfaz va DESPUES de los avisos de arriba: Chrome esconde el
 		-- chat, asi que lo impreso antes se queda en el historial y lo de
@@ -922,26 +1166,103 @@ function R:Toggle()
 		ns.Bar:Enter()
 		ns.Chrome:Enter()
 	else
-		-- Devolver la interfaz de Blizzard lo primero: si algo de lo que viene
-		-- despues falla, el jugador se queda con su UI en vez de sin ella.
-		ns.Chrome:Leave()
-		ns.Bar:Leave()
-		ns.HUD:Leave()
-		catcher:Hide()
-		ReleaseCapture()
-		down.button = nil
-		-- Leaving mid-drag would strand the client outside mouselook with the
-		-- button still held. Same rule as the CVars: RTS mode only affects RTS
-		-- mode, and that includes how it ends.
-		if IsMouselooking() then MouselookStop() end
-		-- Drop any borrowed bar before the camera goes.
-		ns.CommandMode:Leave()
-		-- Devolver el personaje ANTES de soltar la camara, para que no quede un
-		-- instante en el que la IA lo lleva y tu ya has vuelto a el.
-		self:SelfBotSet(false, true)
-		ns.Camera:Off()
-		ns.Print("|cffff0000RTS mode OFF|r - normal controls.")
+		-- SALIR EN COMBATE NO PUEDE DEVOLVER LA INTERFAZ, y por eso se sale en
+		-- dos mitades. Ver LeaveChrome mas abajo.
+		self:LeaveWorld()
+		self:LeaveChrome()
 	end
+end
+
+--- Salir, en dos mitades ---------------------------------------------------
+--
+-- PRUEBAS-11 G8: "salir en combate no me devuelve mi UI en primera persona".
+-- Correcto, y no es un fallo que se pueda arreglar: PlayerFrame, MainMenuBar y
+-- las barras de accion son frames PROTEGIDOS, y `Show()` sobre un frame
+-- protegido dentro de combate lo bloquea el cliente. Chrome ya lo sabia y
+-- aplazaba esa mitad a PLAYER_REGEN_ENABLED -- pero el resto de la salida se
+-- hacia igual, asi que te quedabas con la camara en tu personaje y SIN NINGUNA
+-- interfaz hasta que acabara la pelea. Lo peor de las dos opciones.
+--
+-- Asi que la salida se parte por donde de verdad esta la costura:
+--
+--   LeaveWorld    la camara, el raton, el selfbot, el modo mando. Nada de esto
+--                 esta protegido, asi que vuelve SIEMPRE y al instante: en
+--                 cuanto pulsas Salir estas otra vez detras de tu personaje.
+--   LeaveChrome   la consola y los frames de Blizzard. En combate se aplaza.
+--
+-- Mientras dura el aplazamiento te quedas con LA CONSOLA RTS puesta. Desde
+-- 2026-09-02 eso es el minimapa, los railes y la rejilla de ordenes: la sala
+-- del medio -- vida, poder, grupo, enemigos, habilidades -- esta vacia mientras
+-- se redisena, asi que este consuelo es hoy mas pequeno de lo que era. Y las
+-- teclas de la barra de accion siguen
+-- funcionando con la barra escondida -- es lo mismo que pasa con el Alt-Z del
+-- propio juego -- asi que puedes seguir peleando con el teclado. Al acabar el
+-- combate la interfaz de Blizzard vuelve sola.
+
+function R:LeaveWorld()
+	catcher:Hide()
+	ReleaseCapture()
+	down.button = nil
+	-- Leaving mid-drag would strand the client outside mouselook with the
+	-- button still held. Same rule as the CVars: RTS mode only affects RTS
+	-- mode, and that includes how it ends.
+	if IsMouselooking() then MouselookStop() end
+	-- Las rutas dibujadas no tienen sentido fuera del modo, y ademas seguirian
+	-- mandando tramos a los bots desde una interfaz que ya no se ve.
+	if ns.Route then ns.Route:ClearAll() end
+	-- Devolver el personaje ANTES de soltar la camara, para que no quede un
+	-- instante en el que la IA lo lleva y tu ya has vuelto a el.
+	self:SelfBotSet(false, true)
+	ns.Camera:Off()
+end
+
+local regen
+
+function R:LeaveChrome()
+	-- LA CONSOLA SE VA SIEMPRE, y este es el cambio de 2026-08-23. Es NUESTRA:
+	-- frames corrientes, sin proteger, asi que esconderla en combate es legal y
+	-- no hay ningun motivo para dejarla puesta. La primera version la mantenia
+	-- de sustituta durante la pelea y no era lo que se pedia -- se pedia salir.
+	ns.Bar:Leave()
+	ns.HUD:Leave()
+
+	if InCombatLockdown() then
+		self.pendingLeave = true
+		-- Y en su lugar, tus hechizos en su sitio: un espejo de tus barras de
+		-- accion, dibujado en el rectangulo exacto de cada boton real. No lanza
+		-- -- para eso tendria que ser un frame seguro, y un frame seguro no se
+		-- puede ensenar en combate, que es el unico momento en que esto existe.
+		-- Las teclas si funcionan, con las barras escondidas, igual que con el
+		-- Alt-Z del juego.
+		ns.Standby:Show()
+		if not regen then
+			regen = CreateFrame("Frame", "RTSModeRegen")
+			regen:RegisterEvent("PLAYER_REGEN_ENABLED")
+			regen:SetScript("OnEvent", function()
+				if not R.pendingLeave then return end
+				R.pendingLeave = false
+				-- Si has vuelto a ENTRAR en modo RTS mientras duraba la pelea,
+				-- la salida aplazada ya no toca: completarla ahora desmontaria
+				-- la consola que acabas de encender. Es la misma clase de fallo
+				-- que un temporizador que dispara despues de que su motivo haya
+				-- desaparecido.
+				if R.active then return end
+				R:LeaveChrome()
+			end)
+		end
+		ns.Print("|cffffff00Estas en combate.|r La camara ya es tuya y la consola " ..
+			"se ha ido; las barras de Blizzard son frames protegidos y el " ..
+			"cliente no deja devolverlas hasta que acabe la pelea.")
+		ns.Print("Te dejo tus hechizos en su sitio para poder verlos. " ..
+			"|cffffff00Las teclas funcionan|r. La interfaz normal vuelve sola " ..
+			"al salir de combate.")
+		return
+	end
+
+	self.pendingLeave = false
+	ns.Standby:Hide()
+	ns.Chrome:Leave()
+	ns.Print("|cffff0000Modo RTS OFF|r - controles normales.")
 end
 
 function R:IsActive()
@@ -1009,3 +1330,19 @@ function R:LivePick(on)
 		ns.Print("|cffff0000live pick OFF|r")
 	end
 end
+
+--- Que hay bajo el cursor, segun el servidor ------------------------------
+--
+-- La respuesta a `WHAT <guid>`: la clasificacion que hace el SERVIDOR de lo que
+-- se pincho -- hostil, amistoso, cadaver. Es el camino lento; el rapido es el
+-- mouseover del cliente, y este solo entra cuando aquel no sabe.
+--
+-- EL FORMATO SE VALIDA, y aqui hace falta de verdad: `WHAT` se dice en los dos
+-- sentidos. Nuestra propia peticion es `WHAT <hex>` y vuelve a nosotros por el
+-- mismo canal; la respuesta trae ademas el digito del tipo, y ese `(%d)` es lo
+-- unico que las distingue.
+ns.Link:On("WHAT", function(rest)
+	local guid, kind = rest:match("^(%S+) (%d)$")
+	if guid then R:OnKind(guid, tonumber(kind)) end
+end)
+

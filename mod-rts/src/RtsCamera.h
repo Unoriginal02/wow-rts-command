@@ -80,6 +80,31 @@ namespace rts
         // for.
         void SetVertical(Player const* player, int direction);
 
+        // NO GROUND HOLD. Keeping a constant clearance over the terrain while
+        // panning was built and both mechanisms were seen in game 2026-08-23;
+        // both are gone rather than parked, because each fails in a way that is
+        // inherent to it and not to the tuning:
+        //
+        //   the server measuring the terrain and moving the camera with
+        //   NearTeleportTo descends in visible steps, and every teleport
+        //   cancels the movement the CLIENT is applying -- so forward motion
+        //   stops dead on each one. It feels like a lift, not a camera.
+        //
+        //   UNIT_FIELD_HOVERHEIGHT + SMSG_MOVE_SET_HOVER is the client's own
+        //   "float this unit N yards over the ground", and it needs GRAVITY ON
+        //   to have any ground-following to modify. Gravity is exactly what the
+        //   camera has disabled so that it hangs where it is put -- so arming
+        //   hover drops the camera to the floor and the hover then lifts it
+        //   back. The drop is the mechanism, not a bug in it.
+        //
+        // The header used to justify the absence of hover with "hover pins a
+        // unit to a fixed height above the ground, which is the opposite of
+        // what a free camera wants". That reason had expired -- a ground hold
+        // is what was asked for -- and the new reason is the gravity coupling,
+        // which is not a matter of what we want. If it is ever revisited, the
+        // thing to find first is a way to get client-side ground-following
+        // without gravity, because without that both roads lead back here.
+
         // Pivot drive: -1 left, 0 stop, +1 right. Held while Q or E is held.
         //
         // ORBIT, NOT YAW. Q/E were bound to the client's own TURNLEFT/TURNRIGHT,
@@ -104,6 +129,15 @@ namespace rts
         // changes, where the player object is going away anyway and touching
         // client control would be pointless or unsafe.
         void Abandon(Player* player);
+
+        // Put a player back in control of their own character, whatever we left
+        // behind. Called on every world entry: a client that comes back without
+        // control of itself has no collision, so the character clips through the
+        // ground and falls forever -- and the server never notices, because ITS
+        // idea of where the character is stays perfectly valid. See the note on
+        // the implementation.
+        void Rescue(Player* player);
+
     }
 }
 

@@ -33,13 +33,6 @@
 	<Binding name="RTSCOMMAND_ORDER_ATTACKMOVE">
 		RTSCommand_OrderAttackMove();
 	</Binding>
-	<Binding name="RTSCOMMAND_RELEASE">
-		RTSCommand_ReleasePossession();
-	</Binding>
-	<Binding name="RTSCOMMAND_COMMAND">
-		RTSCommand_ToggleCommandMode();
-	</Binding>
-
 	<Binding name="RTSCOMMAND_UNIT1" header="RTSCOMMAND_UNITS">
 		RTSCommand_SelectIndex(1);
 	</Binding>
@@ -76,35 +69,5 @@
 	</Binding>
 	<Binding name="RTSCOMMAND_GROUP4">
 		RTSCommand_ControlGroup(4);
-	</Binding>
-	<Binding name="RTSCOMMAND_SLOT1">
-		RTSCommand_CommandSlot(1);
-	</Binding>
-	<Binding name="RTSCOMMAND_SLOT2">
-		RTSCommand_CommandSlot(2);
-	</Binding>
-	<Binding name="RTSCOMMAND_SLOT3">
-		RTSCommand_CommandSlot(3);
-	</Binding>
-	<Binding name="RTSCOMMAND_SLOT4">
-		RTSCommand_CommandSlot(4);
-	</Binding>
-	<Binding name="RTSCOMMAND_SLOT5">
-		RTSCommand_CommandSlot(5);
-	</Binding>
-	<Binding name="RTSCOMMAND_SLOT6">
-		RTSCommand_CommandSlot(6);
-	</Binding>
-	<Binding name="RTSCOMMAND_SLOT7">
-		RTSCommand_CommandSlot(7);
-	</Binding>
-	<Binding name="RTSCOMMAND_SLOT8">
-		RTSCommand_CommandSlot(8);
-	</Binding>
-	<Binding name="RTSCOMMAND_SLOT9">
-		RTSCommand_CommandSlot(9);
-	</Binding>
-	<Binding name="RTSCOMMAND_SLOT10">
-		RTSCommand_CommandSlot(10);
 	</Binding>
 </Bindings>

@@ -1,0 +1,273 @@
+RTS COMMAND - LISTA DE PRUEBAS  #13
+Generada 2026-08-23   ·   addon 0.40.0 · mod-rts 0.10.0 · rts_core sin tocar
+
+QUE HAY EN ESTA RONDA
+  Tres cosas, y dos vienen de lo que se vio jugando la #12:
+
+    A. EL PANEL PASA A 4x4 y la fila nueva son los BOTONES DEL CLIENTE
+       (mapa, talentos, bolsas, menu), que el modo RTS escondia y dejaba sin
+       sitio. Es lo unico que no se ha visto nunca.
+    B. EL PUNTO DEL SUELO lo decide ahora el SERVIDOR (seccion K de la #12).
+       Sin verificar en juego.
+    C. LAS MARCAS DE SUELO, APAGADAS (seccion L de la #12). Sin verificar.
+
+  De la #12 queda ademas /rts aim, que sigue puesto y sigue sin dar su
+  respuesta -- ya no bloquea nada, pero contestarlo devolveria el camino
+  exacto y sincrono. Es la seccion E de aqui.
+
+LO QUE YA DIJO EL JUEGO Y NO SE VUELVE A MIRAR
+  - Las marcas de suelo se ven, se colocan y `obj 0.1` es el tamano bueno.
+    Lo que las mata es la ANIMACION de nacimiento del visual, que vive en el
+    cliente y el servidor no puede tocar. Por eso van apagadas.
+  - El punto del cursor fallaba de la forma exacta que predice el plano:
+    pinchando la cara de un monticulo, el punto acababa detras y bajo tierra.
+    Eso confirma ademas que el rayo del DLL se esta descartando.
+
+LO QUE YA ESTA COMPROBADO FUERA DEL JUEGO
+  - check_addon.py: 30 ficheros, limpio.
+  - sim\bar_layout.py con la rejilla nueva: 4x4 de celda 105 y paso 113 mide
+    452x452 y el hueco del arte es 474x452. Cabe justo de alto, y no hay ningun
+    solape ni desborde en ninguno de los cinco `grow`.
+  - sim\ground_ray.py: la marcha del rayo contra el terreno, con el monticulo
+    de la queja. El plano se equivoca en 11.4 yardas y mete el punto 16 yardas
+    BAJO la ladera; la marcha acierta.
+  - mod-rts compila y enlaza; addon y mod desplegados IDENTICOS al repo.
+
+EL SERVIDOR HAY QUE REINICIARLO
+  worldserver.exe nuevo (mod-rts 0.10.0, verbo GROUND y el rayo dentro de
+  CLICK). Sin reiniciar, toda la seccion B da falso negativo: el binario viejo
+  ignora el tramo del rayo y el punto sigue saliendo del plano.
+
+ANTES DE EMPEZAR
+  1. 3_Detener_Servidor + 1_Iniciar_Servidor
+  2. rts-tools\Deploy_Addon.bat  (ya ejecutado)
+  3. rts-tools\2-Jugar.bat  (desde el Explorador, no Git Bash)
+  4. /rts version  ->  addon 0.40.0, mod-rts 0.10.0, rts_core inyectado
+  5. Fuera, con desnivel a la vista, y con 2-4 bots en el grupo
+
+---------------------------------------------------------------------------
+A. EL PANEL 4x4 Y LOS BOTONES DEL CLIENTE
+---------------------------------------------------------------------------
+
+POR QUE ASI. Los botones pequenos son hijos de MainMenuBar y del cluster del
+minimapa, y el modo RTS esconde las dos cosas: por eso desaparecian. La etapa
+5l intento devolverlos como railes de doce botones NUESTROS y se estrello con
+que `ToggleWorldMap`, `ToggleTalentFrame` y `ToggleGameMenu` estan PROTEGIDAS
+en 3.3.5a -- un boton propio que las llame da "blocked from an action only
+available to the Blizzard UI", y da igual que el click sea de verdad.
+
+La salida es no llamarlas: se coge el boton DE BLIZZARD, el que el cliente ya
+esta dibujando, se le cambia el padre a nuestra casilla y se le sube la escala.
+El click lo recibe el, en su codigo, sin nada nuestro por medio. Es lo mismo
+que se hizo con el minimapa y con los iconos de los railes -- en vez de
+comprobar la constante, no tener constante.
+
+La rejilla crece de 4x3 a 4x4 y el paso baja de 118 a 113 (celda 110 -> 105,
+un 5% menos), porque cuatro filas de 118 no caben en los 452 de alto del hueco.
+NADA DE LO QUE YA ESTABA SE MUEVE: las doce ordenes siguen en sus mismas
+casillas, Salir incluida.
+
+[x] A1  El panel de la derecha tiene CUATRO filas, y las tres de arriba son las
+        doce ordenes de siempre en el mismo orden.
+        notas:
+        Salir sigue siendo la ultima de la tercera fila, en rojo.
+
+[x] A2  La cuarta fila trae cuatro botones: Mapa, Talentos, Bolsas, Menu.
+        notas: PERO NO ES AQUI DONDE QUIERO ESOS BOTONEs, esos botones deberian ir a la barra vetical de la derecha. y ademas deberia haber esta coleccion: 
+	Info personaje, hechicoz, talentos, misiones, menu, bolsas. los iconos relativos al mapa van a la columna de la derecha
+        Si alguna etiqueta sale en ROJO con un interrogante, ese frame no
+        existe con ese nombre en este cliente -- /rts panel lo dice y se
+        arregla cambiando el nombre en CLIENT, en Panel.lua.
+
+[x] A3  ES LA PRUEBA QUE DECIDE: pulsar el de MAPA abre el mapa del mundo.
+        notas:
+        Si sale "blocked from an action only available to the Blizzard UI", el
+        alojar no basta -- el frame se ha contaminado al cambiarle el padre --
+        y toda la fila se cae. En ese caso: la tecla M sigue funcionando con
+        las barras escondidas, y habria que decidir entre vivir con las teclas
+        o buscar otra forma.
+
+[x] A4  Talentos abre la ventana de talentos, Menu abre el menu del juego, y
+        Bolsas abre la mochila.
+        notas:
+        Los tres son el mismo experimento que A3 por caminos distintos. Si el
+        mapa va y alguno de estos no, es de ESE boton y no de la idea.
+
+[!] A5  Los botones se ven a un tamano razonable dentro de su casilla, con su
+        etiqueta debajo y sin salirse ni pisar la fila de arriba.
+        notas:, si pero no van ahi, 
+        Los de menu son 28x58 -- el doble de altos que anchos -- asi que se
+        escalan por el alto y quedan estrechos. Es lo esperado.
+
+[x] A6  Al SALIR del modo RTS, esos cuatro botones vuelven a su sitio de
+        siempre (el mapa en el minimapa, los otros en la barra de abajo), con
+        su tamano normal.
+        notas:
+        ES TAN IMPORTANTE COMO A3. Se les guarda padre, anclajes, escala,
+        estrato, nivel y visibilidad antes de tocarlos. Si vuelven pequenos, o
+        en el sitio equivocado, o no vuelven, la restitucion esta mal -- y eso
+        es peor que el fallo que esto arregla.
+
+[x] A7  Entrar y salir del modo RTS tres veces seguidas: siguen bien las tres.
+        notas:
+        Lo guardado se apunta la PRIMERA vez y se borra al devolverlo. Si en la
+        segunda vuelta se guardara "como estaba" cuando ya estaba movido, se
+        quedarian en la barra para siempre.
+
+[x] A8  Salir del modo RTS EN COMBATE: al acabar la pelea, los cuatro botones
+        estan en su sitio con el resto de la interfaz.
+        notas:
+        La consola se va al instante y las barras de Blizzard vuelven al acabar
+        el combate. Si algun boton se queda por el camino, saldra un mensaje en
+        rojo diciendo cual.
+
+[x] A9  /rts panel lista los cuatro y dice "alojado" en los cuatro.
+        notas: me resulta sospechoso la importancia que le haces a esos 4 botones y creo que te has tomado mas molestias con ellos de lo que te he pedido y hay otra funcionalidad que ha quedado coja. 
+
+---------------------------------------------------------------------------
+B. EL PUNTO DEL SUELO LO DECIDE EL SERVIDOR   (era K de la #12)
+---------------------------------------------------------------------------
+
+El cliente manda el RAYO -- pixel del cursor (Lua) + base de la camara
+(rts_core), las dos mitades que sabe con exactitud -- y mod-rts lo corta contra
+el terreno y contra los modelos de colision, que es lo que el addon no puede
+hacer porque en Lua no hay mapa. En el click derecho el rayo viaja DENTRO de la
+orden, asi que el destino sale ya corregido; en shift + click se pregunta
+aparte y el aro salta a su sitio al contestar.
+
+[x] B1  Pinchar la CARA VISIBLE de un monticulo o una cuesta. Acercarse: el
+        punto esta en la ladera que pinchaste, no detras ni bajo tierra.
+        notas:
+        ES LA PRUEBA QUE DECIDE. Vale igual mirar el aro de la ruta que donde
+        se paran los bots: los dos salen del mismo punto.
+
+[x] B2  Pinchar en cuatro sitios muy separados de la pantalla (esquinas y
+        centro), en terreno con desnivel: los cuatro caen donde apuntaste.
+        notas:
+        Si TODAVIA se vienen al centro, el fallo esta en el rayo (la camara o
+        el pixel) y no en el corte -- y entonces lo dice la seccion E.
+
+[x] B3  El aro y el numero de la ruta saltan un poco justo despues del click en
+        cuesta, y se quedan quietos.
+        notas:
+        Esperado: se dibuja en la estimacion y se corrige cuando contesta el
+        servidor, ~100 ms. En llano las dos cuentas coinciden y no se ve.
+
+[x] B4  Los bots NO se paran y rearrancan justo despues de cada click.
+        notas:
+        La orden ya sale corregida, asi que la respuesta solo mueve el dibujo.
+        Un tiron a los 100 ms de cada orden = el aviso de "ya iba corregido" no
+        esta llegando y se esta remandando el tramo.
+
+[X] B5  Shift + click derecho encadenando cuatro puntos por una ladera: los
+        cuatro aros quedan sobre el suelo.
+        notas:
+
+[X] B6  Pinchar en un edificio, un puente o un tejado: el punto cae en la
+        superficie que se ve, no en el terreno de debajo.
+        notas:
+        Eso lo da el cruce contra los modelos de colision, que es una
+        interseccion de verdad. Que el bot sepa llegar es otra cosa.
+
+[X] B7  El avance con ataque (attack-move) tambien cae donde apuntas en cuesta.
+        notas:
+        Lleva el mismo tramo de rayo que el click. Si B1 va y esto no, falla el
+        tramo de AMOVE y no el corte.
+
+[X] B8  Pinchar al cielo o al horizonte: no pasa nada raro.
+        notas:
+        Sin corte no hay respuesta y se queda la estimacion de siempre.
+
+---------------------------------------------------------------------------
+C. LAS MARCAS DE SUELO, APAGADAS   (era L de la #12)
+---------------------------------------------------------------------------
+
+`obj 0.1` daba el tamano bueno, pero la marca nacia con un estallido enorme:
+es la animacion de entrada del visual del hechizo, que vive en el cliente
+dentro del kit del hechizo. El servidor decide donde, cual y cuanto de grande;
+no hay ningun campo para saltarse una animacion, acortarla o empezarla a
+medias. Apagadas de fabrica, con la herramienta entera detras por si algun dia
+se quiere volver a mirar.
+
+[X] C1  Con una ruta puesta NO hay ninguna mancha de hechizo en el suelo: solo
+        el aro y el numero.
+        notas:
+        Se apagan aunque este cliente tuviera `on = 1` guardado de ayer: los
+        ajustes guardados llevan version por eso. Sale un aviso una vez.
+
+[X] C2  /rts mark on las devuelve con el tamano de antes, y /rts mark off las
+        quita.
+        notas:
+
+[X] C3  Al salir del modo RTS no queda ninguna marca suelta en el suelo.
+        notas:
+
+---------------------------------------------------------------------------
+D. QUE NO SE HA ROTO
+---------------------------------------------------------------------------
+
+[X] D1  Las doce ordenes del panel siguen funcionando (probar Seguir, Quieto y
+        Formar, que abre la lista).
+        notas:
+        La lista de formaciones cuelga del panel, asi que con la rejilla mas
+        pequena tiene que seguir apareciendo encima del boton y no cortada.
+
+[X] D2  Salir del modo RTS con el boton rojo sigue funcionando.
+        notas:
+
+[X] D3  El resto de la barra esta igual: retrato, grupo, enemigos, la fila de
+        acciones y el minimapa.
+        notas:
+        Solo ha cambiado la rejilla del panel de la derecha; si se ha movido
+        algo mas, es que la simulacion de reparto no lo vio.
+
+[ X D4  Las rutas con shift siguen igual de bien que en la #12 (D3 y D8 de
+        aquella ronda).
+        notas:
+
+[X] D5  Nada de esto imprime errores de Lua.
+        notas:
+
+---------------------------------------------------------------------------
+E. LA PREGUNTA QUE SIGUE ABIERTA: /rts aim
+---------------------------------------------------------------------------
+
+El rayo que tira rts_core se esta descartando -- lo dice la firma del fallo del
+punto en cuesta -- y no sabemos por que. Ya no bloquea nada, porque el servidor
+resuelve el punto sin el, pero contestarlo devolveria el camino exacto y
+SINCRONO (sin el saltito de B3) y quitaria una pieza del sistema que hoy esta
+apagada en la practica.
+
+Son dos averias posibles y se distinguen a simple vista en las lineas de
+/rts aim:
+
+  * el impacto se proyecta SIEMPRE cerca del mismo pixel, vaya donde vaya el
+    cursor  ->  el DLL esta leyendo un cursor que no es el nuestro (el cliente
+    se lo mueve mientras tiene el raton cogido). Se arregla en el DLL, leyendo
+    el cursor del flujo de mensajes de la ventana en vez de preguntarselo a
+    Windows.
+  * el impacto se proyecta en el cursor ENCOGIDO hacia el centro, con una k
+    estable (0.6, 0.7...)  ->  el DLL abre el abanico de rayos con un tamano de
+    ventana o un fov que no son los del fotograma. Se arregla corrigiendo esos
+    dos numeros.
+
+[X] E1  /rts aim, mover el raton despacio del centro a una esquina, y pegar
+        aqui cuatro o cinco lineas.
+        notas:
+
+[X] E2  Con el raton QUIETO: la linea dice EXACTO y d es de pocos pixeles.
+        notas:
+        Si con el raton quieto tambien sale RECHAZADO, la averia no tiene nada
+        que ver con que el cliente se quede el raton.
+
+---------------------------------------------------------------------------
+LO QUE DECIDE ESTA RONDA
+---------------------------------------------------------------------------
+  1. A3 dice si alojar los botones de Blizzard funciona. Si no, los botones
+     pequenos no pueden volver de ninguna forma conocida y hay que decidir si
+     se vive con las teclas (M, N, B, Esc, que siguen funcionando).
+  2. A6 dice si se devuelven bien. Un boton que no vuelve a su sitio es un
+     fallo peor que el que arregla.
+  3. B1 dice si el punto del suelo ya cae donde se pincha.
+  4. E1 dice por que el rayo del DLL no vale, que es lo unico que queda del
+     sistema de punteria sin explicar.

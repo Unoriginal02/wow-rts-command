@@ -127,6 +127,62 @@ function M:Project(wx, wy, wz)
 	return (ndcx * 0.5 + 0.5) * w, (ndcy * 0.5 + 0.5) * h
 end
 
+-- El cursor en unidades de UIParent, que es el espacio en el que Project
+-- devuelve sus pixeles. Un solo sitio lo convierte: el desproyectado y la
+-- comprobacion del impacto del DLL tienen que medir contra lo MISMO o la
+-- comprobacion mediria su propia diferencia de unidades.
+function M:CursorPixel()
+	local mx, my = GetCursorPosition()
+	local s = UIParent:GetEffectiveScale()
+	return mx / s, my / s
+end
+
+-- Lo ultimo que dijo la comprobacion del punto de suelo, para /rts aim. No es
+-- adorno: distingue las dos formas de fallar del rayo del DLL, que se ven igual
+-- en pantalla y se arreglan en sitios distintos.
+--
+--   * el impacto se proyecta SIEMPRE cerca del mismo pixel, pase el cursor por
+--     donde pase  ->  el DLL esta leyendo otro cursor (el cliente se lo mueve).
+--   * el impacto se proyecta en el cursor ENCOGIDO hacia el centro, con un
+--     factor estable  ->  el DLL abre el abanico de rayos con un tamano de
+--     ventana o un fov que no son los del fotograma.
+--
+-- `tol` en unidades de UIParent. Generoso a proposito: un impacto bueno cae a
+-- uno o dos pixeles, y lo unico que lo separa de ahi es que la camara se haya
+-- movido en los 33 ms que el impacto lleva de retraso.
+M.aim = { tol = 60, on = false, ok = nil, how = "?", d = nil }
+
+-- EL RAYO DEL CURSOR: origen y direccion, en coordenadas de mundo.
+--
+-- Es la unica parte de "donde he pinchado" que el cliente sabe con exactitud, y
+-- son las dos mitades buenas de este addon: el pixel lo dice Lua (que no se
+-- entera de que el cliente le haya cogido el raton) y la base de la camara la
+-- publica rts_core cada fotograma. Lo que falta -- cortar el rayo contra el
+-- suelo -- no se puede hacer aqui, porque en Lua no hay mapa; eso lo contesta
+-- mod-rts, que si lo tiene. Ver `GROUND` en mod_rts.cpp.
+function M:CursorRay()
+	if RTS_HasCam ~= 1 then return nil end
+
+	local mx, my = self:CursorPixel()
+	local w, h = GetScreenWidth(), GetScreenHeight()
+	local ndcx = (mx / w) * 2 - 1
+	local ndcy = (my / h) * 2 - 1
+
+	local SX, SY = self:Intrinsics()
+	local a = ndcx / (SX * RIGHT_SIGN)
+	local b = ndcy / (SY * UP_SIGN)
+
+	local dx = RTS_CamFwdX + RTS_CamRightX * a + RTS_CamUpX * b
+	local dy = RTS_CamFwdY + RTS_CamRightY * a + RTS_CamUpY * b
+	local dz = RTS_CamFwdZ + RTS_CamRightZ * a + RTS_CamUpZ * b
+
+	local len = math.sqrt(dx * dx + dy * dy + dz * dz)
+	if len < 1e-6 then return nil end
+
+	local ex, ey, ez = self:Eye()
+	return ex, ey, ez, dx / len, dy / len, dz / len
+end
+
 -- Inverse of Project: the ground point under the mouse cursor.
 --
 -- The cursor is unprojected onto a horizontal plane, and the whole question is
@@ -145,18 +201,80 @@ end
 function M:CursorGroundPoint()
 	if RTS_HasCam ~= 1 then return nil end
 
+	-- EL DLL YA SABE LA RESPUESTA EXACTA, Y ESTA FUNCION LA TIRABA A LA BASURA.
+	--
+	-- `RTS_CurX/Y/Z` es el punto donde la funcion de picking DEL PROPIO CLIENTE
+	-- corta el terreno bajo el cursor. Es el sitio, no una estimacion. Lo que
+	-- habia aqui se quedaba solo con la Z de ese punto, la usaba como altura de
+	-- un PLANO horizontal, y devolvia donde el rayo del cursor cruza ese plano.
+	--
+	-- Eso introduce dos errores que se vieron en juego:
+	--
+	--   * en X/Y, el plano no es el terreno. Si el suelo sube o baja, el corte
+	--     con el plano no es el corte con el suelo, y la diferencia crece con la
+	--     distancia y con la pendiente -- "de lejos el punto no queda donde lo
+	--     puse".
+	--   * en Z, cuando el rayo NO acertaba (`RTS_CurHit == 0`) se caia a `RTS_PZ`,
+	--     la altura DEL JUGADOR. Con la camara despegada mirando a un valle o a
+	--     una colina a cien yardas, eso no se parece en nada a la altura de
+	--     aquello -- y como esa Z se manda como destino, los bots acababan
+	--     flotando a la altura del marcador.
+	--
+	-- Asi que si hay impacto, se devuelve el impacto: exacto por construccion,
+	-- sin plano y sin deriva.
+	--
+	-- PERO SOLO SI ESE PUNTO ESTA DEBAJO DEL CURSOR, Y HAY QUE COMPROBARLO.
+	--
+	-- El rayo lo tira el DLL con el cursor de WINDOWS (`GetCursorPos`) leido en
+	-- su vuelta de 30 Hz. Ese cursor no siempre es el que el jugador cree que
+	-- esta usando: mientras el cliente se queda con el raton -- que es lo que
+	-- pasa con un boton apretado -- lo mueve el, y lo que el DLL lee entonces no
+	-- es a donde apunta nadie. El fallo no es un error pequeno de unas yardas:
+	-- es un punto de otro sitio. En juego se vio como "solo funciona un trozo
+	-- pequeno en medio de la pantalla, y si pincho mas lejos la marca se me
+	-- viene al centro".
+	--
+	-- La comprobacion es gratis y no puede discrepar del resto del addon: un
+	-- punto que este SOBRE el rayo del cursor se proyecta EXACTAMENTE en el
+	-- pixel del cursor, sea cual sea su distancia -- proyectar es el inverso de
+	-- desproyectar. Asi que se proyecta el impacto y se mira donde cae. Si cae
+	-- encima del cursor, el DLL uso nuestro cursor y su respuesta es exacta; si
+	-- cae lejos, uso otro y se tira.
+	--
+	-- Lo que queda cuando se tira NO es lo de antes del todo: el plano se ancla
+	-- en la Z del impacto (suelo de verdad, aunque sea de otro punto de la
+	-- vista) y solo cae a la Z DEL JUGADOR si no hubo impacto ninguno.
+	local mx, my = self:CursorPixel()
 	local planeZ
+
 	if RTS_CurHit == 1 then
+		local px, py = self:Project(RTS_CurX, RTS_CurY, RTS_CurZ)
+		if px then
+			local d = math.sqrt((px - mx) ^ 2 + (py - my) ^ 2)
+			self.aim.d, self.aim.px, self.aim.py = d, px, py
+			self.aim.mx, self.aim.my = mx, my
+			self.aim.ok = d <= self.aim.tol
+			if self.aim.ok then
+				self.aim.how = "DLL"
+				return RTS_CurX, RTS_CurY, RTS_CurZ
+			end
+		else
+			self.aim.ok, self.aim.d = false, nil
+		end
 		planeZ = RTS_CurZ
-	elseif RTS_HasPos == 1 then
-		planeZ = RTS_PZ          -- no DLL, or the ray found only sky
+		self.aim.how = "plano(z del impacto)"
 	else
-		return nil
+		self.aim.ok, self.aim.d, self.aim.px = false, nil, nil
+		self.aim.how = "plano(z del jugador)"
 	end
 
-	local mx, my = GetCursorPosition()
-	local s = UIParent:GetEffectiveScale()
-	mx, my = mx / s, my / s
+	if not planeZ then
+		if RTS_HasPos == 1 then
+			planeZ = RTS_PZ      -- sin DLL, o el rayo solo encontro cielo
+		else
+			return nil
+		end
+	end
 
 	local w, h = GetScreenWidth(), GetScreenHeight()
 	local ndcx = (mx / w) * 2 - 1
@@ -694,7 +812,7 @@ function M:Create()
 	-- moves every frame, and a marker redrawn at 30 fps against a world rendered
 	-- at 60+ visibly swims sideways whenever you turn. Motion prediction fills in
 	-- the unit's position between samples.
-	local acc = 0
+	local acc, aimAcc = 0, 0
 	Overlay():SetScript("OnUpdate", function(_, e)
 		acc = acc + e
 		if acc >= 0.03 then
@@ -702,7 +820,75 @@ function M:Create()
 			M.lastMap = M:SampleUnits()
 		end
 		M:Update()
+
+		if M.aim.on then
+			aimAcc = aimAcc + e
+			if aimAcc >= 1 then
+				aimAcc = 0
+				M:AimLine()
+			end
+		end
 	end)
+end
+
+--- La punteria: por que el punto de suelo sale donde sale --------------------
+--
+-- Una linea por segundo mientras esta encendido, para poder MOVER el raton y
+-- leer el patron. Un solo tiro no distingue las dos averias de arriba: las dos
+-- aciertan en el centro de la pantalla.
+function M:AimLine()
+	if RTS_HasCam ~= 1 then
+		ns.Print("aim: |cffff0000sin camara|r (rts_core no publica)")
+		return
+	end
+
+	local x, y, z = self:CursorGroundPoint()
+	local a = self.aim
+	local mx, my = self:CursorPixel()
+	local w, h = GetScreenWidth(), GetScreenHeight()
+
+	if RTS_CurHit ~= 1 then
+		ns.Print(("aim: cursor %d,%d   |cffff8800el DLL no acerto|r (cielo o sin rayo)   -> %s")
+			:format(mx, my, a.how))
+	else
+		-- El factor de encogimiento contra el centro de la pantalla es el numero
+		-- que separa las dos averias: constante = fov/ventana mal, disparatado o
+		-- sin sentido = otro cursor.
+		local cx, cy = w * 0.5, h * 0.5
+		local dcur = math.sqrt((mx - cx) ^ 2 + (my - cy) ^ 2)
+		local dhit = a.px and math.sqrt((a.px - cx) ^ 2 + (a.py - cy) ^ 2) or 0
+		local k = dcur > 1 and (dhit / dcur) or 0
+		ns.Print(("aim: cursor %d,%d   impacto->pantalla %d,%d   d=%dpx  k=%.2f   %s")
+			:format(mx, my, a.px or 0, a.py or 0, a.d or -1, k,
+				a.ok and "|cff00ff00EXACTO|r" or "|cffff0000RECHAZADO|r"))
+	end
+
+	if x then
+		local dist = math.sqrt((x - RTS_CamX) ^ 2 + (y - RTS_CamY) ^ 2 + (z - RTS_CamZ) ^ 2)
+		ns.Print(("     punto %s: %.1f %.1f %.1f   a %.0f yardas de la camara")
+			:format(a.how, x, y, z, dist))
+	else
+		ns.Print("     |cffff0000sin punto|r: ni impacto ni plano.")
+	end
+end
+
+function M:AimToggle(arg)
+	local n = tonumber(arg)
+	if n then
+		self.aim.tol = math.max(2, math.min(400, n))
+		ns.Print(("aim: tolerancia |cffffff00%d|r unidades de UIParent."):format(self.aim.tol))
+		return
+	end
+
+	self.aim.on = not self.aim.on
+	if self.aim.on then
+		ns.Print("|cff00ff00aim ON|r: una linea por segundo. Mueve el raton por la pantalla " ..
+			"-- centro, esquinas, bordes -- y mira el patron.")
+		ns.Print("  |cffffff00/rts aim <n>|r cambia la tolerancia, |cffffff00/rts aim|r lo apaga.")
+		self:AimLine()
+	else
+		ns.Print("|cffff0000aim OFF|r")
+	end
 end
 
 function M:Toggle()

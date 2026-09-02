@@ -5,9 +5,9 @@
 	cada panel por separado: ahora hay cuatro dibujos y dos de ellos se usan DOS
 	VECES, uno espejado. La barra, de izquierda a derecha:
 
-	  left-bar 128 | 16 | minimap 512 | ramp 128 |
+	  left-bar 128 | minimap 512 | ramp 128 |
 	  middle 512 xN |
-	  ramp' 128 | minimap 512 | 16 | left-bar' 128
+	  ramp' 128 | minimap 512 | left-bar' 128
 
 	(`'` = espejada horizontalmente con SetTexCoord)
 
@@ -20,13 +20,36 @@
 
 	LO QUE ES CADA PANEL, que es lo que decide donde va cada cosa:
 
-	  rail izq    los botones del minimapa (mapa, rastreo, zoom, calendario)
+	  rail izq    remate del extremo, sin botones desde 2026-08-22
 	  minimapa    el minimapa de verdad, cuadrado
 	  ramp        el hombro: baja del alto completo al alto de la sala
-	  sala        retrato 3D + barras del heroe | grupo | enemigos / acciones
+	  sala        VACIA desde 2026-09-02 -- se esta redisenando
 	  ramp'       el hombro de vuelta
-	  ordenes     rejilla 3x3 de ordenes globales; la ultima casilla SALE del modo
-	  rail der    los iconos del juego (ficha, talentos, misiones, bolsas)
+	  ordenes     rejilla 4x4 de ordenes globales; la ultima casilla SALE del modo
+	  rail der    remate del otro extremo
+
+	LA SALA ESTA VACIA A PROPOSITO. Llevaba retrato 3D, barras del heroe, cuatro
+	filas de grupo, una fila de enemigos, huecos de habilidad y roles -- siete
+	modulos (`Portrait`, `Vitals`, `Roster`, `Foes`, `Skills`, `Roles`, mas
+	`Targets` de datos) que estan BORRADOS, no apartados, porque se va a
+	reconsiderar entero lo que va ahi dentro.
+
+	Lo que queda es el AREA, un solo hueco `hall` sin rejilla y sin anfitrion:
+	el rectangulo util que el arte deja libre, que es el dato que hace falta
+	para decidir. Se ve con `/rts bar guides`. Su reparto interior -- los
+	`HERO_W`, `PARTY_X`, `SKILLS_Y`... -- se fue con los modulos: eran decisiones
+	sobre un contenido que ya no existe, y dejarlas puestas seria pre-decidir el
+	rediseno.
+
+	LOS RAILES YA NO LLEVAN BOTONES, y las dos cosas que eso arregla son la
+	misma. `Rails.lua` pedia al cliente los iconos de sus doce micro-botones y
+	llamaba a `ToggleWorldMap`, `ToggleTalentFrame`, `ToggleGameMenu`... En
+	juego (PRUEBAS-10 G2/G4/G5) el mapa no abria, los talentos no abrian y el
+	menu saltaba con "blocked from an action only available to the Blizzard UI":
+	esas funciones estan PROTEGIDAS en 3.3.5a igual que `TargetUnit`, y da igual
+	que el boton sea nuestro. Y los iconos salian diminutos dentro de su casilla
+	porque un micro-boton es 32x64 y la casilla 68x68. Se quitan enteros -- las
+	piezas se quedan como remate del arte, que es lo que se pidio.
 
 	EL ARTE ES 2x Y SE DIBUJA REDUCIDO, ~x0.56 en 2560x1440. Las piezas de 256
 	se quedaban cortas al lado de las texturas del propio cliente, que son
@@ -47,8 +70,9 @@
 	elige la cuenta que mas se acerca, con un suelo por debajo del cual no se
 	deja bajar. El margen que sale se imprime, no se supone.
 
-	LOS DOS HUECOS DE 16 SON LA UNICA SEPARACION QUE HAY. Los railes de botones
-	de los extremos flotan sueltos; todo lo del centro se toca.
+	NO HAY NINGUNA SEPARACION: la barra es una sola pieza continua. Los railes
+	de los extremos flotaban sueltos a 16 px y se pidio que tocasen (PRUEBAS-10
+	A1). `GAP` sigue existiendo como un solo numero por si vuelve a quererse.
 
 	`middle` SE REPITE, y es la unica pieza que puede: su dibujo llega de borde a
 	borde, asi que dos copias seguidas no dejan costura. `/rts bar grow <n>`.
@@ -70,9 +94,10 @@
 	ancho depende de `grow`.
 
 	QUIEN DIBUJA LO DE DENTRO NO ES ESTE FICHERO. Aqui estan el arte, las areas
-	y las celdas; el contenido lo ponen Portrait, Vitals, Roster, Foes, Card,
-	Panel y Rails, cada uno pidiendo su area con `B:SlotFrame(key)` y sus celdas
-	con `B:Cells(key)`, y volviendose a colocar cuando `B:OnLayout` avisa.
+	y las celdas; el contenido lo ponen `Panel` y `Rails`, que **se apuntan solos
+	con `B:Register(m)`** y piden su area con `B:SlotFrame(key)`, sus celdas con
+	`B:Cells(key)`, y se vuelven a colocar cuando `B:OnLayout` avisa. Este
+	fichero no nombra a ninguno. La sala no tiene hoy ningun modulo.
 
 	POR QUE NO PASA POR Skin.lua. Skin viste con `SetBackdrop`, cuyo `edgeFile`
 	es una hoja con los ocho trozos del borde en una disposicion que nadie aqui
@@ -96,8 +121,9 @@ local ART = "Interface\\AddOns\\RTSCommand\\art\\"
 -- El alto del DIBUJO. La escala de pantalla lo baja.
 local BAR_H = 512
 
--- La separacion de los railes. Un solo numero, en un solo sitio.
-local GAP = 16
+-- La separacion de los railes. Un solo numero, en un solo sitio. A 0 desde
+-- 2026-08-22: la barra se lee mejor como una pieza entera (PRUEBAS-10 A1).
+local GAP = 0
 
 --- Las piezas -------------------------------------------------------------
 --
@@ -136,49 +162,58 @@ local HOLE = {
 	mid   = { x = 0,  w = 512, y = 122, h = 360 },   -- middle, de borde a borde
 }
 
---- El reparto de la sala --------------------------------------------------
+--- La sala ----------------------------------------------------------------
 --
--- Lo unico de este fichero que es una DECISION y no una medida. La sala mide
--- 360 de alto y `214 + 512*grow` de ancho, y hay que meter cinco cosas:
+-- EL AREA UTIL Y NADA MAS. La sala mide 344 de alto por `214 + 512*grow` de
+-- ancho, y hoy no hay nada dentro. Lo que habia -- retrato, grupo, enemigos,
+-- habilidades, roles -- esta borrado; ver la cabecera.
 --
---   retrato 3D  /  barras del heroe debajo   -- bloque del heroe, ancho fijo
---   grupo                                    -- 4 filas, ancho fijo
---   enemigos / divisor / acciones            -- todo lo que sobre
+-- Los margenes se quedan porque son del ARTE, no del contenido: `PAD` es lo que
+-- hay que dejar para no pisar el bisel de la rampa, medido en el escaneo. Lo
+-- que se fue son los anchos y las bandas, que eran decisiones sobre un
+-- contenido que ya no existe.
 --
--- Los dos primeros son de ancho fijo a proposito: un retrato que crece con la
--- resolucion se ve mal, y una barra de vida de 900 px no dice mas que una de
--- 440. Lo que se estira es lo que gana con el sitio -- cuantos enemigos caben y
--- cuantas acciones -- y eso sale de `fill`.
+-- `HALL_Y1` es el borde de ABAJO, exclusivo: `h = HALL_Y1 - y`. Escrito asi
+-- porque la primera version le quitaba un pixel de mas y las filas de dentro
+-- salian un pixel mas altas que su hueco -- invisible, pero es la clase de
+-- descuadre que luego se busca en el sitio equivocado.
 
 local PAD = 8      -- margen interior de la sala
-local COL = 16     -- separacion entre bloques
 
-local HERO_W  = 256
-local PARTY_W = 440
-
--- `HALL_Y1` es el borde de ABAJO, exclusivo: `h = HALL_Y1 - y`. Escrito asi
--- porque la primera version le quitaba un pixel de mas ("la ultima fila es la
--- 481") y las cuatro filas del grupo salian un pixel mas altas que su hueco --
--- invisible, pero es la clase de descuadre que luego se busca en el sitio
--- equivocado. El hueco ocupa las filas 122..481, o sea [122, 482).
 local HALL_Y0 = HOLE.rampL.y + PAD                        -- 130
 local HALL_Y1 = HOLE.rampL.y + HOLE.rampL.h - PAD         -- 474
 
-local PORTRAIT_H = 256
-local VITALS_Y   = HALL_Y0 + PORTRAIT_H + PAD             -- 394
-local FOES_H     = 110
-local RULE_Y     = HALL_Y0 + FOES_H + PAD                 -- 248
-local CARD_Y     = RULE_Y + 3 + PAD                       -- 259
-
--- La x de cada bloque, relativa a la pieza `ramp-left`, que es donde empieza el
--- hueco de la sala.
-local HALL_X  = HOLE.rampL.x                              -- 21
-local HERO_X  = HALL_X + PAD                              -- 29
-local PARTY_X = HERO_X + HERO_W + COL                     -- 301
-local RIGHT_X = PARTY_X + PARTY_W + COL                   -- 757
-
--- Donde acaba la sala: dentro de la rampa espejada, dejando su margen.
+-- Donde empieza y donde acaba, relativo a su pieza: dentro de la rampa
+-- izquierda tras su margen, hasta dentro de la espejada dejando el suyo.
+local HALL_X   = HOLE.rampL.x + PAD                       -- 29
 local HALL_END = HOLE.rampR.w - PAD                       -- 99
+
+--- Los railes ------------------------------------------------------------
+--
+-- LAS DOS BARRAS VERTICALES DE LOS EXTREMOS, que hasta ahora eran remate y nada
+-- mas. Ahi van los botones pequenos del propio cliente: los del MAPA en el de la
+-- IZQUIERDA, junto al minimapa, y la coleccion del PERSONAJE en el de la
+-- DERECHA, junto a las ordenes.
+--
+-- El hueco mide 78 de ancho por 452 de alto, o sea que la FORMA decide el
+-- reparto: seis botones apilados en una columna, y el ALTO de la celda es lo
+-- que limita su tamano -- 78 de ancho sobran para un boton de 28. A tamano
+-- nativo no caben (seis por 58 son 348 px de pantalla y el rail mide 254), asi
+-- que salen a ~1,2 aumentos en unidades de dibujo: un 18% menos que en la
+-- rejilla donde el tamano ya se dio por bueno, y ese 18% es lo que cuesta que
+-- esten en el sitio correcto.
+--
+-- Margen 4 y no PAD: cada pixel de margen aqui sale del alto de los botones,
+-- que es justo lo escaso.
+local RAIL_PAD  = 2
+local RAIL_ROWS = 6
+local RAIL_PY   = math.floor((HOLE.rail.h - RAIL_PAD * 2) / RAIL_ROWS)   -- 74
+
+-- SIN AIRE ENTRE CELDAS: la celda ES el paso. Cada pixel que se le quite al
+-- alto de la celda sale del tamano de los botones, que es justo lo escaso, y
+-- las texturas de los botones del cliente ya traen su propio margen dentro --
+-- en su propia barra van pegados unos a otros.
+local RAIL_CH   = RAIL_PY                                                -- 74
 
 --- Los huecos --------------------------------------------------------------
 --
@@ -191,61 +226,67 @@ local HALL_END = HOLE.rampR.w - PAD                       -- 99
 -- pone tantas columnas como quepan.
 --
 -- `host = true` -> ademas del rectangulo, un Frame de verdad donde otro modulo
--- mete lo suyo. `line = true` -> una raya, que es todo lo que es el divisor.
+-- mete lo suyo. `line = true` -> una raya, que es todo lo que era el divisor.
+--
+-- `line` Y `fill` NO LOS USA NINGUN HUECO HOY, y se quedan a proposito. La regla
+-- de este proyecto -- borrar la maquinaria cuando desaparece aquello para lo que
+-- estaba -- apunta a FUNCIONES con su interruptor puesto, que se arman solas y
+-- fallan en silencio. Esto son dos ramas de un motor de reparto: sin un hueco
+-- que las declare no corren nunca, y son justo el vocabulario con el que se va a
+-- describir lo que entre en la sala. Dicho aqui para que sea una decision y no
+-- un descuido.
 --
 -- El NIVEL importa: las piezas son OPACAS donde esta el hueco, asi que lo
 -- alojado va POR ENCIMA del panel o no se ve. Es el tropiezo que costo el
 -- minimapa la primera vez.
 
 local SLOTS = {
-	{ key = "rail-left", piece = "rail-left", label = "rail mapa",
-	  dx = HOLE.rail.x, dy = HOLE.rail.y, w = HOLE.rail.w, h = HOLE.rail.h,
-	  cell = { w = 68, h = 68, px = 76, py = 76 }, cols = 1, rows = 6,
-	  host = true },
-
 	{ key = "minimap", piece = "map", label = "minimapa",
 	  dx = HOLE.map.x, dy = HOLE.map.y, w = HOLE.map.w, h = HOLE.map.h,
 	  cell = { w = 452, h = 452 }, cols = 1, rows = 1,
 	  host = true },
 
-	{ key = "portrait", piece = "ramp-left", label = "retrato",
-	  dx = HERO_X, dy = HALL_Y0, w = HERO_W, h = PORTRAIT_H,
-	  host = true },
+	-- LA SALA, ENTERA Y VACIA. Un solo rectangulo, sin rejilla y sin anfitrion:
+	-- es el area que hay para repartir cuando se decida que va dentro, y hasta
+	-- entonces lo unico que hace es salir en `/rts bar guides` con su medida.
+	--
+	-- `toPiece`/`toDx` porque abarca varias piezas y el numero de copias del
+	-- panel central cambia con `grow`. Es el motivo de que exista esa forma de
+	-- declarar un hueco, y el motivo de que siga aqui.
+	{ key = "hall", piece = "ramp-left", label = "sala (vacia)",
+	  dx = HALL_X, dy = HALL_Y0, h = HALL_Y1 - HALL_Y0,
+	  toPiece = "ramp-right", toDx = HALL_END },
 
-	{ key = "vitals", piece = "ramp-left", label = "vida/poder/exp",
-	  dx = HERO_X, dy = VITALS_Y, w = HERO_W, h = HALL_Y1 - VITALS_Y,
-	  host = true },
+	-- IZQUIERDA: los del MAPA, que es el lado donde esta el minimapa -- los
+	-- botones del mapa al lado del mapa.
+	{ key = "railL", piece = "rail-left", label = "rail mapa",
+	  dx = HOLE.rail.x, dy = HOLE.rail.y + RAIL_PAD,
+	  w = HOLE.rail.w, h = HOLE.rail.h - RAIL_PAD * 2,
+	  cell = { w = HOLE.rail.w, h = RAIL_CH, py = RAIL_PY },
+	  cols = 1, rows = RAIL_ROWS, align = "top", host = true },
 
-	{ key = "party", piece = "ramp-left", label = "grupo",
-	  dx = PARTY_X, dy = HALL_Y0, w = PARTY_W, h = HALL_Y1 - HALL_Y0,
-	  cell = { w = PARTY_W, h = 80, py = 88 }, cols = 1, rows = 4,
-	  align = "top", host = true },
+	-- DERECHA: ficha, hechizos, talentos, misiones, menu, bolsas -- el lado de
+	-- las ordenes, que es el lado de las cosas que abres tu.
+	--
+	-- Usa `railF` porque la pieza va espejada y el hueco util esta EN EL REFLEJO:
+	-- no es el mismo x que el de la izquierda.
+	{ key = "railR", piece = "rail-right", label = "rail personaje",
+	  dx = HOLE.railF.x, dy = HOLE.railF.y + RAIL_PAD,
+	  w = HOLE.railF.w, h = HOLE.railF.h - RAIL_PAD * 2,
+	  cell = { w = HOLE.railF.w, h = RAIL_CH, py = RAIL_PY },
+	  cols = 1, rows = RAIL_ROWS, align = "top", host = true },
 
-	{ key = "foes", piece = "ramp-left", label = "enemigos",
-	  dx = RIGHT_X, dy = HALL_Y0, h = FOES_H,
-	  toPiece = "ramp-right", toDx = HALL_END,
-	  cell = { w = 96, h = FOES_H, px = 104 }, rows = 1, fill = "cols",
-	  align = "left", host = true },
-
-	{ key = "rule", piece = "ramp-left", label = "divisor",
-	  dx = RIGHT_X, dy = RULE_Y, h = 3,
-	  toPiece = "ramp-right", toDx = HALL_END,
-	  line = true },
-
-	{ key = "card", piece = "ramp-left", label = "acciones",
-	  dx = RIGHT_X, dy = CARD_Y, h = HALL_Y1 - CARD_Y,
-	  toPiece = "ramp-right", toDx = HALL_END,
-	  cell = { w = 103, h = 103, px = 111, py = 111 }, rows = 2, fill = "cols",
-	  align = "topleft", host = true },
-
-	{ key = "orders", piece = "orders", label = "ordenes 3x3",
+	-- 4x4, Y LA CUARTA FILA SON ORDENES. Estuvo una ronda ocupada por los
+	-- botones pequenos del cliente, que funcionaban pero no iban ahi (se
+	-- mudaron a los railes), y volvio a 4x3 mientras se decidia. Son ordenes.
+	--
+	-- El paso es 113 y no 118 porque cuatro filas de 118 son 472 y el hueco mide
+	-- 452 de alto: no caben. Con 113 la rejilla mide 452x452 justos -- cuadrada
+	-- de verdad dentro de los 474 de ancho -- y la celda encoge de 110 a 105, un
+	-- 5%. Ese 5% es lo que cuesta la cuarta fila.
+	{ key = "orders", piece = "orders", label = "ordenes 4x4",
 	  dx = HOLE.map.x, dy = HOLE.map.y, w = HOLE.map.w, h = HOLE.map.h,
-	  cell = { w = 144, h = 144, px = 154, py = 154 }, cols = 3, rows = 3,
-	  host = true },
-
-	{ key = "rail-right", piece = "rail-right", label = "rail juego",
-	  dx = HOLE.railF.x, dy = HOLE.railF.y, w = HOLE.railF.w, h = HOLE.railF.h,
-	  cell = { w = 68, h = 68, px = 76, py = 76 }, cols = 1, rows = 6,
+	  cell = { w = 105, h = 105, px = 113, py = 113 }, cols = 4, rows = 4,
 	  host = true },
 }
 
@@ -407,23 +448,35 @@ local function SlotGrid(s)
 	local _, _, w, h = SlotArea(s)
 
 	-- UN AREA QUE NO CABE NO TIENE CELDAS, y decirlo aqui es lo que evita el
-	-- unico caso feo del reparto: con `grow` a 1 la sala mide 726 y el bloque de
-	-- la derecha empieza en el 757, asi que su ancho sale NEGATIVO. Devolviendo
-	-- cero, `Cells` devuelve una lista vacia, los paneles esconden sus botones y
-	-- no queda ninguno flotando sobre la rampa. La barra se ve pequena, que es
-	-- exactamente lo que se pidio.
+	-- unico caso feo del reparto: con `grow` a 1 el bloque de la derecha se
+	-- queda en 48 px de ancho. Devolviendo cero, `Cells` devuelve una lista
+	-- vacia, los paneles esconden sus botones y no queda ninguno flotando sobre
+	-- la rampa. La barra se ve pequena, que es exactamente lo que se pidio.
+	--
+	-- "NO CABE" ES QUE NO CABE UNA CELDA, no que el ancho sea negativo, y esa
+	-- correccion es de 2026-08-22. Antes bastaba con `w <= 0` porque el bloque
+	-- de la derecha, con `grow` a 1, salia NEGATIVO por 18 px de casualidad. Al
+	-- estrechar las filas del grupo paso a medir 48 px -- positivo, pero menos
+	-- que una celda -- y el `if cols < 1 then cols = 1` de abajo habria puesto
+	-- un boton de 103 px en un hueco de 48. La condicion buena era siempre esta.
 	if w <= 0 or h <= 0 then return 0, 0 end
 
 	local cols, rows = s.cols or 1, s.rows or 1
 	if s.fill == "cols" or s.fill == "both" then
 		local px = cell.px or cell.w
 		cols = (px > 0) and (math.floor((w - cell.w) / px) + 1) or 1
-		if cols < 1 then cols = 1 end
+		if cols < 1 then return 0, 0 end
 	end
 	if s.fill == "rows" or s.fill == "both" then
 		local py = cell.py or cell.h
 		rows = (py > 0) and (math.floor((h - cell.h) / py) + 1) or 1
-		if rows < 1 then rows = 1 end
+		if rows < 1 then return 0, 0 end
+	end
+	-- Una rejilla de tamano FIJO tambien puede no caber. Es el mismo caso, solo
+	-- que sin `fill` no hay nada que lo cuente.
+	local px, py = cell.px or cell.w, cell.py or cell.h
+	if (cols - 1) * px + cell.w > w or (rows - 1) * py + cell.h > h then
+		return 0, 0
 	end
 	return cols, rows
 end
@@ -578,6 +631,14 @@ local function Line(parent, r, g, b, a)
 	return t
 end
 
+-- EL TEXTO DE LAS GUIAS VA EN PIXELES DE DIBUJO, igual que todo lo demas de
+-- este fichero, y eso es lo que se paso por alto la primera vez: la barra se
+-- dibuja a ~x0.56, asi que un 11 acababa siendo SEIS pixeles en pantalla y las
+-- guias salian ilegibles (PRUEBAS-10 A4). Los tamanos de aqui son ~2x los que
+-- se quieren ver, la misma regla que `ns.W.FONT`.
+local GUIDE_FONT = 26
+local GUIDE_SMALL = 22
+
 local function Text(parent, size, r, g, b)
 	local fs = parent:CreateFontString(nil, "OVERLAY")
 	fs:SetFont(GameFontNormal:GetFont(), size, "OUTLINE")
@@ -597,7 +658,7 @@ local function BuildGuides()
 	g.ref = Line(guides, 1, 1, 1, 0.25)
 	g.ref:SetWidth(64)
 	g.ref:SetHeight(64)
-	g.refLabel = Text(guides, 11, 1, 1, 1)
+	g.refLabel = Text(guides, GUIDE_SMALL, 1, 1, 1)
 	g.refLabel:SetText("64 px 1:1")
 end
 
@@ -623,13 +684,13 @@ local function Divider(i)
 		g.div[i] = Line(guides, 1, 0.2, 0.2, 0.85)
 		g.div[i]:SetWidth(1)
 		g.div[i]:SetHeight(BAR_H)
-		g.lbl[i] = Text(guides, 10, 1, 0.35, 0.35)
+		g.lbl[i] = Text(guides, GUIDE_SMALL, 1, 0.35, 0.35)
 	end
 	return g.div[i], g.lbl[i]
 end
 
 local function SlotGuide(i, cell)
-	g.slot[i] = g.slot[i] or { cells = {}, label = Text(guides, 11, 0.4, 1, 0.5) }
+	g.slot[i] = g.slot[i] or { cells = {}, label = Text(guides, GUIDE_FONT, 0.4, 1, 0.5) }
 	local rec = g.slot[i]
 	if not rec.cells[cell] then
 		rec.cells[cell] = {}
@@ -842,7 +903,6 @@ function B:Place()
 	-- El mapa se reescala con la barra: su hueco puede haber cambiado de tamano.
 	if self.active then
 		ns.HUD:HostMinimap(miniSlot, MiniBox())
-		if ns.Portrait then ns.Portrait:Relayout() end
 	end
 	-- Y lo demas, que puede haber cambiado de NUMERO de celdas, no solo de
 	-- tamano: `fill` cuenta columnas contra un ancho que depende de `grow`.
@@ -851,54 +911,56 @@ end
 
 --- Entrar y salir ----------------------------------------------------------
 
--- Los paneles de contenido, en el orden en que se leen de izquierda a derecha.
--- Una lista y no siete llamadas sueltas: anadir un panel no deberia obligar a
--- tocar `Enter` y `Leave` por separado y descubrir un mes despues que uno de los
--- dos se quedo sin la linea.
-local function Panels()
-	return { ns.Rails, ns.Vitals, ns.Roster, ns.Foes, ns.Card, ns.Panel }
+-- LOS PANELES DE CONTENIDO SE APUNTAN ELLOS, desde 2026-09-02.
+--
+-- Antes esto era una lista escrita a mano aqui. Su propio comentario decia por
+-- que -- *"anadir un panel no deberia obligar a tocar `Enter` y `Leave` por
+-- separado"* -- y resolvia la mitad del problema dejando la otra: **anadir un
+-- panel seguia obligando a editar este fichero**, que es el del arte y no tiene
+-- nada que decir sobre quien dibuja dentro.
+--
+-- Y tenia una trampa de orden encima: la lista se leia con `ns.Panel`,
+-- `ns.Rails`, o sea que un panel cargado DESPUES que `Bar.lua` en el `.toc`
+-- salia `nil` en el instante equivocado. Apuntandose desde su propio fichero,
+-- el orden deja de importar: cuando el panel existe, se registra.
+--
+-- El resto del contrato (`SlotFrame`, `Cells`, `OnLayout`) no cambia. Es lo
+-- mejor que tiene este fichero -- vaciar la sala entera no toco ni `Panel.lua`
+-- ni `Rails.lua` -- y esto es la pieza que le faltaba.
+local panels = {}
+
+-- `m` necesita `Enter`/`Leave`; los dos son opcionales.
+function B:Register(m)
+	if not m then return end
+	for _, other in ipairs(panels) do
+		-- Registrarse dos veces daria dos `Enter` y dos `Leave`, que en un panel
+		-- con botones son botones duplicados encima de los suyos. Callar y
+		-- volver es lo correcto: un `/reload` no deberia poder romper esto.
+		if other == m then return end
+	end
+	table.insert(panels, m)
+	-- Si la barra ya esta puesta, el panel entra ahora. Es lo mismo que hace
+	-- `OnLayout` al registrarse tarde, y por la misma razon: quien llegue
+	-- despues no puede quedarse fuera hasta la proxima entrada.
+	if self.active and m.Enter then m:Enter() end
 end
 
---- Los paneles flotantes de antes -----------------------------------------
+--- LO QUE HA IDO DESAPARECIENDO DE AQUI ----------------------------------
 --
--- `UnitBar` (retratos del grupo), `CommandCard` (rejilla 4x3) y `Targets`
--- (lista de objetivos) dicen ahora lo mismo que la sala de la barra: grupo,
--- acciones y enemigos. Dejarlos encima seria la misma informacion dos veces, y
--- ademas flotando sobre el arte.
+-- Primero los paneles FLOTANTES (`UnitBar`, `CommandCard`, el panel de
+-- `Targets`), borrados en 2026-08-22 porque decian lo mismo que la sala de la
+-- barra: "no quiero ninguno de esos paneles, ya tenemos hud definitivo"
+-- (PRUEBAS-10 H1/H2).
 --
--- SE APARTAN, NO SE BORRAN. Siguen siendo la interfaz cuando la barra esta
--- apagada (`/rts bar`), que es como se prueba media cosa.
+-- Y ahora la propia SALA, 2026-09-02. Los siete modulos que la llenaban estan
+-- borrados enteros -- no apartados, no comentados, no detras de un
+-- interruptor. Es la regla que este proyecto ha pagado por escrito tres veces:
+-- una funcion escondida con su interruptor puesto no esta escondida, y la
+-- razon que justifica dejar la maquinaria en pie ("por si volvemos") se cumple
+-- mejor en un parrafo del plan que en doscientas lineas de Lua.
 --
--- Y SE DEVUELVEN AL ESTADO EN QUE ESTABAN, no con un `Show()` a ciegas: si el
--- jugador tenia la carta escondida con `/rts toggle`, tiene que seguir
--- escondida al salir. Es la misma regla dura que Chrome aplica a los frames de
--- Blizzard y Camera a sus CVars, y las dos veces que se rompio fue por
--- suponer el estado anterior en vez de guardarlo.
-local floatWas
-
-local function ParkFloating(park)
-	local list = { ns.UnitBar, ns.CommandCard, ns.Targets }
-
-	if park then
-		if floatWas then return end        -- ya apartados
-		floatWas = {}
-		for i, m in ipairs(list) do
-			local f = m and m.frame
-			if f then
-				floatWas[i] = f:IsShown()
-				f:Hide()
-			end
-		end
-		return
-	end
-
-	if not floatWas then return end
-	for i, m in ipairs(list) do
-		local f = m and m.frame
-		if f and floatWas[i] then f:Show() end
-	end
-	floatWas = nil
-end
+-- Se recuperan de git si hacen falta, que es donde tiene que estar el codigo
+-- que hoy no corre.
 
 -- Sin retorno temprano a proposito: todo lo de dentro se puede repetir sin dano
 -- y hace falta poder repetirlo. Si /rts bar se enciende ANTES de entrar en modo
@@ -913,13 +975,9 @@ function B:Enter()
 	-- Chrome.lua es el unico canal de diagnostico que hay.
 	ns.HUD:ShowFootprint(false)
 	ns.HUD:HostMinimap(miniSlot, MiniBox())
-	-- Se pregunta por `ns.X` en vez de guardarlo arriba porque Bar.lua carga
-	-- antes que los paneles: al CARGAR no existen todavia, al ENTRAR si.
-	if ns.Portrait then ns.Portrait:Host(hosts.portrait) end
-	for _, m in ipairs(Panels()) do
-		if m and m.Enter then m:Enter() end
+	for _, m in ipairs(panels) do
+		if m.Enter then m:Enter() end
 	end
-	ParkFloating(true)
 
 	self:Place()
 	if self.showGuides then guides:Show() else guides:Hide() end
@@ -933,11 +991,9 @@ function B:Leave()
 	-- Devolver el mapa ANTES de ensenar la huella, para que no haya un instante
 	-- con el panel visible y vacio.
 	ns.HUD:HostMinimap(nil)
-	if ns.Portrait then ns.Portrait:Host(nil) end
-	for _, m in ipairs(Panels()) do
-		if m and m.Leave then m:Leave() end
+	for _, m in ipairs(panels) do
+		if m.Leave then m:Leave() end
 	end
-	ParkFloating(false)
 	ns.HUD:ShowFootprint(true)
 end
 
@@ -1033,14 +1089,17 @@ function B:PrintFit()
 		w > 0 and hueco / w * 100 or 0, (self.cfg.side or 0) * 100,
 		math.floor(hueco + 0.5), s))
 
-	-- Cuantas celdas han salido en lo que se estira. Es la consecuencia de
-	-- `grow` que se ve en pantalla, y la que no se deduce del margen.
-	local foes, card = SlotByKey("foes"), SlotByKey("card")
-	if foes and card then
-		local fc = SlotGrid(foes)
-		local cc, cr = SlotGrid(card)
-		ns.Print(("sala: |cffffff00%d|r enemigos  |cffffff00%dx%d|r acciones")
-			:format(fc, cc, cr))
+	-- EL ANCHO UTIL DE LA SALA, que es la consecuencia de `grow` que no se
+	-- deduce del margen. Antes esta linea contaba celdas -- cuantos enemigos y
+	-- cuantos huecos de habilidad cabian -- y esas cuentas se fueron con los
+	-- modulos. El ancho se queda porque es el numero que hace falta para
+	-- decidir que cabe ahi dentro.
+	local hall = SlotByKey("hall")
+	if hall then
+		local _, _, hw, hh = SlotArea(hall)
+		ns.Print(("sala: |cffffff00%d x %d|r de dibujo (|cffffff00%d x %d|r px) - vacia")
+			:format(math.floor(hw + 0.5), math.floor(hh + 0.5),
+				math.floor(hw * s + 0.5), math.floor(hh * s + 0.5)))
 	end
 end
 
@@ -1130,7 +1189,7 @@ function B:Report()
 
 	local s = self:ArtScale()
 	ns.Print(("arte |cffffff00%d x %d|r   escala |cffffff00x%.3f|r %s  %s   " ..
-		"separacion de los railes %d px"):format(
+		"separacion entre piezas %d px"):format(
 		BAR_W, BAR_H, s,
 		self.autoShare and "(del alto)" or "(a mano)",
 		s < 0.999 and "|cff00ff00(reducido)|r"

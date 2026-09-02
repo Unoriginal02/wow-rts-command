@@ -2,10 +2,10 @@
 	Widgets.lua -- las cuatro piezas que todos los paneles de la barra repiten.
 
 	Una barra de estado, un texto, un boton de icono y el color de clase. Nada
-	mas. Existe porque los seis paneles nuevos (Vitals, Roster, Foes, Card,
-	Panel, Rails) los necesitaban todos, y la alternativa era la misma docena de
-	lineas copiada seis veces -- que es como se acaba con seis fuentes distintas
-	y cinco texturas de barra distintas en la misma pantalla.
+	mas. Existe porque los paneles de la barra (Vitals, Roster, Foes, Card,
+	Panel) los necesitaban todos, y la alternativa era la misma docena de lineas
+	copiada cinco veces -- que es como se acaba con cinco fuentes distintas y
+	cuatro texturas de barra distintas en la misma pantalla.
 
 	TODAS LAS MEDIDAS SON PIXELES DE DIBUJO, no de pantalla. La barra es arte 2x
 	dibujado reducido (ver Bar.lua), asi que dentro de ella un texto de 22 se ve
@@ -30,6 +30,13 @@ W.FONT = { tiny = 18, small = 22, normal = 26, big = 32 }
 -- La textura de barra del propio cliente. Lisa, con un brillo suave arriba, y
 -- es la que el jugador ya tiene en la retina de los marcos de objetivo.
 W.BAR_TEX = "Interface\\TargetingFrame\\UI-StatusBar"
+
+-- EL MARCO DE "SELECCIONADO", EN UN SOLO SITIO. El retrato del heroe lo dibujaba
+-- de 2 y las filas del grupo de 1, y estos son pixeles de DIBUJO: a la escala de
+-- la barra, uno es medio pixel de pantalla. La fila seleccionada no se
+-- distinguia de las demas. Un grosor suelto por panel es como se acaba con tres
+-- marcas que dicen lo mismo con distinta voz.
+W.SELECT = { r = 1, g = 0.92, b = 0.45, a = 1, thick = 4 }
 
 --- Colores ----------------------------------------------------------------
 
@@ -183,9 +190,9 @@ function W:Tip(b, title, body)
 		if not self.tipTitle then return end
 		GameTooltip:SetOwner(self, "ANCHOR_TOP")
 		-- `SetOwner` NO borra las lineas anteriores, y con `AddLine` eso
-		-- significa que el tooltip crece cada vez que se pasa por encima. Es lo
-		-- que hace `CommandCard.lua` desde la etapa 5a y nadie lo ha mirado de
-		-- cerca; aqui va con ClearLines desde el principio.
+		-- significa que el tooltip crece cada vez que se pasa por encima. Es el
+		-- fallo que arrastro `CommandCard.lua` desde la etapa 5a hasta que se
+		-- borro; aqui va con ClearLines desde el principio.
 		GameTooltip:ClearLines()
 		GameTooltip:AddLine(self.tipTitle)
 		if self.tipBody then

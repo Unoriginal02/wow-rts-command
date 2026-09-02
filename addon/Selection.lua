@@ -130,6 +130,44 @@ function S:Toggle(name)
 	if self:IsSelected(name) then self:Remove(name) else self:Add(name) end
 end
 
+--- El gesto de seleccionar, en un solo sitio ------------------------------
+--
+-- Click = solo esa, shift o ctrl = sumar, DOBLE CLICK = todas. Lo usan las
+-- filas del grupo, el retrato del heroe y sus barras, o sea todos los sitios de
+-- la consola donde se puede pinchar una unidad.
+--
+-- ESTA AQUI Y NO EN CADA PANEL porque si no la ventana del doble click seria de
+-- cada panel por separado: pinchar un bot en su fila y luego el retrato del
+-- heroe contaria como doble click en dos sitios distintos a la vez. Con un solo
+-- reloj y un solo nombre, dos clicks solo son un doble click si son sobre LA
+-- MISMA unidad, que es lo que espera cualquiera.
+--
+-- WoW no da evento de doble click en estos frames, asi que se mide a mano. La
+-- ventana es la misma que usa el mundo en RTSMode.lua, algo por debajo del
+-- medio segundo de Windows para que dos ordenes seguidas no se confundan.
+local DOUBLE_CLICK = 0.40
+local lastName, lastAt
+
+function S:Click(name)
+	if not name then return end
+
+	if IsShiftKeyDown() or IsControlKeyDown() then
+		self:Toggle(name)
+		lastName, lastAt = name, GetTime()
+		return
+	end
+
+	local now = GetTime()
+	if lastName == name and lastAt and (now - lastAt) < DOUBLE_CLICK then
+		self:SelectAll()
+		lastName, lastAt = nil, nil     -- que un triple click no reabra la cuenta
+		return
+	end
+
+	self:SelectOnly(name)
+	lastName, lastAt = name, now
+end
+
 function S:Clear()
 	if #self.selected > 0 then
 		self.selected = {}

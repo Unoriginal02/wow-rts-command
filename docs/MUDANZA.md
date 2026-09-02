@@ -21,11 +21,19 @@ git -C C:\Server\rts-project commit -m "Antes de la mudanza"
 git -C C:\Server\rts-project push
 ```
 
-Dos cosas **no** viajan en GitHub y solo estan en el disco externo:
+Tres cosas **no** viajan en GitHub y solo estan en el disco externo:
 
 - Los `.conf` del servidor — llevan la contrasena de MySQL en claro, por eso
   estan en `.gitignore`.
 - `C:\Server\rts-tools` — los .bat y .ps1 estan fuera del repo a proposito.
+- `C:\Server\CLAUDE.md` — el plan entero, y **es el fichero mas caro de
+  perder** de toda esta lista: lo demas se puede volver a compilar o a
+  descargar, esto no. Hubo una copia suya dentro del repo (`docs\CLAUDE.md`)
+  y se borro el 2026-08-27 porque llevaba desde la etapa 5i sin actualizarse:
+  dos copias sin direccion estructural es el fallo que este proyecto ya pago
+  una vez con el addon (ver *Where the source lives* en el propio CLAUDE.md).
+  La respuesta a “y si se pierde” es esta linea, no una segunda copia que
+  envejece.
 
 ---
 
@@ -44,6 +52,7 @@ Necesitas un disco de **64 GB o mas**. Copia estas carpetas tal cual:
 | `C:\Server\azerothcore` | 0,9 GB | Lleva `modules\mod-rts` ya desplegado |
 | `C:\Server\rts-project` | pequeno | El original. Tambien esta en GitHub |
 | `C:\Server\rts-tools` | pequeno | Los botones. **No** esta en GitHub |
+| `C:\Server\CLAUDE.md` | pequeno | El plan. **No** esta en GitHub y no se puede rehacer |
 | `C:\Server\dist` (resto) | — | Binarios y los `.conf` con la contrasena |
 | `C:\Program Files\MySQL\MySQL Server 8.4` | 0,6 GB | La version **exacta** que escribio `mysql-data` |
 | `D:\GAMES\WOW WOTLK` | 19,5 GB | El `Wow.exe` exacto contra el que estan los offsets |

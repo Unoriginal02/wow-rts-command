@@ -10,11 +10,34 @@ function ns.Print(msg)
 	DEFAULT_CHAT_FRAME:AddMessage(PREFIX .. tostring(msg))
 end
 
+-- ¿Este frame es NUESTRO? Se sube por los padres buscando un nombre que empiece
+-- por "RTS", que es como se llaman las dos raices de la consola (`RTSBar` y
+-- `RTSHUD`) y todo lo que cuelga con nombre propio.
+--
+-- EXISTE POR EL TOOLTIP, y el fallo que arregla merece quedar escrito: el modo
+-- RTS esconde `GameTooltip` -- correctamente, porque el tooltip de unidad del
+-- mundo es parte del cromo de Blizzard -- y lo hace negandole el `OnShow`. Pero
+-- `GameTooltip` es UNO SOLO: el mismo objeto que dibuja "Lobo, nivel 8" sobre el
+-- mundo es el que `W:Tip` usa para los botones de la consola. Asi que esconderlo
+-- escondia TAMBIEN todos los tooltips de la barra de control, y desde la etapa
+-- 5i hasta PRUEBAS-18 C4 no hubo ni uno solo -- pasaba por "no se escribieron",
+-- no por "se estan escondiendo".
+--
+-- Un frame sin nombre no dice nada de si mismo, asi que se pregunta a sus
+-- padres; el bucle esta acotado por si algun dia alguien se ancla en circulo.
+function ns.IsOurs(frame)
+	local hops = 0
+	while frame and hops < 12 do
+		local n = frame.GetName and frame:GetName()
+		if n and n:sub(1, 3) == "RTS" then return true end
+		frame = frame.GetParent and frame:GetParent()
+		hops = hops + 1
+	end
+	return false
+end
+
 local DEFAULTS = {
 	groups = {},
-	unitBar = nil,
-	commandCard = nil,
-	shown = true,
 }
 
 --- Event plumbing ----------------------------------------------------------
@@ -43,14 +66,32 @@ local function Initialise()
 		ns.Calib.samples = RTSCommandDB.calSamples
 	end
 
-	ns.UnitBar:Create()
-	ns.CommandCard:Create()
+	ns.Rails:Load()
+
+	-- LO QUE LA SALA DEJO GUARDADO, TIRADO AL CARGAR. El encuadre del retrato,
+	-- los huecos de habilidad por personaje y el interruptor de la lista de
+	-- objetivos vivian en las SavedVariables, y un fichero de SavedVariables no
+	-- olvida ninguna clave: sobrevive a la version del addon que la escribio.
+	-- Sin esto, el dia que la sala se vuelva a llenar se encontraria con
+	-- ajustes de un diseno que ya no existe -- que es exactamente lo que costo
+	-- el `grow = 688` y el `camHold` de una funcion borrada.
+	RTSCommandDB.skills    = nil   -- huecos de habilidad por personaje
+	RTSCommandDB.portrait  = nil   -- encuadre del modelo 3D del heroe
+	RTSCommandDB.targets   = nil   -- sitio del panel flotante de objetivos
+	RTSCommandDB.targetsOn = nil   -- si se pedia la lista TGTS al servidor
+	RTSCommandDB.focus     = nil   -- sitio del readout de foco
+
+	-- EL CANAL PRIMERO. Todo lo de debajo registra verbos en el (`ns.Link:On`) y
+	-- varios mandan su primera peticion desde su propio `Create`, asi que el
+	-- frame tiene que existir antes. Es la unica dependencia de orden de esta
+	-- lista que no se puede deducir leyendo los ficheros, y por eso esta dicha.
+	ns.Link:Create()
+
 	ns.Markers:Create()
 	ns.SelectionRing:Create()
 	ns.Flare:Create()
-	ns.Focus:Create()
-	ns.CommandMode:Create()
-	ns.Targets:Create()
+	ns.Route:Create()
+	ns.Marks:Create()
 	ns.Channel:Create()
 	ns.Camera:Create()
 	ns.Chrome:Create()
@@ -61,21 +102,16 @@ local function Initialise()
 	if type(RTSCommandDB.freeLoot) == "boolean" then
 		ns.RTSMode.freeLoot = RTSCommandDB.freeLoot
 	end
+	if type(RTSCommandDB.lootAll) == "boolean" then
+		ns.RTSMode.lootAll = RTSCommandDB.lootAll
+	end
 	-- Umbral de "esto ha sido un giro de camara, no un click". Depende del raton
 	-- y de la sensibilidad del cliente, asi que se guarda por personaje en vez
 	-- de vivir como constante en el codigo.
 	if type(RTSCommandDB.turnEps) == "number" and RTSCommandDB.turnEps > 0 then
 		ns.RTSMode.turnEps = RTSCommandDB.turnEps
 	end
-	ns.UnitBar:Refresh()
-	ns.CommandCard:Refresh()
-
-	if not RTSCommandDB.shown then
-		ns.UnitBar.frame:Hide()
-		ns.CommandCard.frame:Hide()
-	end
-
-	ns.Print("loaded. |cffffff00/rts|r for commands.")
+	ns.Print("cargado. |cffffff00/rts help|r para la lista de comandos.")
 
 	-- rts_core.dll may be injected at any point, including mid-session, so
 	-- poll for it rather than checking once at load.
@@ -112,11 +148,13 @@ f:SetScript("OnEvent", function(self, event)
 	else -- roster changed
 		if initialised then
 			ns.Selection:Prune()
-			ns.UnitBar:Refresh()
-			ns.CommandCard:Refresh()
 			-- El metodo de botin es del GRUPO, y el grupo se rehace cada vez
-			-- que entra o sale un bot -- asi que hay que volver a ponerlo.
+			-- que entra o sale un bot -- asi que hay que volver a ponerlo. La
+			-- estrategia de botin de cada bot es lo mismo pero por otro motivo:
+			-- vive en la memoria del bot, y uno que acaba de entrar nace con la
+			-- de fabrica.
 			ns.RTSMode:ApplyFreeLoot(true)
+			if ns.RTSMode.active then ns.RTSMode:ApplyLootAll(true) end
 		end
 	end
 end)
@@ -125,7 +163,7 @@ end)
 -- Shown in the Key Bindings UI. Must be globals.
 
 BINDING_HEADER_RTSCOMMAND        = "RTS Command"
-BINDING_NAME_RTSCOMMAND_TOGGLE   = "Show/hide RTS panels"
+BINDING_NAME_RTSCOMMAND_TOGGLE   = "Show/hide the RTS console bar"
 BINDING_NAME_RTSCOMMAND_MODE     = "Toggle RTS mode (mouse control)"
 BINDING_NAME_RTSCOMMAND_CAMERA   = "Toggle detached RTS camera"
 BINDING_NAME_RTSCOMMAND_CALIBRATE = "Calibrate projection (cursor on a unit)"
@@ -204,13 +242,21 @@ function RTSCommand_OrderHold()   ns.Orders:Hold()   end
 function RTSCommand_OrderFollow() ns.Orders:Follow() end
 function RTSCommand_OrderAttack() ns.Orders:Attack() end
 function RTSCommand_OrderAttackMove() ns.RTSMode:AttackMoveToCursor() end
-function RTSCommand_ReleasePossession() ns.CommandMode:Leave() end
-function RTSCommand_ToggleCommandMode() ns.CommandMode:Toggle() end
+-- LAS TECLAS DE LA SALA SE FUERON CON ELLA. `RTSCommand_ReleasePossession`,
+-- `RTSCommand_ToggleCommandMode` y los diez `RTSCommand_CommandSlot` apuntaban
+-- a `Skills`, que esta borrado, asi que estan fuera de `Bindings.xml` tambien:
+-- una tecla que llama a una funcion inexistente da un error de Lua cada vez
+-- que se pulsa, y dejar la funcion como cascara vacia es peor -- responde y no
+-- hace nada, que es el fallo silencioso de siempre.
+--
+-- Nota: los diez `RTSCommand_CommandSlot` YA estaban colgando de esa forma
+-- desde que se borro `CommandMode.lua`. Se vio al quitar los otros dos.
 
+-- Los paneles flotantes que esta tecla encendia y apagaba estan borrados. Lo
+-- unico que queda que se pueda ensenar y esconder es la barra de la consola,
+-- asi que la tecla es suya.
 function RTSCommand_ToggleUI()
-	ns.UnitBar:Toggle()
-	ns.CommandCard:Toggle()
-	RTSCommandDB.shown = ns.CommandCard.frame:IsShown()
+	ns.Bar:Toggle()
 end
 
 function RTSCommand_ToggleRTSMode()
@@ -228,35 +274,37 @@ end
 --- Slash commands ----------------------------------------------------------
 
 local HELP = {
-	"|cffffff00/rts|r - show or hide the RTS panels",
+	"|cffffff00/rts mode|r - entrar y salir del modo RTS (camara, raton, consola)",
 	"|cffffff00/rts all|r - select every bot",
 	"|cffffff00/rts clear|r - clear selection",
 	"|cffffff00/rts list|r - list the roster",
 	"|cffffff00/rts move|r / |cffffff00hold|r / |cffffff00follow|r / |cffffff00attack|r",
 	"|cffffff00/rts form <name>|r - " .. table.concat({ "near", "far", "melee", "queue", "chaos", "circle", "line", "shield", "arrow" }, ", "),
 	"|cffffff00/rts cmd <text>|r - send any raw playerbots command to the selection",
-	"|cffffff00/rts amove|r - attack-move to the cursor; |cffffff00/rts release|r drops direct control",
+	"|cffffff00/rts amove|r - attack-move to the cursor",
 	"|cffffff00/rts flare|r - order marker settings (time/size/start/hold/alpha/ease/fade)",
 	"|cffffff00/rts markers|r - halo that follows the mouse pointer (off by default)",
-	"|cffffff00/rts command|r - borrow the selected bot's action bar and cast as them",
-	"|cffffff00/rts targets|r - panel with everything the group is engaged with",
-	"|cffffff00/rts bar|r - la barra de arte; |cffffff00share|r alto, |cffffff00side|r margen, |cffffff00grow|r paneles, |cffffff00guides|r medidas",
-	"|cffffff00/rts portrait|r - modelo 3D del heroe en el hueco del retrato; |cffffff00cam/zoom/x/y/facing|r lo encuadran",
+	"|cffffff00/rts route|r - rutas con shift + click derecho; |cffffff00off|r las apaga",
+	"|cffffff00/rts mark|r - el marcador de suelo de cada punto de ruta: |cffffff00next|prev|find|r para elegir visual, |cffffff00size|r el tamano",
+	"|cffffff00/rts loot|r - botin libre del grupo; |cffffff00/rts lootall|r que los bots recojan todo",
 	"|cffffff00/rts self|r - your own character fights with the playerbots AI; |cffffff00auto|r / |cffffff00status|r",
-	"|cffffff00/rts loot|r - botin libre para todo el grupo (free-for-all)",
 	"|cffffff00/rts tri|r - green triangle over heads (parked; |cffffff00/rts tri help|r)",
 	"|cffffff00/rts turn|r - por que un click se pierde: mide el giro de camara y lo compara con el umbral",
 	"|cffffff00/rts halo <0-2>|r - cursor halo style, |cffffff00/rts halo size <yards>|r",
 	"|cffffff00/rts ring|r - native ground circle under selected units; |cffffff00tint|r adds the model glow, |cffffff00test|r proves the hook",
-	"|cffffff00/rts cam|r - detached RTS camera (WASD pans flat, Q/E lower/raise, right-drag rotates)",
+	"|cffffff00/rts cam|r - camara RTS suelta (WASD en plano, ESPACIO/C sube y baja, Q/E pivotan, arrastre derecho gira)",
 	"|cffffff00/rts cam save|r - frame it how you want, then save; |cffffff00show|r reprints the values",
 	"|cffffff00/rts cam frame|r - re-apply it; |cffffff00tilt|r / |cffffff00zoom|r / |cffffff00fov <deg>|r nudge; |cffffff00clear|r forgets it",
 	"|cffffff00/rts cam fly|r / |cffffff00fly 0|r - forward follows your view, or runs flat (RTS)",
 	"|cffffff00/rts cam here|r - recentre over your character; |cffffff00mouse|r toggles mouse steering",
 	"|cffffff00/rts cam speed <n>|r - how fast it flies",
+	"|cffffff00/rts cam shadow <0-5>|r - sombra bajo los personajes (-1 no tocarla)",
+	"|cffffff00/rts rails|r - los botones pequenos del cliente en los railes; |cffffff00scale <k>|r su tamano, |cffffff00crop|r la ventana del glifo",
 	"|cffffff00/rts channel|r - what the DLL is being told about your selection",
 	"|cffffff00/rts state|r - the tint colour each selected unit is being given",
 	"|cffffff00/rts cal|r - measure the projection (fixes rings that sit short)",
+	"|cffffff00/rts aim|r - por que el punto de suelo cae donde cae (cursor vs rayo del DLL)",
+	"|cffffff00/rts panel|r - los botones del cliente de la cuarta fila (mapa, talentos, bolsas)",
 	"|cffffff00/rts version|r - versions of all three pieces (addon, server, DLL)",
 	"|cffffff00/rts pick|r / |cffffff00pick on|r - what is under the cursor, once or continuously",
 	"|cffffff00/rts debug|r - echo every message to and from the server module",
@@ -265,8 +313,6 @@ local HELP = {
 	"|cffffff00/rts art|r - visor de texturas del cliente (para vestir la HUD sin dibujar)",
 	"|cffffff00/rts skin|r - aspecto WC3 o plano; |cffffff00/rts skin wall <ruta>|r cambia una pieza",
 	"|cffffff00/rts bar|r - la barra de abajo: |cffffff00share|r alto, |cffffff00side|r margen, |cffffff00grow|r paneles, |cffffff00guides|r medidas",
-	"|cffffff00/rts rails|r - de que frame del cliente salio el icono de cada boton de los railes",
-	"|cffffff00/rts reset|r - move panels back to their default position",
 	"Bind keys under Key Bindings -> RTS Command.",
 }
 
@@ -276,10 +322,10 @@ SlashCmdList["RTSCOMMAND"] = function(msg)
 	local cmd, rest = msg:match("^(%S*)%s*(.-)$")
 	cmd = (cmd or ""):lower()
 
-	if cmd == "" then
-		RTSCommand_ToggleUI()
-
-	elseif cmd == "help" then
+	-- `/rts` a secas ensena la ayuda. Antes encendia y apagaba los tres paneles
+	-- flotantes, que ya no existen; dejarlo encendiendo la barra habria hecho que
+	-- teclear `/rts` por costumbre te cambiara la pantalla.
+	if cmd == "" or cmd == "help" then
 		for _, line in ipairs(HELP) do ns.Print(line) end
 
 	elseif cmd == "all" then
@@ -303,7 +349,6 @@ SlashCmdList["RTSCOMMAND"] = function(msg)
 	elseif cmd == "follow" then ns.Orders:Follow()
 	elseif cmd == "attack" then ns.Orders:Attack()
 	elseif cmd == "amove" then ns.RTSMode:AttackMoveToCursor()
-	elseif cmd == "release" then ns.CommandMode:Leave()
 
 	elseif cmd == "form" or cmd == "formation" then
 		if rest == "" then
@@ -348,8 +393,18 @@ SlashCmdList["RTSCOMMAND"] = function(msg)
 	elseif cmd == "markers" then
 		ns.Markers:Toggle()
 
+	elseif cmd == "aim" or cmd == "punteria" then
+		-- Por que el punto de suelo sale donde sale. Contesta si el rayo del
+		-- DLL se esta usando o se esta descartando, y con que numeros.
+		ns.Markers:AimToggle((rest or ""):match("^(%S*)"))
+
 	elseif cmd == "loot" then
 		ns.RTSMode:ToggleFreeLoot()
+
+	elseif cmd == "lootall" or cmd == "botin" then
+		-- Distinto de `loot`: aquel es QUIEN puede lootear (el metodo del
+		-- grupo), este es QUE recogen los bots (`ll all` contra `ll normal`).
+		ns.RTSMode:ToggleLootAll()
 
 	elseif cmd == "self" or cmd == "selfbot" then
 		local sub = (rest or ""):match("^(%S*)"):lower()
@@ -361,8 +416,24 @@ SlashCmdList["RTSCOMMAND"] = function(msg)
 			ns.RTSMode:SelfBotToggle()
 		end
 
-	elseif cmd == "targets" then
-		ns.Targets:Toggle()
+	elseif cmd == "route" or cmd == "ruta" or cmd == "rutas" then
+		local sub, arg = rest:match("^(%S*)%s*(%S*)$")
+		sub = (sub or ""):lower()
+		if sub == "" or sub == "status" or sub == "?" then
+			ns.Route:Report()
+		elseif sub == "on" or sub == "off" or sub == "toggle" then
+			ns.Route:Toggle()
+		elseif sub == "clear" or sub == "borrar" then
+			ns.Route:ClearAll()
+			ns.Print("rutas borradas.")
+		elseif ns.Route.cfg[sub] ~= nil then
+			if not ns.Route:Tune(sub, arg) then ns.Route:Report() end
+		else
+			ns.Route:Report()
+		end
+
+	elseif cmd == "mark" or cmd == "marca" or cmd == "marcas" then
+		ns.Marks:Command(rest)
 
 	elseif cmd == "flare" then
 		local sub, a1 = rest:match("^(%S*)%s*(%S*)$")
@@ -406,7 +477,7 @@ SlashCmdList["RTSCOMMAND"] = function(msg)
 			ns.Camera:Report()
 		elseif sub == "clear" then
 			ns.Camera:ClearPreset()
-		elseif sub == "tilt" or sub == "zoom" or sub == "fov" then
+		elseif sub == "tilt" or sub == "zoom" or sub == "fov" or sub == "shadow" then
 			ns.Camera:SetFrame(sub, arg)
 		elseif sub == "mouse" or sub == "mouselook" then
 			ns.Camera:ToggleMouselook()
@@ -475,6 +546,27 @@ SlashCmdList["RTSCOMMAND"] = function(msg)
 			ns.Print("|cffffff00/rts ui default|r - devolver las medidas")
 		end
 
+	elseif cmd == "panel" then
+		ns.Panel:Status()
+
+	elseif cmd == "rails" or cmd == "railes" then
+		-- Los botones pequenos DE BLIZZARD alojados en las dos barras
+		-- verticales. Esto dice cual encontro, cual no y a que tamano de
+		-- pantalla sale cada uno: un nombre de frame que no existe no da error,
+		-- deja la casilla vacia.
+		-- `(.-)$` y no `(%S*)$`: `crop 0.10 0.58` son DOS palabras de argumento y
+		-- con el patron de una sola el match falla entero y no entra por ningun
+		-- lado -- ni por el bueno ni por la ayuda.
+		local sub, arg = rest:match("^(%S*)%s*(.-)$")
+		sub = (sub or ""):lower()
+		if sub == "scale" or sub == "escala" or sub == "size" then
+			ns.Rails:SetScale(arg)
+		elseif sub == "crop" or sub == "recorte" or sub == "glifo" then
+			ns.Rails:SetCrop(arg)
+		else
+			ns.Rails:Status()
+		end
+
 	elseif cmd == "bar" or cmd == "barra" then
 		-- El arte de verdad de la barra inferior: siete TGA a tamano nativo,
 		-- con la pieza central repetible.
@@ -536,40 +628,6 @@ SlashCmdList["RTSCOMMAND"] = function(msg)
 			end
 		else
 			ns.Bar:Report()
-		end
-
-	elseif cmd == "rails" or cmd == "railes" then
-		-- Los iconos de los railes se le piden al cliente, asi que la pregunta
-		-- util no es "que ruta se uso" sino "de que frame salio" -- y si alguno
-		-- no estaba, cual lleva interrogante.
-		ns.Rails:Report()
-
-	elseif cmd == "portrait" or cmd == "retrato" then
-		-- El modelo 3D del heroe en el hueco del retrato. Los ajustes son de
-		-- ENCUADRE y se buscan a ojo, asi que todos son en vivo y se guardan.
-		local sub, arg = rest:match("^(%S*)%s*(%S*)$")
-		sub = (sub or ""):lower()
-		if sub == "" or sub == "status" or sub == "?" then
-			ns.Portrait:Report()
-		elseif sub == "try" or sub == "probar" or sub == "encuadre" then
-			-- Pasar al siguiente encuadre de la tabla. Existe porque los signos de
-			-- SetPosition no estan documentados en 3.3.5a: se mira, no se deduce.
-			ns.Portrait:Framing(arg ~= "" and arg or nil)
-		elseif sub == "refresh" or sub == "rearmar" then
-			ns.Portrait:Refresh()
-		elseif sub == "default" or sub == "defaults" then
-			ns.Portrait:Reset()
-		elseif sub == "cam" or sub == "camara" or sub == "zoom" or sub == "x"
-		    or sub == "y" or sub == "facing" or sub == "giro"
-		    or sub == "scale" or sub == "escala" or sub == "light" or sub == "luz" then
-			local k = ({ camara = "cam", giro = "facing", escala = "scale",
-			             luz = "light" })[sub] or sub
-			if not ns.Portrait:Set(k, arg) then
-				ns.Print("|cffffff00/rts portrait " .. sub .. " <n>|r - hace falta un numero")
-				ns.Portrait:Report()
-			end
-		else
-			ns.Portrait:Report()
 		end
 
 	elseif cmd == "skin" or cmd == "piel" then
@@ -772,12 +830,9 @@ SlashCmdList["RTSCOMMAND"] = function(msg)
 			ns.RTSMode:PickReport()
 		end
 
-	elseif cmd == "command" or cmd == "cmdmode" then
-		ns.CommandMode:Toggle()
-
 	elseif cmd == "debug" then
-		ns.Camera.debug = not ns.Camera.debug
-		ns.Print("channel debug " .. (ns.Camera.debug and "|cff00ff00ON|r" or "|cffff0000OFF|r")
+		ns.Link.debug = not ns.Link.debug
+		ns.Print("channel debug " .. (ns.Link.debug and "|cff00ff00ON|r" or "|cffff0000OFF|r")
 			.. " - shows every message to and from mod-rts.")
 
 	elseif cmd == "pickradius" then
@@ -792,8 +847,8 @@ SlashCmdList["RTSCOMMAND"] = function(msg)
 
 	elseif cmd == "version" or cmd == "ver" then
 		ns.Print(("addon      |cffffff00%s|r"):format(GetAddOnMetadata(ADDON, "Version") or "?"))
-		ns.Print(("mod-rts    %s"):format(ns.Camera.serverVersion
-			and ("|cff00ff00" .. ns.Camera.serverVersion .. "|r")
+		ns.Print(("mod-rts    %s"):format(ns.Link.serverVersion
+			and ("|cff00ff00" .. ns.Link.serverVersion .. "|r")
 			or "|cffff0000not answering|r"))
 		ns.Print(("rts_core   %s"):format(RTS_Ready == 1
 			and ("|cff00ff00" .. tostring(RTS_Version) .. "|r")
@@ -847,10 +902,6 @@ SlashCmdList["RTSCOMMAND"] = function(msg)
 				ns.Print("|cffff0000camera not read|r - see rts_core.log")
 			end
 		end
-
-	elseif cmd == "reset" then
-		RTSCommandDB.unitBar, RTSCommandDB.commandCard = nil, nil
-		ns.Print("Panel positions reset - reload the UI (|cffffff00/console reloadui|r) to apply.")
 
 	else
 		ns.Print("Unknown command. Try |cffffff00/rts help|r.")

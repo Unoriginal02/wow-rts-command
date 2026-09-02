@@ -1,0 +1,146 @@
+RTS COMMAND - LISTA DE PRUEBAS  #17
+Generada 2026-08-23   ·   addon 0.46.0 · mod-rts 0.13.0 sin cambios · rts_core sin tocar
+
+EL SERVIDOR NO HACE FALTA REINICIARLO. Todo lo de esta ronda es addon; mod-rts
+sigue en 0.13.0, que es el que quedo corriendo tras la #16.
+
+QUE HAY EN ESTA RONDA
+  Una cosa arreglada y una prueba que se quedo sin hacer:
+
+    A. El recorte del glifo en los cinco micro-botones del rail derecho
+       (PRUEBAS-16 A2: salian a la mitad de ancho que la bolsa).
+    B. C5 de la #16, que no se probo y es la que importa de esa seccion.
+
+  Y una cosa que NO se ha tocado a proposito: las teclas de altura siguen
+  cortando el avance (#16 C1/C2). Decidido dejarlo asi; el porque y las tres
+  salidas posibles estan en CLAUDE.md.
+
+---------------------------------------------------------------------------
+A. EL GLIFO RECORTADO
+---------------------------------------------------------------------------
+
+El arte del micro-boton es 28x58 -- 1:2 -- y la celda del rail 78x74, casi
+cuadrada. Respetar la proporcion topaba con el ALTO y dejaba 50 unidades de
+ancho sin usar: 48% del ancho de la bolsa, que es la que salio bien porque es
+cuadrada.
+
+Se recorta el glifo del arte y se dibuja cuadrado. Lo que hay que entender de
+la solucion es lo que NO hace:
+
+  - NO TOCA LAS TEXTURAS DEL CLIENTE. Ni un SetTexCoord ni un anclaje sobre el
+    arte de Blizzard. Recolocar cuatro capas por boton es facil de hacer y
+    dificil de deshacer, y dejar su interfaz rara para siempre es lo que la
+    regla dura de este proyecto prohibe.
+  - EL BOTON SUYO SE QUEDA, invisible y del tamano de la celda, y sigue
+    recibiendo el click en su propio codigo -- que es lo unico que hace que esto
+    funcione con `ToggleTalentFrame` y compania protegidas (la leccion de la
+    etapa 5l). El alfa no afecta al raton, asi que la diana es la celda entera.
+  - LA RUTA DEL ARTE SE LE PREGUNTA A EL, no se escribe.
+  - LO QUE SE DEVUELVE AL SALIR SON CUATRO ESCALARES: tamano, alfa, escala y
+    los margenes de click.
+
+Y el recorte no se adivina del todo: el cliente da la pista el solo, porque estos
+botones traen `HitRectInsets` de 19 sobre 58 de alto -- o sea que el propio
+cliente declara que el tercio de abajo es pedestal. Queda el cuadrado de arriba.
+Aun asi hay cinco ventanas candidatas y un comando que las pasa en vivo, porque
+DONDE cae el glifo dentro de ese cuadrado es lo unico que no se puede leer desde
+fuera del juego.
+
+[ ] A1  Los cinco (ficha, hechizos, talentos, misiones, menu) salen del MISMO
+        tamano que la bolsa, cuadrados y sin deformar.
+        notas:
+        El sim lo da en 74x74 unidades de dibujo, igual que la bolsa. Si salen
+        cuadrados pero mas pequenos o mas grandes, la cuenta esta mal y no es
+        cosa de la ventana.
+
+[ ] A2  SE VE EL GLIFO de cada uno y se reconoce: la persona, el libro, el
+        arbol de talentos, el signo de interrogacion, el menu.
+        notas:
+        ESTA ES LA PRUEBA DE LA VENTANA. Si sale cortado, descentrado, o se ve
+        el borde del boton en vez del dibujo: `/rts rails crop` pasa a la
+        siguiente y la deja aplicada y guardada. Son cinco. Dime el numero de la
+        buena y la bajo al codigo como la 1.
+        Afinar a mano: `/rts rails crop <arriba> <abajo>` con dos numeros entre
+        0 y 1 (la de fabrica es `0 0.483`). La ventana a mano se anade al final
+        de la lista, asi que no se pierde al seguir pasando.
+
+[ ] A3  LOS CINCO SIGUEN ABRIENDO LO QUE DICEN. Es la prueba que puede haberse
+        roto por lo de arriba y la mas facil de dar por buena sin mirar.
+        notas:
+        El boton esta invisible, asi que si el click no llega no hay NADA que lo
+        delate -- ni un dibujo que se hunda ni un tooltip que falte. Pulsar los
+        cinco.
+
+[ ] A4  El tooltip sigue apareciendo al pasar por encima, y con el texto del
+        cliente.
+        notas:
+        Es la senal barata de que el boton suyo esta ahi y recibe el raton. Si
+        hay tooltip y no hay accion, el problema es la funcion protegida; si no
+        hay tooltip, el boton no esta cogiendo el raton y A3 fallara tambien.
+
+[ ] A5  La bolsa sigue como estaba: es la unica de las seis sin recorte.
+        notas:
+        Es la referencia, no la que habia que arreglar.
+
+[ ] A6  El rail IZQUIERDO sigue igual que en la #16 (A1: "tamaño ok"). Ninguno
+        de esos seis lleva recorte.
+        notas:
+        Mapa, rastreo, correo, fecha, acercar, alejar son casi cuadrados ya.
+
+[ ] A7  AL SALIR DEL MODO RTS los doce vuelven a su sitio, a su tamano y VISIBLES.
+        notas:
+        Ahora hay mas que devolver que en la #16: los cinco recortados salen con
+        el alfa a 0 y el tamano cambiado. Un boton que vuelve invisible es peor
+        que el problema que esto arregla, y no se ve hasta que lo buscas.
+
+[ ] A8  Cambiar `grow` con el modo puesto (`/rts bar grow 1`, luego 4) y los
+        cinco siguen del tamano de su celda nueva, sin encogerse un poco mas
+        cada vez.
+        notas:
+        El tamano nativo se lee de lo GUARDADO, no del frame, justo para esto: en
+        la segunda vuelta el frame ya esta redimensionado por la primera, y medir
+        eso seria medir nuestro propio resultado.
+
+[ ] A9  `/rts rails` imprime la ventana en uso y los pixeles de cada boton.
+        notas:
+
+---------------------------------------------------------------------------
+B. LO QUE QUEDO SIN PROBAR DE LA #16
+---------------------------------------------------------------------------
+
+[ ] B1  AL SALIR DEL MODO RTS, ESPACIO VUELVE A SALTAR Y C A ABRIR LA FICHA.
+        notas:
+        Es C5 de la #16 y se quedo en blanco. Las dos son teclas ocupadas de
+        fabrica, asi que se apuntan antes de tocarlas y se devuelven al salir --
+        la misma regla dura que los CVars de la camara. Si espacio deja de saltar
+        fuera del modo RTS, la devolucion esta mal y es de las cosas que se
+        arrastran durante dias antes de que alguien las relacione con el addon.
+
+---------------------------------------------------------------------------
+C. QUE NO SE HA ROTO
+---------------------------------------------------------------------------
+
+[ ] C1  La altura de camara sigue como en la #16: ni caida al suelo, ni avisos.
+        notas:
+
+[ ] C2  ESPACIO y C siguen subiendo y bajando (cortando el avance, que es lo
+        decidido).
+        notas:
+
+[ ] C3  El resto de la barra igual: retrato, grupo, enemigos, la carta, el panel
+        4x4 y el minimapa.
+        notas:
+
+[ ] C4  Nada de esto imprime errores de Lua.
+        notas:
+
+---------------------------------------------------------------------------
+COMPROBADO FUERA DEL JUEGO
+---------------------------------------------------------------------------
+  - check_addon.py: 31 ficheros, limpio.
+  - sim\bar_layout.py con las cinco ventanas: ninguna desborda la celda, y la 1
+    sale de 74x74 igual que la bolsa. La 5 (sin recortar) sale al 48% del ancho
+    de la bolsa, que es EXACTAMENTE el sintoma de la #16 A2 -- o sea que el sim
+    reproduce el fallo antes de arreglarlo, que es la unica forma de saber que la
+    prueba tiene dientes.
+  - addon desplegado IDENTICO al repo.

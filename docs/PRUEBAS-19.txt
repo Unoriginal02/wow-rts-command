@@ -1,0 +1,441 @@
+RTS COMMAND - LISTA DE PRUEBAS  #19
+Generada 2026-08-27   ·   addon 0.48.0 · mod-rts 0.15.0 · rts_core sin tocar
+
+HAY QUE REINICIAR EL SERVIDOR. mod-rts pasa de 0.14.0 a 0.15.0. El
+worldserver.exe recien compilado esta en C:\Server\build\bin\Release y
+1_Iniciar_Servidor.bat lo copia a dist el solo, asi que basta con cerrar bien
+(NO con la X) y volver a arrancar.
+
+Comprueba en el chat al entrar en modo RTS que dice mod-rts 0.15.0. Si dice
+0.14.0, el servidor viejo sigue corriendo y las secciones B, E y F fallaran de
+la misma forma -- sin error, sin nada.
+
+QUE HAY EN ESTA RONDA
+  Los arreglos de lo que reporto PRUEBAS-18, mas las dos adiciones que pediste.
+  Ocho cosas, y siete de ellas son de la misma familia: algo que se dedujo en
+  vez de comprobarse.
+
+    A. LOS TOOLTIPS DE TODA LA CONSOLA. No es que no se escribieran: se
+       estaban escondiendo. GameTooltip es UNO SOLO y el modo RTS lo apaga.
+    B. EL CLICK DERECHO EN UN ENEMIGO DEL MUNDO, que se perdia entero cuando
+       el rayo del cursor no cortaba el suelo.
+    C. SELECCIONAR TU PROPIO PERSONAJE DESDE EL MUNDO.
+    D. EL RECORTE DE LOS MICRO-BOTONES, por el otro lado.
+    E. LO QUE PASA CUANDO UN BOT ESTA EN "ESPERAR" y le mandas atacar.
+    F. LOS HECHIZOS RAROS DE TU PROPIO PERSONAJE, y por que SELFCAST no iba.
+    G. LAS MARCAS DE APUNTADO, que solo se dibujaban en la fila de enemigos.
+    H. LA CURACION QUE SE CANCELABA.
+
+  Y las dos adiciones:
+    I. FIJAR BICHOS DEL MUNDO en la fila de enemigos.
+    J. SOMBRAS bajo los personajes.
+
+COMO LEER ESTA LISTA
+  [x] funciona   [!] falla   [?] no lo tengo claro
+  Debajo de cada bloque hay una linea `notas:`. Cada prueba dice QUE SIGNIFICA
+  que falle, para que un resultado malo estreche el problema.
+
+---------------------------------------------------------------------------
+A. LOS TOOLTIPS
+---------------------------------------------------------------------------
+
+PRUEBAS-18 C4: "NO tooltip. it would be nice to have one overall". Los
+tooltips estaban escritos desde la etapa 5k -- `W:Tip` los pone en cada boton
+de la consola -- y no salia ninguno.
+
+La causa es que `GameTooltip` es un OBJETO UNICO. El mismo que dibuja "Lobo,
+nivel 8" sobre el mundo es el que usan nuestros botones, y el modo RTS lo
+esconde a proposito (es cromo de Blizzard) negandole el OnShow. Asi que
+escondia los dos. Ahora se mira de QUIEN es el tooltip: si el dueno es un frame
+nuestro, se deja pasar.
+
+[x] A1. Pasa el raton por encima de un boton del panel 4x4. Sale el tooltip con
+        su nombre y su explicacion.
+        Si no sale -> `ns.IsOurs` no reconoce el frame; mira que el boton
+        cuelgue de `RTSBar` o `RTSHUD`.
+
+[ ] A2. Lo mismo sobre: un hueco de habilidad, un cuadrado de la fila de
+        enemigos, una fila del grupo, el retrato del heroe, un boton de rol y
+        un boton del rail derecho.
+        Los del rail son botones DEL CLIENTE, asi que su tooltip es el suyo de
+        siempre -- si sale ahi, el reconocimiento funciona hasta con frames que
+        no creamos nosotros.
+
+[ ] A3. Pasa el raton por un BICHO DEL MUNDO. NO tiene que salir tooltip: eso
+        sigue escondido, que es lo que se pidio en la etapa 5i.
+        Si sale -> la excepcion es demasiado ancha y esta dejando pasar todo.
+
+[ ] A4. El tooltip de un hueco de habilidad CON hechizo dice el nombre del
+        hechizo. Con una orden puntual armada dice "Lanzar contra <nombre>".
+
+notas:
+
+
+---------------------------------------------------------------------------
+B. EL CLICK DERECHO QUE SE PERDIA ENTERO
+---------------------------------------------------------------------------
+
+Reportado como "selecciono varios pj y hago click derecho en un enemigo y no
+van a atacarle" y "con todos seleccionados boton derecho sobre un enemigo no
+van a matar".
+
+No era el guid ni los bots. La orden ni siquiera salia: todo el camino estaba
+guardado detras de "si hay punto de suelo", y `CursorGroundPoint` devuelve nil
+mas a menudo de lo que parece. Cuando el rayo del DLL no acierta terreno se cae
+a cortar un PLANO horizontal a la altura de tu personaje, y un rayo que SUBE --
+pinchar algo cuesta arriba, o alto en la pantalla -- no cruza ese plano jamas.
+Sin punto: sin orden, sin mensaje, sin nada.
+
+El arreglo no es aflojar la estimacion. Es que CUANDO HAY UN OBJETIVO la
+estimacion no hace falta: la posicion de ese bicho la publica el DLL treinta
+veces por segundo. Y si no hay ni objetivo ni suelo, ahora lo DICE.
+
+[ ] B1. Selecciona a todos. Click derecho sobre un enemigo que este a tu misma
+        altura, cerca. Van y le pegan. (Es lo que ya funcionaba.)
+
+[ ] B2. LA PRUEBA QUE IMPORTA: click derecho sobre un enemigo que este CUESTA
+        ARRIBA, o alto en la pantalla, o lejos. Van y le pegan igual.
+        Si no van pero sale un mensaje del servidor -> la orden SI salio; el
+        problema es aguas abajo (mira la seccion E).
+        Si no pasa absolutamente nada -> el guid no llego: el cliente no marco
+        mouseover y la proyeccion tampoco lo cazo.
+
+[ ] B3. Click derecho sobre el cielo o sobre algo imposible. Sale en naranja
+        "No se donde has pinchado". No es un fallo: es la senal que faltaba.
+        Si esto sale MUCHO al pinchar el suelo normal -> el problema es el
+        rayo del DLL, no esta capa: `/rts aim` lo dice.
+
+[ ] B4. Click derecho sobre el suelo normal: siguen yendo, y sigue saliendo el
+        marcador. Que no se haya roto lo que funcionaba.
+
+[ ] B5. Shift + click derecho sigue encadenando puntos de ruta como siempre.
+
+notas:
+
+
+---------------------------------------------------------------------------
+C. SELECCIONAR TU PERSONAJE DESDE EL MUNDO
+---------------------------------------------------------------------------
+
+"No puedo seleccionar el PJ principal desde el mundo, solo desde el hud."
+
+Habia dos caminos para reconocerte y los dos pueden fallar a la vez: el
+mouseover del cliente no es fiable sobre uno mismo con la camara poseida, y la
+lista de unidades del DLL se centra en la CAMARA -- con la camara despegada
+lejos, tu cuerpo se puede quedar fuera de ella. Ahora hay un tercer camino que
+no puede faltar: `RTS_PX/PY/PZ`, que se publica siempre.
+
+[ ] C1. Con la camara sobre el grupo, click izquierdo en tu personaje en el
+        mundo. Se selecciona (el retrato se ilumina).
+
+[ ] C2. Aleja la camara bastante de tu personaje y vuelve a pincharlo. Se sigue
+        seleccionando.
+        Si C1 va y C2 no -> es la lista del DLL, y el respaldo no entro.
+
+[ ] C3. Doble click sobre ti en el mundo: selecciona a todos.
+
+[ ] C4. Pincharte desde la consola (retrato o barras) sigue funcionando.
+
+notas:
+
+
+---------------------------------------------------------------------------
+D. LOS MICRO-BOTONES DEL RAIL DERECHO
+---------------------------------------------------------------------------
+
+"Has recortado los iconos, pero has usado el lado que no era y ahora se ven
+transparentes."
+
+Transparente no es "salio el pedestal": es que ahi no hay pixeles. El recorte
+anterior salio de deducir, del `HitRectInsets` de 19 que trae el cliente, que
+el tercio de ABAJO es pedestal y el glifo esta arriba. `HitRectInsets` dice
+donde se PULSA, no donde esta el DIBUJO. Las ventanas van ahora ancladas abajo.
+
+[ ] D1. Entra en modo RTS. Los cinco micro-botones del rail derecho (ficha,
+        hechizos, talentos, misiones, menu) ensenan su glifo, del mismo tamano
+        que la bolsa de debajo.
+
+[ ] D2. Si el glifo sale cortado o descentrado: |/rts rails crop| pasa a la
+        siguiente ventana y la deja aplicada y guardada. Hay siete. Anota cual
+        es la buena.
+        La 5 es "sin recortar" y sale a la mitad de ancho -- si TODAS se ven
+        mal menos esa, el arte no se puede recortar y hay que volver a la 5.
+
+[ ] D3. Pulsarlos sigue abriendo lo suyo (la diana es la celda entera, no el
+        glifo).
+
+notas:
+
+
+---------------------------------------------------------------------------
+E. UN BOT EN "ESPERAR" AL QUE MANDAS ATACAR
+---------------------------------------------------------------------------
+
+Sospecha de la ronda anterior: "puede ser que no tenga los bots en modo de que
+ataquen a mi orden". Es real y hasta ahora era invisible.
+
+`passive` no bloquea la accion de ataque -- el bot sale y llega -- pero anula
+las estrategias que SOSTIENEN la pelea, asi que llega y se queda parado. La
+orden reportaba exito. No se corrige por nuestra cuenta (el rol lo pusiste tu),
+se avisa.
+
+Y habia dos fallos de verdad, los dos de asimetria entre poner y quitar:
+
+  UNO. Apagar "Esperar" desde la fila solo lo quitaba del estado de COMBATE,
+  mientras que tomar prestado el bot para lanzar por el lo pone en LOS DOS. Si
+  ese prestamo no se suelta (el bot se va del grupo, te desconectas), queda
+  pasivo fuera de combate para siempre, con el boton apagado y sin forma de
+  deshacerlo.
+
+  DOS. Al soltar el prestamo se hacia "-passive" a secas, que no es restaurar
+  sino suponer que no estaba pasivo antes: si le habias puesto "Esperar" a
+  mano, usar una habilidad suya te lo quitaba tres segundos despues. Ahora se
+  captura como estaba y se devuelve a eso.
+
+(Nota: una version anterior de este texto decia que `Hold` pone passive. NO lo
+pone -- manda `stay`, que hace lo contrario. El fallo es real, el culpable no
+era ese.)
+
+[ ] E1. Pon "Esperar" a un bot. Mandale atacar (click derecho o el panel).
+        Sale en el chat "N en Esperar (passive) -- van, pero no pelean solos".
+
+[ ] E2. Quitale "Esperar" desde la fila de roles. Vuelve a mandarle atacar: ya
+        no sale el aviso Y AHORA PELEA.
+        Si sigue saliendo el aviso -> el `-passive` no llego a los dos estados.
+
+[ ] E3. Usa "Quieto" del panel 4x4 (que pone passive en los dos estados) y
+        luego mira la fila de roles: "Esperar" tiene que salir ENCENDIDO.
+        Antes salia apagado aunque el bot estuviera pasivo, que es lo que hacia
+        imposible deshacerlo desde ahi.
+
+[ ] E4. Pulsalo para apagarlo. El bot vuelve a reaccionar.
+
+[ ] E6. EL ROL SOBREVIVE A USAR UNA HABILIDAD SUYA. Pon "Esperar" a un bot,
+        seleccionalo, pulsa uno de sus huecos de habilidad y espera diez
+        segundos. "Esperar" tiene que seguir ENCENDIDO.
+        Si se apaga solo -> la captura del prestamo no entro, y estas viendo
+        una orden tuya deshecha por el efecto secundario de otra.
+
+[ ] E5. AHORA, CON TODO EN ORDEN, repite B1 y B2. ¿Van y matan?
+        Esta es la pregunta de la ronda: si B iba bien y E tambien, lo de
+        PRUEBAS-18 eran las dos cosas a la vez.
+
+notas:
+
+
+---------------------------------------------------------------------------
+F. TUS PROPIOS HECHIZOS
+---------------------------------------------------------------------------
+
+"Me salen hechizos raros" + SELFCAST no lanzaba nada. Es un solo fallo.
+
+`GetActionInfo` devuelve un segundo valor para las casillas de hechizo, y no
+esta garantizado que sea el ID DEL HECHIZO -- puede ser el INDICE DEL LIBRO. Y
+pasarle un indice a `GetSpellInfo` no da error: devuelve otro hechizo
+cualquiera, con su nombre y su icono. De ahi la lista rara; y el servidor
+rechazaba el `SELFCAST` con "no conoces ese hechizo", que era literalmente
+cierto.
+
+No se elige a ciegas: se comprueba contra el icono que la casilla YA esta
+dibujando en pantalla.
+
+[ ] F1. Selecciona a tu propio personaje. Click derecho en un hueco: la lista
+        son TUS hechizos, los que tienes en las barras, con su rango detras en
+        gris.
+
+[ ] F2. `/rts skills status` con tu personaje seleccionado dice "tus barras se
+        leen como: ...". ANOTA LA FRASE EXACTA, es la que contesta esto para
+        siempre:
+          "id directo (icono confirmado)"     -> era un id, todo normal
+          "indice de libro (resuelto con...)" -> era un indice, y por eso salian
+                                                 hechizos raros
+          "el icono no cuadra..."             -> ninguno de los dos; hay tercera
+                                                 forma y hay que verla
+
+[ ] F3. Elige uno y pulsalo. Lo lanzas, y sale en el chat "tu: <hechizo>".
+        Ese mensaje es nuevo y esta puesto a proposito: un lanzamiento del
+        servidor sobre tu cuerpo puede no dar NINGUNA senal en el cliente, asi
+        que sin el no se distingue "no paso nada" de "no llego la orden".
+        Si sale un "RTS: no conoces ese hechizo" -> el id sigue mal, y F2 dice
+        por que camino se saco.
+
+[ ] F4. Apunta a un enemigo (click derecho en su cuadrado) con TU personaje
+        seleccionado y pulsa un hechizo de dano: va contra el.
+
+notas:
+
+
+---------------------------------------------------------------------------
+G. LAS MARCAS DE APUNTADO
+---------------------------------------------------------------------------
+
+D2 de la ronda anterior: "no se ilumina". E3: "mi avatar no se ilumina en azul
+ni nada". Dos causas distintas.
+
+  - En la fila de enemigos SI se dibujaba, pero el puntual era un velo amarillo
+    a alfa 0,35 sobre un retrato de colores, o sea nada. Ahora es un marco
+    grueso amarillo ademas del velo.
+  - En las filas del GRUPO y en el RETRATO no se dibujaba en absoluto: las
+    marcas se escribieron solo en `Foes.lua`.
+
+[ ] G1. Un bot seleccionado. Click derecho en un enemigo del HUD: sale el
+        mensaje Y un marco AMARILLO GRUESO alrededor de su cuadrado.
+
+[ ] G2. Doble click derecho: el marco pasa a ser AZUL y mas fino, por dentro.
+        Los dos se distinguen de un vistazo.
+
+[ ] G3. Selecciona al sanador. Click derecho en la fila del TANQUE: la fila del
+        tanque se enmarca en amarillo POR DENTRO de su marco de seleccion.
+
+[ ] G4. Doble click derecho en la fila del tanque: marco azul.
+
+[ ] G5. Selecciona al sanador. Click derecho en TU RETRATO: el hueco del
+        retrato se enmarca en amarillo. Doble click derecho: azul.
+        Es literalmente lo que faltaba en E3.
+
+[ ] G6. Espera doce segundos sin pulsar nada: el marco amarillo se apaga solo.
+        Si se queda puesto -> el redibujo no esta enganchado al latido y solo
+        se refresca al cambiar la seleccion.
+
+notas:
+
+
+---------------------------------------------------------------------------
+H. LA CURACION QUE SE CANCELABA
+---------------------------------------------------------------------------
+
+"Intenta tirar el spell pero se cancela" / "la animacion se cancela enseguida".
+
+Lo unico que corta un lanzamiento sin dano de por medio es el MOVIMIENTO, y el
+bot se movia por dos motivos: playerbots se rinde el solo si el bot anda y el
+hechizo tiene tiempo de lanzamiento, y la supresion que ponemos para tomarle el
+mando (`passive`) NO apaga el seguimiento -- lleva "follow" en su lista de
+permitidos a proposito. Asi que un bot recolocandose se movia DURANTE el
+lanzamiento. Ahora se le para antes de lanzar.
+
+[ ] H1. Selecciona al sanador. Apunta al tanque (click derecho en su fila).
+        Pulsa una curacion. La lanza ENTERA y el tanque se cura.
+
+[ ] H2. Lo mismo apuntandote a ti (click derecho en tu retrato). Te cura.
+
+[ ] H3. Con el sanador ANDANDO (mandale moverse y pulsa la curacion a mitad de
+        camino): se para y la lanza.
+        Si sale "no salio (alcance, enfriamiento, linea de vision o estaba en
+        movimiento)" -> el mensaje ya es la respuesta; mira cual de las cuatro.
+
+[ ] H4. Repite H1 cinco veces seguidas. Que no se cancele NINGUNA. Este fallo
+        era intermitente, asi que una sola prueba buena no cierra nada.
+
+notas:
+
+
+---------------------------------------------------------------------------
+I. FIJAR BICHOS EN LA FILA DE ENEMIGOS  (adicion)
+---------------------------------------------------------------------------
+
+Pediste: "click izquierdo en mob sobre el mundo y aparece en la seccion de
+enemigos del hud; shift+click derecho para anadir otro".
+
+EL GESTO DE ANADIR ES SHIFT + CLICK IZQUIERDO, NO DERECHO, y es deliberado:
+shift + derecho encadena puntos de ruta desde la etapa 5l, y darle un segundo
+significado segun lo que hubiera bajo el cursor haria que encadenar una ruta
+dependiera de con cuanta punteria pasaste por encima de un lobo. Shift +
+izquierdo estaba libre y es el par natural del click de arriba.
+
+[ ] I1. Click izquierdo en un bicho del mundo. Aparece en la fila de enemigos
+        de la consola y sale un mensaje con su nombre.
+        Necesita que el cliente marque mouseover, que es lo normal desde que el
+        raton esta libre (etapa 5h). Si un bicho concreto no se deja fijar,
+        prueba a pinchar mas al centro del modelo: NO hay respaldo por
+        proyeccion aqui a proposito -- la proyeccion sabe donde esta una
+        criatura pero no si es hostil, y meteria al tabernero en la fila.
+
+[ ] I2. Click izquierdo en OTRO bicho: sustituye al anterior (uno solo).
+
+[ ] I3. Shift + click izquierdo en un tercero: se SUMA. El mensaje dice cuantos
+        hay.
+
+[ ] I4. Los fijados se pueden usar como cualquier otro cuadrado: click
+        izquierdo ataca, derecho apunta, doble derecho fija el foco.
+
+[ ] I5. `/rts foes clear` los suelta.
+
+[ ] I6. Un fijado que el cliente deje de ver se cae solo a los dos minutos.
+        Uno que este a la vista NO se cae.
+
+[ ] I7. Un fijado al que empieza a atacar el grupo sube al principio de la fila
+        (entra por la lista del servidor, que va delante).
+
+[ ] I8. Shift + click DERECHO sobre un bicho sigue encadenando ruta, no
+        fijando. Que no se haya roto el gesto de las rutas.
+
+notas:
+
+
+---------------------------------------------------------------------------
+J. SOMBRAS BAJO LOS PERSONAJES  (adicion)
+---------------------------------------------------------------------------
+
+Pediste "sombras mas duras y grandes debajo de los personajes para
+distinguirlos mejor".
+
+LO QUE HAY: `shadowLevel`, que existe en este cliente (esta en tu Config.wtf, a
+0, o sea apagadas) y ahora se pone a 2 mientras dura el modo RTS, capturado y
+devuelto como todos los CVars de la camara.
+
+LO QUE NO HAY, dicho por delante: 3.3.5a no expone TAMANO ni DUREZA de la
+sombra. Es una escala de calidad y lo unico que se puede hacer es encenderla.
+Si con esto las unidades siguen sin distinguirse, la respuesta buena no es este
+CVar -- es el circulo nativo bajo los pies, que ya existe desde la etapa 5e,
+admite color por unidad y hoy solo lo llevan las seleccionadas.
+
+[ ] J1. Entra en modo RTS. Hay sombra bajo los personajes.
+
+[ ] J2. Sal del modo RTS. La sombra vuelve a como la tenias (apagada).
+        Si se queda puesta -> la regla dura esta rota y eso es mas grave que la
+        funcion: mira `ReleaseCamera`.
+
+[ ] J3. `/rts cam shadow 5` la sube al maximo, `/rts cam shadow 0` la apaga,
+        `/rts cam shadow -1` deja de tocarla y devuelve la tuya.
+
+[ ] J4. ¿Se distinguen mejor las unidades? Contesta esto de verdad, porque de
+        ello depende si merece la pena la otra via (el circulo bajo cada unidad
+        del grupo, no solo las seleccionadas). Un [!] aqui es un resultado util.
+
+notas:
+
+
+---------------------------------------------------------------------------
+K. QUE NO SE HAYA ROTO NADA
+---------------------------------------------------------------------------
+
+[ ] K1. Entra y sal del modo RTS tres veces. Sin errores de Lua rojos.
+        (scriptErrors sigue a 1 en Config.wtf.)
+
+[ ] K2. Los huecos de habilidad: el hueco vacio se ve como UNA sola casilla del
+        tamano del boton, no como una casilla pequena dentro de un rectangulo.
+        Era PRUEBAS-18 C2.
+
+[ ] K3. La fila de enemigos, el grupo, el retrato, los roles y el panel 4x4
+        siguen donde estaban y con el mismo tamano.
+
+[ ] K4. Sal del modo RTS en combate: la consola se queda, no salta nada.
+
+notas:
+
+
+---------------------------------------------------------------------------
+LO QUE NO ESTA EN ESTA RONDA, A PROPOSITO
+---------------------------------------------------------------------------
+
+  - E5 de la ronda anterior (¿el sanador prioriza al tanque?) sigue sin
+    contestar: dijiste que los enemigos de esa zona son muy flojos para
+    notarlo. No ha cambiado nada de ese mecanismo.
+
+  - Las teclas de altura de camara siguen cortando el avance (#16 C1/C2).
+    Decidido dejarlo asi; las tres salidas estan en CLAUDE.md.
+
+  - El circulo nativo bajo TODAS las unidades del grupo (no solo las
+    seleccionadas). Es la respuesta buena a J4 si la sombra no basta, y son un
+    estado mas en el canal empaquetado del DLL -- o sea recompilar rts_core.
+    Se hace si J4 sale [!].

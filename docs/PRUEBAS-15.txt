@@ -1,0 +1,179 @@
+RTS COMMAND - LISTA DE PRUEBAS  #15
+Generada 2026-08-23   ·   addon 0.43.0 · mod-rts 0.12.0 · rts_core sin tocar
+
+QUE HAY EN ESTA RONDA
+  A. LOS BOTONES PEQUENOS, EN SUS DOS BARRAS VERTICALES. Es lo que se pidio y
+     es lo unico que importa de esta ronda.
+  B. La altura de camara de la #14: APAGADA de fabrica, y la unica via que
+     puede ser fluida puesta detras de un comando.
+
+LO QUE DIJO EL JUEGO EN LA #14, Y QUE SE HACE CON ELLO
+  "Va bajando a escalones, y cuando empieza a bajar o subir no avanza hacia
+  adelante: se siente como un ascensor."
+
+  Es exactamente lo que la propia #14 marcaba como el riesgo (A6), y la causa
+  es la que estaba escrita alli: el servidor corregia la altura con
+  NearTeleportTo, un teleport por tick del mundo, sobre una criatura que el
+  CLIENTE esta moviendo. Cada teleport es un escalon Y ADEMAS cancela el avance
+  que el cliente estaba aplicando -- de ahi que se parase al subir o bajar. No
+  hay ningun numero que arregle eso: el mecanismo es el fallo.
+
+  Asi que va apagado. Y la via que puede ser fluida es la contraria, la misma
+  leccion que los nameplates de la etapa 5e: DEJAR DE CALCULAR DONDE VA Y QUE LO
+  COLOQUE EL CLIENTE. El juego ya tiene ese verbo -- UNIT_FIELD_HOVERHEIGHT mas
+  SMSG_MOVE_SET_HOVER, "mantén esta unidad a N yardas del suelo" -- y corre
+  dentro del bucle de movimiento del cliente, en la misma pasada que ya mueve la
+  camara hacia adelante. Nada que interpolar y nada con lo que pelearse.
+
+  De paso: la cabecera de RtsCamera.h decia "No SetHover: hover clava una unidad
+  a una altura fija sobre el suelo, que es lo contrario de lo que quiere una
+  camara libre". Era cierto cuando el objetivo era una camara libre, y ahora es
+  literalmente lo que se ha pedido. El motivo para no hacer algo caduca antes que
+  la decision de no hacerlo -- tercera vez en este proyecto.
+
+EL SERVIDOR HAY QUE REINICIARLO
+  worldserver.exe nuevo (mod-rts 0.12.0). Sin reiniciar, la seccion B da falso
+  negativo y `/rts version` lo canta.
+
+ANTES DE EMPEZAR
+  1. 3_Detener_Servidor + 1_Iniciar_Servidor
+  2. Deploy_Addon.bat y Deploy_Mod.bat (los dos ya ejecutados, y comprobados
+     identicos al repo)
+  3. rts-tools\2-Jugar.bat  (desde el Explorador, no Git Bash)
+  4. /rts version  ->  addon 0.43.0, mod-rts 0.12.0, rts_core inyectado
+
+---------------------------------------------------------------------------
+A. LOS BOTONES PEQUENOS, EN LOS RAILES
+---------------------------------------------------------------------------
+
+DONDE VA CADA COSA:
+
+  RAIL IZQUIERDO  Ficha, Hechizos, Talentos, Misiones, Menu, Bolsas
+  RAIL DERECHO    Mapa, Rastreo, Correo, Fecha, Acercar, Alejar
+
+Siguen siendo los botones DE BLIZZARD alojados, no botones nuestros: es la unica
+forma que funciona, y ya se demostro en la #13 (A3/A4 abren de verdad, A6/A7/A8
+los devuelven bien). Lo que ha cambiado es donde se alojan. Toda esa maquinaria
+se mudo de Panel.lua a Rails.lua entera; el panel de la derecha vuelve a 4x3 con
+las doce ordenes en sus mismas casillas.
+
+EL TAMANO ES EL QUE LA FORMA DEL RAIL PERMITE, y conviene tener el numero
+delante antes de juzgarlo: el hueco del rail mide 78x452 de dibujo, o sea 44 x
+250 px en esta pantalla. Seis botones apilados dejan 41 px de alto a cada uno, y
+un boton de menu del cliente mide 28x58 -- asi que salen a x1,28 en unidades de
+dibujo, que en pantalla son ~20x42 px. La rejilla 4x4 de la ronda pasada, cuyo
+tamano se dio por bueno, daba 23x48: la merma es del 13%, y es el precio de
+estar en el sitio correcto en vez de en el equivocado. Si sigue pareciendo
+pequeno, `/rts rails scale <k>` lo fuerza y `/rts rails` imprime los pixeles.
+
+[ ] A1  ES LA PRUEBA QUE DECIDE. El rail de la IZQUIERDA tiene seis botones:
+        ficha, hechizos, talentos, misiones, menu, bolsas.
+        notas:
+
+[ ] A2  El rail de la DERECHA tiene seis: mapa, rastreo, correo, fecha,
+        acercar, alejar.
+        notas:
+        `Rastreo` y `Correo` son los que menos seguro tengo de nombre en este
+        cliente: se prueban tres nombres candidatos por hueco y se usa el
+        primero que exista. Si sale una MARCA ROJA en una casilla, ese frame no
+        existe con ninguno de sus nombres -- `/rts rails` dice cuales se probo
+        y se arregla anadiendo el bueno a la lista.
+
+[ ] A3  El tamano. Se ven con claridad y se pueden pinchar sin apuntar fino.
+        notas:
+        Si es demasiado pequeno: `/rts rails scale 1.6` (o el numero que sea) y
+        dime cual queda bien -- se queda guardado y ademas se puede bajar al
+        codigo como el valor de fabrica. Pasarse hace que se pisen unos a
+        otros, porque el alto del rail es lo escaso.
+
+[ ] A4  Pulsarlos funciona: mapa abre el mapa, talentos los talentos, bolsas la
+        mochila, ficha el personaje, hechizos el libro, menu el menu del juego.
+        notas:
+        Ya funcionaba en la #13 desde el panel; se vuelve a mirar porque el
+        anfitrion es otro frame y un frame protegido se puede contaminar al
+        cambiarle el padre.
+
+[ ] A5  Acercar y Alejar cambian el zoom del MINIMAPA de la barra.
+        notas:
+        El minimapa esta reparentado a la barra desde la etapa 5i, asi que sus
+        propios botones de zoom trabajan sobre el minimapa que se ve, no sobre
+        uno escondido.
+
+[ ] A6  El panel de la derecha vuelve a tener TRES filas con las doce ordenes
+        de siempre, Salir incluida en su sitio de siempre.
+        notas:
+        Si aparece una cuarta fila vacia, la rejilla no volvio a 4x3.
+
+[ ] A7  Al SALIR del modo RTS los doce botones vuelven a su sitio de siempre
+        (los del mapa al minimapa, los otros a la barra de abajo) con su tamano
+        normal.
+        notas:
+        ES TAN IMPORTANTE COMO A1. Se les guarda padre, anclajes, escala,
+        estrato, nivel y visibilidad antes de tocarlos. Un boton que no vuelve
+        es peor que el problema que esto arregla.
+
+[ ] A8  Entrar y salir tres veces: siguen bien las tres.
+        notas:
+
+[ ] A9  Salir del modo RTS EN COMBATE: al acabar la pelea estan todos en su
+        sitio.
+        notas:
+
+[ ] A10 /rts rails los lista todos, dice "alojado" en los doce y da el tamano
+        en pixeles de cada uno.
+        notas:
+
+[ ] A11 Nada de esto imprime errores de Lua.
+        notas:
+
+---------------------------------------------------------------------------
+B. LA ALTURA DE CAMARA: APAGADA, Y UNA SOLA COSA QUE PROBAR
+---------------------------------------------------------------------------
+
+[ ] B1  Entrar en modo RTS sin tocar nada: la camara se comporta como antes de
+        la #14. Ni escalones, ni ascensor, ni avisos.
+        notas:
+        Va apagada de fabrica. Si aparece algun aviso de altura al entrar, el
+        ajuste guardado de ayer sigue puesto y no deberia.
+
+[ ] B2  LA UNICA PRUEBA QUE INTERESA: `/rts cam agl` y panoramizar por una
+        cuesta larga. Si sube y baja con el terreno SIN escalones y SIN cortar
+        el avance, la via del cliente funciona y esto queda hecho.
+        notas:
+        Lo hace el cliente en su bucle de movimiento, asi que o sale fluido o no
+        sale: no hay un punto medio a escalones.
+
+[ ] B3  Si en B2 la camara SE HUNDE hasta el suelo en vez de flotar: es el fallo
+        esperado del intento. `/rts cam agl off` lo deja como estaba en el acto.
+        notas:
+        La mitad que puede fallar es que hover necesita la gravedad ENCENDIDA
+        (es un modificador del codigo que sigue el suelo, y sin gravedad no hay
+        codigo que modificar). Si el cliente ignora hover en una criatura
+        poseida, lo que queda es la gravedad -- o sea, se cae. Con eso sabido,
+        la respuesta es que esta via tampoco vale y se queda apagado para
+        siempre.
+
+[ ] B4  Con B2 funcionando: Q/E siguen subiendo y bajando, suave, y al soltar se
+        queda a la altura nueva.
+        notas:
+        Con hover puesto, Q/E ya no teleportan: mueven la ALTURA DE HOVER, o sea
+        que es el cliente el que levanta la camara. Si Q/E no hacen nada, el
+        campo no esta llegando; si dan un tiron, siguen teleportando.
+
+[ ] B5  `/rts cam agl off` y otra vez `/rts cam agl`: se apaga y se enciende sin
+        dejar la camara en ningun sitio raro.
+        notas:
+
+[ ] B6  (Solo si te apetece comparar) `/rts cam agl step 12` reproduce el
+        ascensor de la #14 a proposito, y `off` lo quita.
+        notas:
+        Esta ahi para que el escalonado sea reproducible, no como opcion. Avisa
+        al encenderse de lo que es.
+
+---------------------------------------------------------------------------
+LO QUE DECIDE ESTA RONDA
+---------------------------------------------------------------------------
+  1. A1, A2, A3 y A7: los botones, en su sitio, a un tamano usable, y de vuelta
+     al salir.
+  2. B2 dice si la altura de camara se puede tener fluida. Si no, se queda
+     apagada y no se vuelve a intentar por este camino.

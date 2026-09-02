@@ -30,6 +30,7 @@
 #include "RBAC.h"
 #include "RtsCamera.h"
 #include "RtsCommandMode.h"
+#include "RtsMarks.h"
 #include "RtsOrders.h"
 #include "ScriptMgr.h"
 #include "SharedDefines.h"
@@ -38,6 +39,7 @@
 #include "WorldSession.h"
 
 #include <cctype>
+#include <cstdlib>
 #include <vector>
 
 #include <iomanip>
@@ -54,7 +56,7 @@ namespace
     // pieces in this project -- the DLL, this module, and the addon -- and only
     // the DLL had a version you could see, which made a server-side fix look
     // like nothing had happened. All three now report.
-    constexpr char const* kModVersion = "0.6.0";
+    constexpr char const* kModVersion = "0.15.0";
 
     std::string Upper(std::string s)
     {
@@ -178,12 +180,17 @@ namespace
             return false;
 
         ObjectGuid const target(raw);
-        int hit = 0;
+        int hit = 0, idle = 0;
         for (std::string const& n : SplitList(names, ';'))
         {
             if (rts::orders::AttackBot(player, n, target))
                 ++hit;
+            if (rts::orders::IsPassive(player, n))
+                ++idle;
         }
+        if (idle > 0)
+            Reply(player, "RTS: " + std::to_string(idle) +
+                  " en Esperar (passive) -- van, pero no pelean solos.");
         return hit > 0;
     }
 
@@ -321,6 +328,119 @@ namespace
             return true;
         }
 
+        // "SELFCAST <spellId> [guid-hex]" -- the console's skill row, aimed at
+        // the player's own character. See RtsOrders.h for why this is not the
+        // client's job.
+        if (verb == "SELFCAST")
+        {
+            std::istringstream in(rest);
+            uint32 spellId = 0;
+            std::string guidHex;
+            if (!(in >> spellId))
+                return false;
+
+            ObjectGuid target;
+            if (in >> guidHex)
+            {
+                uint64 raw = 0;
+                std::istringstream hx(guidHex);
+                hx >> std::hex >> raw;
+                if (raw)
+                    target = ObjectGuid(raw);
+            }
+
+            // SE CONTESTA TAMBIEN CUANDO SALE BIEN, y no es ruido: un
+            // lanzamiento del servidor sobre tu propio cuerpo puede no producir
+            // ninguna senal visible en el cliente -- ni animacion, ni barra de
+            // lanzamiento -- asi que "no ha pasado nada" y "no ha llegado la
+            // orden" se veian igual. PRUEBAS-18 C10 se reporto sin poder
+            // distinguir cual de las dos era.
+            std::string why;
+            if (!rts::orders::SelfCast(player, spellId, target, &why))
+                Reply(player, "RTS: " + why + ".");
+            else
+                SendAddon(player, "DID SELFCAST " + std::to_string(spellId));
+            return true;
+        }
+
+        // "ROLES <bot>" -- which of the five roles that bot's CLASS actually
+        // has, and which are on. Asked, never assumed: see RtsCommandMode.h.
+        //
+        // Reply "ROLES <bot> name:0,name:1,..." or "ROLES <bot> -" when the bot
+        // has none we recognise. The empty answer is SENT rather than skipped:
+        // a row that never draws because no reply came looks identical to a row
+        // that never draws because the class has no roles, and only one of
+        // those is a bug.
+        if (verb == "ROLES")
+        {
+            auto const roles = rts::command::Roles(player, rest);
+            std::string list;
+            for (auto const& r : roles)
+            {
+                if (!list.empty())
+                    list += ",";
+                list += r.name + ":" + (r.active ? "1" : "0");
+            }
+            SendAddon(player, "ROLES " + rest + " " + (list.empty() ? std::string("-") : list));
+            return true;
+        }
+
+        // "ROLE <bot> <name> <0|1>" -- set one. Answers with a fresh ROLES, so
+        // the addon draws what the server ended up with instead of what it
+        // asked for: turning on a stance turns two others off, and a button
+        // that lit up on its own request would hide that.
+        if (verb == "ROLE")
+        {
+            std::istringstream in(rest);
+            std::string bot, role;
+            int on = 0;
+            if (!(in >> bot >> role >> on))
+                return false;
+
+            if (!rts::command::SetRole(player, bot, role, on != 0))
+                Reply(player, "RTS: no pude cambiar el rol " + role + ".");
+
+            auto const roles = rts::command::Roles(player, bot);
+            std::string list;
+            for (auto const& r : roles)
+            {
+                if (!list.empty())
+                    list += ",";
+                list += r.name + ":" + (r.active ? "1" : "0");
+            }
+            SendAddon(player, "ROLES " + bot + " " + (list.empty() ? std::string("-") : list));
+            return true;
+        }
+
+        // "PFOCUS <bot> <guid-hex>" -- persistent focus, the double-right-click
+        // half of the gesture. "PFOCUS <bot> -" drops it.
+        if (verb == "PFOCUS")
+        {
+            std::istringstream in(rest);
+            std::string bot, guidHex;
+            if (!(in >> bot >> guidHex))
+                return false;
+
+            if (guidHex == "-")
+            {
+                rts::command::ClearFocus(player, bot);
+                SendAddon(player, "PFOCUS " + bot + " - 0");
+                return true;
+            }
+
+            uint64 raw = 0;
+            { std::istringstream hx(guidHex); hx >> std::hex >> raw; }
+            if (!raw)
+                return true;
+
+            bool hostile = false;
+            if (rts::command::SetFocus(player, bot, ObjectGuid(raw), &hostile))
+                SendAddon(player, "PFOCUS " + bot + " " + guidHex + " " + (hostile ? "1" : "0"));
+            else
+                Reply(player, "RTS: no pude fijar ese foco.");
+            return true;
+        }
+
         // "FOCUS <bot>" -- what that bot is currently pointed at.
         if (verb == "FOCUS")
         {
@@ -351,6 +471,37 @@ namespace
 
             auto const intent = rts::orders::ClassifyClick(player, ObjectGuid(raw));
             SendAddon(player, "WHAT " + rest + " " + std::to_string(static_cast<int>(intent)));
+            return true;
+        }
+
+        // "GROUND <id> <ox> <oy> <oz> <dx> <dy> <dz>" -- donde corta el suelo
+        // este rayo. Lo pregunta el addon cada vez que convierte un click en un
+        // punto del mundo sin mandar orden (shift + click derecho encadena un
+        // punto de ruta y no manda nada todavia), y contesta con el mismo id
+        // para que el punto que se corrige sea el que se pregunto y no el que
+        // este de moda cuando llegue la respuesta.
+        if (verb == "GROUND")
+        {
+            std::istringstream in(rest);
+            uint32 id = 0;
+            float ox, oy, oz, dx, dy, dz;
+            if (!(in >> id >> ox >> oy >> oz >> dx >> dy >> dz))
+                return false;
+
+            float gx, gy, gz;
+            if (rts::orders::GroundRay(player, ox, oy, oz, dx, dy, dz, 500.0f, gx, gy, gz))
+            {
+                // Sin el '1' del final: aqui no se ha mandado ninguna orden, asi
+                // que si alguien iba hacia ese punto hay que remandarselo.
+                std::ostringstream out;
+                out << "GROUNDAT " << id << ' ' << std::fixed << std::setprecision(2)
+                    << gx << ' ' << gy << ' ' << gz << " 0";
+                SendAddon(player, out.str());
+            }
+            else
+            {
+                SendAddon(player, "GROUNDNO " + std::to_string(id));
+            }
             return true;
         }
 
@@ -390,12 +541,81 @@ namespace
 
             struct Dest { std::string name; float x, y, z; };
             std::vector<Dest> dests;
+
+            // EL RAYO VIAJA CON EL CLICK, y es lo que hace que el destino sea el
+            // suelo de verdad y no el corte con un plano.
+            //
+            // El addon manda los puntos que el calcula porque necesita dibujar
+            // algo AHORA, y ademas es quien sabe donde va cada unidad dentro de
+            // la formacion. Pero su punto base sale de cortar el rayo del cursor
+            // contra un plano horizontal, que en una cuesta cae detras de la
+            // cuesta y bajo tierra. Aqui hay mapas: se corta el mismo rayo
+            // contra el terreno y los modelos, y todos los destinos se desplazan
+            // en bloque por la diferencia -- asi la formacion se conserva entera
+            // y solo se corrige de donde cuelga.
+            //
+            // Va en un tramo final marcado con '@' en vez de delante para que la
+            // parte de siempre se lea igual que antes y un mensaje sin rayo siga
+            // valiendo.
+            uint32 rayId = 0;
+            bool haveRay = false, fixed = false;
+            float sx = 0.0f, sy = 0.0f, sz = 0.0f;   // el desplazamiento
+            float gx = 0.0f, gy = 0.0f, gz = 0.0f;   // el suelo resuelto
+
             for (std::string const& entry : SplitList(list, ';'))
             {
                 std::istringstream e(entry);
+                std::string head;
+                if (!(e >> head))
+                    continue;
+
+                if (head == "@")
+                {
+                    float ox, oy, oz, dx, dy, dz, bx, by, bz;
+                    if (!(e >> rayId >> ox >> oy >> oz >> dx >> dy >> dz >> bx >> by >> bz))
+                        continue;
+                    haveRay = true;
+                    if (rts::orders::GroundRay(player, ox, oy, oz, dx, dy, dz, 500.0f, gx, gy, gz))
+                    {
+                        fixed = true;
+                        sx = gx - bx;
+                        sy = gy - by;
+                        sz = gz - bz;
+                    }
+                    continue;
+                }
+
                 Dest d;
-                if (e >> d.name >> d.x >> d.y >> d.z)
+                d.name = head;
+                if (e >> d.x >> d.y >> d.z)
                     dests.push_back(d);
+            }
+
+            if (fixed)
+            {
+                for (Dest& d : dests)
+                {
+                    d.x += sx;
+                    d.y += sy;
+                    d.z += sz;
+                }
+
+                // Y al addon, para que el aro y el numero de la ruta se pongan
+                // donde de verdad esta el punto en vez de donde se supuso.
+                //
+                // El '1' del final dice "la orden YA salio con esto". Sin el, el
+                // addon volveria a mandar el tramo al corregir el dibujo, o sea
+                // una segunda orden 100 ms despues de cada click: el bot para,
+                // recalcula el camino y arranca otra vez. Corregir un dibujo no
+                // es motivo para reordenar a nadie.
+                std::ostringstream g;
+                g << "GROUNDAT " << rayId << ' ' << std::fixed << std::setprecision(2)
+                  << gx << ' ' << gy << ' ' << gz << " 1";
+                SendAddon(player, g.str());
+            }
+            else if (haveRay)
+            {
+                SendAddon(player, "GROUNDNO " + std::to_string(rayId));
             }
 
             // Your own character is in this list too, under its own name. In
@@ -407,13 +627,29 @@ namespace
             if (intent == rts::orders::CLICK_ATTACK)
             {
                 int hit = 0;
+                int idle = 0;
                 for (Dest const& d : dests)
                 {
                     if (d.name == selfName)
+                    {
                         hit += rts::orders::SelfAttack(player, target) ? 1 : 0;
-                    else if (rts::orders::AttackBot(player, d.name, target))
+                        continue;
+                    }
+                    if (rts::orders::AttackBot(player, d.name, target))
                         ++hit;
+                    // La accion de ataque se dispara igual estando pasivo, pero
+                    // nada la sostiene: el bot llega y se para. Se cuenta y se
+                    // avisa, porque el rol lo puso el jugador y corregirlo por
+                    // nuestra cuenta seria desobedecerle en silencio -- que es
+                    // el mismo error, del otro lado.
+                    if (rts::orders::IsPassive(player, d.name))
+                        ++idle;
                 }
+
+                if (idle > 0)
+                    Reply(player, "RTS: " + std::to_string(idle) +
+                          " en Esperar (passive) -- van, pero no pelean solos. "
+                          "Quitales ese rol en la fila de roles.");
 
                 // The victim's NAME goes back too. The server cannot set the
                 // player's client-side target -- Player::SetSelection writes
@@ -482,30 +718,205 @@ namespace
         if (verb == "FOLLOW")
             return DispatchFollow(player, rest);
 
+        // "LOOT 1" / "LOOT 0" -- que los bots del grupo recojan TODO, o solo lo
+        // util. Sustituye al `ll all` que el addon soltaba por el chat de grupo
+        // cada vez que entrabas en modo RTS o cambiaba el grupo: mismo efecto,
+        // sin una linea de chat y sin depender de que la orden llegue.
+        // "POS" -- donde esta cada bot del grupo, ahora mismo.
+        //
+        // El addon lo pide un par de veces por segundo mientras hay una ruta
+        // en marcha. Podria leerlo de rts_core, pero solo para lo que el
+        // CLIENTE ve, y un bot que se aleja sale de la burbuja de visibilidad:
+        // a partir de ahi el addon no sabe si ha llegado y la ruta solo avanza
+        // por su plazo de 40 s, que en juego se lee como "el bot se ha olvidado
+        // de que iba andando". El servidor nunca lo pierde de vista.
+        if (verb == "POS")
+        {
+            std::string const list = rts::orders::GroupPositions(player);
+            if (!list.empty())
+                SendAddon(player, "POS " + list);
+            return true;
+        }
+
+        if (verb == "LOOT")
+        {
+            bool const all = rest.empty() || rest[0] != '0';
+            int const n = rts::orders::SetGroupLoot(player, all);
+            SendAddon(player, "DID LOOT " + std::to_string(n) + (all ? " 1" : " 0"));
+            return true;
+        }
+
+        // --- route markers -----------------------------------------------
+        //
+        // "MARK <slot> <x> <y> <z>" -- put a ground marker at a waypoint. The
+        // LOOK is not in the message on purpose: it is per-player server state
+        // (MARKSET), so stepping through visuals re-places every marker already
+        // down instead of only changing the next one.
+        if (verb == "MARK")
+        {
+            std::istringstream in(rest);
+            uint32 slot = 0;
+            float x = 0.0f, y = 0.0f, z = 0.0f;
+            if (!(in >> slot >> x >> y >> z))
+                return false;
+
+            Position const pos(x, y, z, 0.0f);
+            if (!rts::marks::Place(player, slot, pos))
+                SendAddon(player, "MARKERR " + std::to_string(slot));
+            return true;
+        }
+
+        // "MARKOFF <slot>", 0 = all of them.
+        if (verb == "MARKOFF")
+        {
+            uint32 slot = 0;
+            std::istringstream in(rest);
+            in >> slot;
+            rts::marks::Remove(player, slot);
+            return true;
+        }
+
+        // "MARKSET <spell|size|scale|obj|mode|next|prev|find> [value]" -- the tuning tool.
+        // Always answers with the full state, so the addon never has to guess
+        // what its request did.
+        if (verb == "MARKSET")
+        {
+            std::string sub, value;
+            Split(rest, sub, value);
+
+            if (sub == "SPELL")
+                rts::marks::SetSpell(player, static_cast<uint32>(std::atoi(value.c_str())));
+            else if (sub == "SIZE")
+                rts::marks::SetRadius(player, static_cast<float>(std::atof(value.c_str())));
+            else if (sub == "SCALE")
+                rts::marks::SetScale(player, static_cast<float>(std::atof(value.c_str())));
+            else if (sub == "OBJ")
+                rts::marks::SetObjScale(player, static_cast<float>(std::atof(value.c_str())));
+            else if (sub == "MODE")
+                rts::marks::SetMode(player, value.empty() || value[0] == '0' ? 0 : 1);
+            else if (sub == "NEXT")
+                rts::marks::Step(player, value.empty() ? 1 : std::atoi(value.c_str()));
+            else if (sub == "PREV")
+                rts::marks::Step(player, value.empty() ? -1 : -std::atoi(value.c_str()));
+            else if (sub == "FIND")
+            {
+                if (!rts::marks::Find(player, value))
+                    SendAddon(player, "MARKNO " + value);
+            }
+
+            rts::marks::Look const& look = rts::marks::Get(player);
+            uint32 const spell = look.spell ? look.spell
+                : (rts::marks::Candidates().empty() ? 0 : rts::marks::Candidates().front().id);
+
+            // The radius REPORTED is the effective one, not the stored one:
+            // stored 0 means "a tenth of the spell's own", and printing 0 would
+            // read as "no size" -- which is how a working automatic default
+            // starts looking like a bug. The spell's own radius goes out too,
+            // because a yard figure only means something next to it.
+            std::ostringstream out;
+            out << "MARKAT " << look.index
+                << ' ' << rts::marks::Candidates().size()
+                << ' ' << spell
+                << ' ' << std::fixed << std::setprecision(2)
+                << rts::marks::EffectiveRadius(look)
+                << ' ' << static_cast<int>(look.mode)
+                << ' ' << rts::marks::Count(player)
+                << ' ' << rts::marks::SpellRadius(spell)
+                << ' ' << look.obj
+                << ' ' << rts::marks::NameOf(spell);
+            SendAddon(player, out.str());
+            return true;
+        }
+
+        // "MARKQ <from> <count>" -- a page of the candidate list, for browsing.
+        // Chunked because an addon message caps at 255 characters, and each
+        // chunk carries its OWN starting index so the addon does not depend on
+        // them arriving in order.
+        if (verb == "MARKQ")
+        {
+            auto const& cands = rts::marks::Candidates();
+            std::istringstream in(rest);
+            std::size_t from = 0;
+            int count = 20;
+            in >> from;
+            in >> count;
+            if (count <= 0 || count > 100)
+                count = 20;
+
+            std::string chunk;
+            std::size_t chunkFrom = from;
+            std::size_t i = from;
+            for (; i < cands.size() && i < from + static_cast<std::size_t>(count); ++i)
+            {
+                std::string const piece =
+                    std::to_string(cands[i].id) + "|" + cands[i].name;
+                if (chunk.size() + piece.size() + 2 > 180)
+                {
+                    SendAddon(player, "MARKQ " + std::to_string(cands.size()) + " " +
+                                      std::to_string(chunkFrom) + " " + chunk);
+                    chunk.clear();
+                    chunkFrom = i;
+                }
+                if (!chunk.empty())
+                    chunk += ";";
+                chunk += piece;
+            }
+            if (!chunk.empty())
+                SendAddon(player, "MARKQ " + std::to_string(cands.size()) + " " +
+                                  std::to_string(chunkFrom) + " " + chunk);
+            return true;
+        }
+
         if (verb == "ATTACK")
             return DispatchAttack(player, rest);
 
-        // "AMOVE Bot x y z;Other x y z" -- same shape as MOVE.
+        // "AMOVE Bot x y z;Other x y z[;@ id ray base]" -- same shape as MOVE,
+        // y con el mismo tramo '@' opcional que CLICK: el avance con ataque
+        // tambien sale del cursor, asi que sufre exactamente el mismo error de
+        // plano y se corrige igual. Se recogen los destinos primero porque el
+        // desplazamiento no se conoce hasta haber leido el tramo del rayo, que
+        // va al final.
         if (verb == "AMOVE")
         {
-            std::size_t start = 0;
-            int moved = 0;
-            while (start <= rest.size())
+            struct AD { std::string name; float x, y, z; };
+            std::vector<AD> dests;
+            bool fixed = false;
+            float sx = 0.0f, sy = 0.0f, sz = 0.0f;
+
+            for (std::string const& entry : SplitList(rest, ';'))
             {
-                std::size_t const end = rest.find(';', start);
-                std::string const entry = rest.substr(start, end == std::string::npos
-                                                            ? std::string::npos : end - start);
-                if (!entry.empty())
+                std::istringstream in(entry);
+                std::string head;
+                if (!(in >> head))
+                    continue;
+
+                if (head == "@")
                 {
-                    std::istringstream in(entry);
-                    std::string name;
-                    float x = 0.0f, y = 0.0f, z = 0.0f;
-                    if ((in >> name >> x >> y >> z) &&
-                        rts::orders::AttackMoveBot(player, name, x, y, z))
-                        ++moved;
+                    uint32 id = 0;
+                    float ox, oy, oz, dx, dy, dz, bx, by, bz;
+                    if (!(in >> id >> ox >> oy >> oz >> dx >> dy >> dz >> bx >> by >> bz))
+                        continue;
+                    float gx, gy, gz;
+                    if (rts::orders::GroundRay(player, ox, oy, oz, dx, dy, dz, 500.0f, gx, gy, gz))
+                    {
+                        fixed = true;
+                        sx = gx - bx; sy = gy - by; sz = gz - bz;
+                    }
+                    continue;
                 }
-                if (end == std::string::npos) break;
-                start = end + 1;
+
+                AD d;
+                d.name = head;
+                if (in >> d.x >> d.y >> d.z)
+                    dests.push_back(d);
+            }
+
+            int moved = 0;
+            for (AD& d : dests)
+            {
+                if (fixed) { d.x += sx; d.y += sy; d.z += sz; }
+                if (rts::orders::AttackMoveBot(player, d.name, d.x, d.y, d.z))
+                    ++moved;
             }
             return moved > 0;
         }
@@ -667,7 +1078,9 @@ public:
     RtsChannelScript() : PlayerScript("RtsChannelScript", {
         PLAYERHOOK_ON_BEFORE_SEND_CHAT_MESSAGE,
         PLAYERHOOK_ON_LOGOUT,
-        PLAYERHOOK_ON_UPDATE_ZONE
+        PLAYERHOOK_ON_UPDATE_ZONE,
+        PLAYERHOOK_ON_BEFORE_TELEPORT,
+        PLAYERHOOK_ON_MAP_CHANGED
     }) { }
 
     // Fires at ChatHandler.cpp:367, BEFORE the per-type switch, so it sees every
@@ -711,6 +1124,10 @@ public:
         rts::camera::Abandon(player);
         rts::orders::ForgetPlayer(player);
         rts::command::ReleaseAll(player);
+        // The dynobjects are already gone by now (the core drops every one when
+        // the player leaves the map); this only clears our slot bookkeeping so
+        // the next login does not start with a table of dead guids.
+        rts::marks::ForgetPlayer(player);
     }
 
     // Zoning while flying the camera would strand it on the old map.
@@ -718,6 +1135,53 @@ public:
     {
         if (rts::camera::IsActive(player) && !player->IsInWorld())
             rts::camera::Abandon(player);
+    }
+
+    // AN ORDERLY EXIT, NOT A FUSE. These two used to be the only thing keeping
+    // the server alive across a map change, back when the camera was possessed
+    // with a bare SetCharmedBy that Player::StopCastingCharm could not unwind
+    // and answered with ABORT(). That is fixed at the root now -- the camera is
+    // a Puppet, which the core knows how to take apart (see kPuppetProps in
+    // RtsCamera.cpp), and it would survive these paths without any help.
+    //
+    // They stay because tearing the camera down HERE is tidier than letting it
+    // be yanked: the creature is released on the map it belongs to, and the
+    // addon hears the state change instead of discovering it. What they are no
+    // longer is load-bearing, so there is nothing to keep adding to when a new
+    // path turns up.
+    //
+    // A third one was written the same afternoon -- a lethal-damage hook to
+    // catch dying, since Player::setDeathState has no hook of its own -- and is
+    // DELETED. It was a workaround for the thing the Puppet fixes, and this
+    // project has been bitten four times by compensation that outlived its
+    // cause. It was also a hook on the hottest path on the server.
+    bool OnPlayerBeforeTeleport(Player* player, uint32 /*mapid*/, float /*x*/, float /*y*/,
+                                float /*z*/, float /*o*/, uint32 /*options*/,
+                                Unit* /*target*/) override
+    {
+        // Fires at Player::TeleportTo:1496, well before the cleanup at 1591.
+        // Covers portals, hearthstone, dungeon entrances, GM teleports and the
+        // end of a flight path.
+        rts::camera::Abandon(player);
+        return true;
+    }
+
+    void OnPlayerMapChanged(Player* player) override
+    {
+        // Fires on every world entry, login included (Map::AddPlayerToMap), so
+        // it is where the rescue belongs: whatever state a previous session or
+        // an ugly teardown left behind, this is the first moment we can see it
+        // and the last moment before the player notices it as a character
+        // falling through the floor.
+        // Our own camera first, so the orderly path gets the chance: anything
+        // that moved the player to another map without going through TeleportTo
+        // leaves the camera behind on the old one.
+        rts::camera::Abandon(player);
+
+        // Then the mop: whatever a previous session or an ugly teardown left
+        // behind, this is the first moment we can see it and the last moment
+        // before the player meets it as a character falling through the floor.
+        rts::camera::Rescue(player);
     }
 };
 

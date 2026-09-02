@@ -203,7 +203,8 @@ function C:Apply()
 		end
 	end
 
-	if self.active and self.hide.tooltip and GameTooltip:IsShown() then
+	if self.active and self.hide.tooltip and GameTooltip:IsShown()
+	   and not ns.IsOurs(GameTooltip:GetOwner()) then
 		GameTooltip:Hide()
 	end
 
@@ -383,8 +384,19 @@ function C:Create()
 	-- El tooltip vuelve solo en cada mouseover, asi que no se aparca: se le
 	-- niega el OnShow mientras el modo esta activo. Enganchado una sola vez y
 	-- para siempre; la condicion vive dentro.
+	-- SALVO CUANDO EL DUENO ES NUESTRO, y esa excepcion es la mitad que faltaba.
+	-- `GameTooltip` es un objeto UNICO: el mismo que dibuja el tooltip de unidad
+	-- del mundo es el que `W:Tip` usa para cada boton de la consola. Negarle el
+	-- OnShow a secas escondia los dos, asi que desde la etapa 5i la barra de
+	-- control no tuvo NI UN tooltip -- reportado en PRUEBAS-18 C4 como "no hay
+	-- tooltip", que se lee como "no se escribio" y no como "se esta escondiendo".
+	--
+	-- `GetOwner()` sirve porque `W:Tip` hace `SetOwner` ANTES de `Show`, asi que
+	-- para cuando corre este gancho el dueno ya esta puesto.
 	GameTooltip:HookScript("OnShow", function(tip)
-		if C.active and C.hide.tooltip then tip:Hide() end
+		if not (C.active and C.hide.tooltip) then return end
+		if ns.IsOurs(tip:GetOwner()) then return end
+		tip:Hide()
 	end)
 
 	-- Intro. Ver el bloque de Peek: sin esto se escribe a ciegas.

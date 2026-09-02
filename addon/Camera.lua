@@ -13,29 +13,23 @@
 
 	What IS left to this file:
 	  - asking the server to start and stop the camera
-	  - Q/E rotation, which WoW binds to strafe by default
+	  - Q/E pivot, SPACE and C height -- WoW binds all four to something else
 
-	=== the channel =========================================================
+	=== the channel: SEE Link.lua ===========================================
 
-	Addon messages, whispered to ourselves:
-
-	    SendAddonMessage("RTS", "CAM ON", "WHISPER", UnitName("player"))
-
-	Whispering yourself is what keeps this working solo. Party would also have
-	been hooked server-side, but party chat is where mod-playerbots reads its own
-	commands, and a character need not be in a guild.
-
-	The server answers on the same channel with "CAM 1" / "CAM 0". We wait for
-	that rather than assuming, because enabling can legitimately fail -- dead, in
+	The transport used to live here and moved out on 2026-09-02. What matters
+	from this file's side is unchanged: we ask, and we WAIT for the answer
+	rather than assuming, because enabling can legitimately fail -- dead, in
 	flight, in a vehicle -- and we take the player's Q and E keys on the way in.
+
+	The server answers "CAM 1" / "CAM 0", which arrives through `Link:On("CAM")`
+	below.
 ]]
 
 local ADDON, ns = ...
 
 local C = {}
 ns.Camera = C
-
-local PREFIX = "RTS"
 
 C.active = false
 
@@ -67,9 +61,21 @@ C.active = false
 -- reads it as the wanted field of view in tenths of a degree. It rides in this
 -- list because it needs exactly the same discipline as the real camera CVars:
 -- captured before the first change, put back on the way out.
+-- shadowLevel es la TERCERA que no es de camara, y esta si es lo que dice ser:
+-- la sombra que el cliente dibuja bajo cada personaje. Se pidio en PRUEBAS-18
+-- ("sombras mas duras y grandes debajo de los personajes para distinguirlos
+-- mejor") y en este Config.wtf esta a 0, o sea apagadas -- comprobado abriendo
+-- el fichero, que es como se comprueba un CVar en este proyecto desde
+-- `gxWindowedResolution`.
+--
+-- LO QUE ESTE CVAR NO DA, dicho por delante: no hay mando de TAMANO ni de
+-- DUREZA de la sombra en 3.3.5a. Es una escala de calidad, y lo unico que se
+-- puede hacer es encenderla y subirla. Si con la sombra puesta las unidades
+-- siguen sin distinguirse, la respuesta buena no es este CVar: es el circulo
+-- nativo bajo los pies, que ya existe (etapa 5e) y admite color por unidad.
 local CVARS = {
 	"cameraSmoothStyle", "cameraDistanceMaxFactor", "cameraDistanceMax",
-	"guildMemberNotify",
+	"guildMemberNotify", "shadowLevel",
 }
 local FOV_CVAR = "guildMemberNotify"
 local cvarWas = nil
@@ -101,22 +107,23 @@ end
 
 local saved = {}
 
--- CHANGED 2026-08-16. Q and E used to turn the camera, which duplicated what the
--- mouse already does better, and left height on space/X -- flight actions that
--- stop existing the moment the camera stops flying.
+-- THE KEYS HAVE MOVED THREE TIMES AND THE SHAPE THAT SETTLED IS: mouse rotates,
+-- Q/E pivot, SPACE and C raise and lower. Only the last hop is worth keeping as
+-- history, because the other two were wrong for reasons that no longer apply:
+-- Q/E first turned the camera in place (the mouse does that better) and then
+-- carried the height, which left the pivot with nowhere to go.
 --
--- Now the mouse owns rotation and Q/E own height, which is what was asked for
--- and is also the only arrangement that survives flight being off.
---
--- Height is the camera's WORLD Z, not its distance from the group. The first
--- version made Q/E zoom, which duplicated the scroll wheel and moved the camera
--- closer to and further from the party rather than up and down over it.
+-- Height is the camera's WORLD Z, not its distance from the group. An early
+-- version made those keys zoom, which duplicated the scroll wheel and moved the
+-- camera closer to and further from the party rather than up and down over it.
 --
 -- That has to go through the server. The camera creature is possessed, so the
 -- client owns its position -- and with flight off (which is what makes WASD run
--- flat) the client has no vertical movement to offer at all. So Q/E report only
--- their key transitions, and the server moves the camera on its own tick for as
--- long as the key is held. Two messages per press, not one per frame.
+-- flat) the client has no vertical movement to offer at all. So the keys report
+-- only their transitions, and the server moves the camera on its own tick for as
+-- long as one is held. Two messages per press, not one per frame.
+--
+-- The keys are SPACE and C since 2026-08-23. Q and E are the pivot.
 local held = { up = false, down = false }
 
 local function Vertical(dir)
@@ -170,24 +177,11 @@ local function GrabTurnKeys()
 		return
 	end
 
-	-- CAMBIADO 2026-08-16, segunda vez y por buenas razones.
-	--
-	-- Q/E ROTAN. Van a las acciones propias del juego (TURNLEFT/TURNRIGHT), no
-	-- a una funcion nuestra: el sistema de movimiento gira de forma continua y
-	-- suave mientras la tecla esta pulsada, y eso no lo iguala nada movido
-	-- desde un OnUpdate. Ademas asi rotar no depende del servidor para nada.
-	--
-	-- +/- SUBEN Y BAJAN. Esa parte SI tiene que ir por el servidor: la camara
-	-- esta poseida, asi que el cliente manda su posicion, y con el vuelo
-	-- apagado (que es lo que hace que WASD vaya plano) el cliente no ofrece
-	-- ningun movimiento vertical. Las teclas solo avisan de que se pulsan y se
-	-- sueltan; el servidor la sube mientras siga pulsada.
-	-- CAMBIADO 2026-08-18: Q/E PIVOTAN, ya no giran en el sitio.
-	--
-	-- Iban a TURNLEFT/TURNRIGHT, que es el giro propio del cliente: continuo y
-	-- suave, pero sobre el propio eje de la camara, asi que lo que mirabas se
-	-- iba de pantalla. Ahora van a botones nuestros que solo avisan de que la
-	-- tecla baja y sube; el servidor la orbita alrededor del punto que mira.
+	-- Q/E PIVOTAN, desde 2026-08-18. Iban a TURNLEFT/TURNRIGHT, que es el giro
+	-- propio del cliente: continuo y suave, pero sobre el propio eje de la
+	-- camara, asi que lo que mirabas se iba de pantalla. Ahora van a botones
+	-- nuestros que solo avisan de que la tecla baja y sube; el servidor la
+	-- orbita alrededor del punto que mira.
 	--
 	-- Se pierde la suavidad del movimiento del cliente y se gana el gesto
 	-- correcto. Si se nota a pasos, el dial es RTS.Camera.PivotSpeed.
@@ -197,29 +191,21 @@ local function GrabTurnKeys()
 		SetBindingClick(key, button)
 	end
 
-	-- Las cuatro, porque "+" no es una tecla: en la fila de numeros se saca con
-	-- Mayus y "=", asi que se coge "=" y tambien el teclado numerico, que es
-	-- donde mucha gente espera encontrarlas.
-	-- En un teclado espanol "+" ES una tecla propia (la del +, * y ]), no
-	-- Mayus+"=" como en el americano. Se ponen las dos formas y las del
-	-- teclado numerico: sobra con que exista una, y las que no existan en tu
-	-- distribucion simplemente no se enlazan.
+	-- ESPACIO SUBE Y C BAJA, 2026-08-23. Antes eran +/- y el teclado numerico,
+	-- que es donde estan en un editor y no donde las busca la mano en un juego:
+	-- espacio ya es "arriba" en todo lo que vuela, y C queda al lado de WASD.
+	--
+	-- Las dos son teclas OCUPADAS de fabrica -- espacio salta y C abre la ficha
+	-- del personaje -- y por eso importa que pasen por `saved`: se apuntan antes
+	-- de tocarlas y vuelven al salir del modo, igual que los CVars de la camara.
+	-- La ficha sigue estando a un click en el rail.
 	for key, button in pairs({
-		["+"]           = "RTSCamUpButton",
-		["="]           = "RTSCamUpButton",
-		["-"]           = "RTSCamDownButton",
-		["NUMPADPLUS"]  = "RTSCamUpButton",
-		["NUMPADMINUS"] = "RTSCamDownButton",
+		["SPACE"] = "RTSCamUpButton",
+		["C"]     = "RTSCamDownButton",
 	}) do
 		saved[key] = GetBindingAction(key) or ""
 		SetBindingClick(key, button)
 	end
-
-	-- X sigue siendo la accion de descenso en vuelo, que no hace nada con el
-	-- vuelo apagado. Se deja puesta para que encender el vuelo (/rts cam fly)
-	-- devuelva el comportamiento de espacio/X sin volver a tocar teclas.
-	saved.X = GetBindingAction("X") or ""
-	SetBinding("X", "SITORSTAND")
 end
 
 -- Returns false if it could not run, so the caller knows the keys are still
@@ -239,23 +225,17 @@ local function ReleaseTurnKeys()
 	return true
 end
 
---- Channel -----------------------------------------------------------------
-
--- `/rts debug` echoes both directions of the channel. A right-click that does
--- nothing can fail at four places -- the handler, the send, the server's
--- classification, or the order itself -- and narrowing that one step per test
--- cycle has been the slowest part of this whole build.
-C.debug = false
+--- El canal: ya no vive aqui -----------------------------------------------
+--
+-- `ns.SendServer`, el frame de `CHAT_MSG_ADDON` y el reparto de doce verbos
+-- estuvieron en este fichero hasta 2026-09-02, por historia: la camara fue lo
+-- primero que hablo con mod-rts. Estan en `Link.lua`, y la camara es hoy un
+-- cliente mas del canal -- registra `CAM` y `CAMPOS` como cualquier otro.
+--
+-- `Send` se queda como atajo local porque este fichero manda quince mensajes.
 
 local function Send(body)
-	if C.debug then ns.Print("|cff888888-> " .. body .. "|r") end
-	SendAddonMessage(PREFIX, body, "WHISPER", UnitName("player"))
-end
-
--- The same pipe, for anything else that needs to reach mod-rts. Orders.lua uses
--- it for move and follow, which is why they no longer cost a chat whisper each.
-function ns.SendServer(body)
-	Send(body)
+	ns.Link:Send(body)
 end
 
 -- The two hidden buttons Q and E are bound to. Created once, never shown; a
@@ -305,6 +285,25 @@ function C:On()      SendOffset() Send("CAM ON")     end
 function C:Off()     Send("CAM OFF")    end
 function C:Status()  Send("CAM STATUS") end
 function C:Recenter() SendOffset() Send("CAM HERE") end
+
+-- NO HAY ALTURA SOBRE EL SUELO, y esta borrada en vez de apartada. Mantener una
+-- separacion constante sobre el terreno mientras panoramizas se construyo por
+-- los dos caminos posibles y los dos se vieron en juego el 2026-08-23; ninguno
+-- falla por como estaba ajustado, fallan por lo que son:
+--
+--   corrigiendolo el SERVIDOR (medir el terreno y teleportar) baja a escalones,
+--   y cada teleport cancela el avance que esta aplicando el cliente, asi que el
+--   movimiento se para en seco en cada uno. Parece un ascensor, no una camara.
+--
+--   corrigiendolo el CLIENTE (hover) necesita la GRAVEDAD ENCENDIDA, porque el
+--   hover es un modificador del seguimiento del suelo del cliente y sin
+--   gravedad no hay seguimiento que modificar. Y la gravedad apagada es
+--   justamente lo que hace que la camara se quede donde se la pone: al armar el
+--   hover la camara CAE al suelo y el hover la levanta despues. Esa caida es el
+--   mecanismo, no un fallo del mecanismo -- y es lo que se vio en pantalla.
+--
+-- La camara vuelve a ser la de siempre: cuelga a la altura que se le da, y lo
+-- unico que la mueve en vertical son las teclas de subir y bajar.
 
 -- Flight decides whether forward follows the view or runs flat. Off is the RTS
 -- behaviour; on is the old flying-mount behaviour, kept so the two can be
@@ -494,11 +493,17 @@ C.DEFAULTS = {
 	-- in. 0 leaves the client's alone. Needs rts_core injected -- it is the DLL
 	-- that writes the camera struct.
 	fov = 60,
+
+	-- La sombra bajo los personajes mientras dura el modo RTS. -1 = no tocarla.
+	-- 2 enciende la sombra proyectada, que es lo que hace que un personaje se
+	-- despegue del suelo a vista de pajaro; este Config.wtf la trae a 0.
+	shadow = 2,
 }
 
 C.frame = {
 	tilt = C.DEFAULTS.tilt,
 	zoom = C.DEFAULTS.zoom,
+	shadow = C.DEFAULTS.shadow,
 	maxFactor = "4",     -- cameraDistanceMaxFactor: the multiplier cap
 	distanceMax = "50",  -- cameraDistanceMax: the absolute cap, in yards
 }
@@ -601,6 +606,13 @@ function C:Frame()
 		[FOV_CVAR]              = tostring(math.floor((cfg.fov or 0) * 10)),
 	})
 
+	-- La sombra va aparte del bloque de arriba porque puede estar apagada: -1
+	-- significa "no la toques", y entonces no se escribe nada. Con un valor, la
+	-- captura ya la hizo `HoldCamera` en su primera llamada, asi que se restaura
+	-- sola al salir -- misma regla dura que el resto.
+	local sh = tonumber(cfg.shadow)
+	if sh and sh >= 0 then SetCVar("shadowLevel", tostring(math.floor(sh))) end
+
 	if RTSCommandDB.camPreset then
 		SetView(VIEW_SLOT)
 		return
@@ -676,6 +688,24 @@ function C:SetFrame(key, value)
 			ns.Print("|cffff0000rts_core is not injected|r - fov is written by the DLL.")
 		end
 
+	elseif key == "shadow" and n then
+		-- 0..5 es la escala del cliente; -1 (o cualquier negativo) es "no la
+		-- toques", y entonces hay que DEVOLVER la que habia -- apagar la opcion
+		-- y dejar puesto lo que puso es el fallo que la etapa del `camHold` ya
+		-- pago una vez: una funcion escondida con su interruptor puesto no esta
+		-- escondida.
+		cfg.shadow = (n < 0) and -1 or math.min(5, math.floor(n))
+		if cfg.shadow < 0 then
+			local was = cvarWas and cvarWas.shadowLevel
+			if was then SetCVar("shadowLevel", was) end
+			ns.Print("sombras: |cffff0000sin tocar|r (las del cliente)")
+		else
+			HoldCamera({})     -- captura la original si aun no lo estaba
+			SetCVar("shadowLevel", tostring(cfg.shadow))
+			ns.Print(("sombras: |cffffff00%d|r (0 apagadas, 5 el maximo del cliente). " ..
+				"No hay mando de tamano ni de dureza en 3.3.5a."):format(cfg.shadow))
+		end
+
 	elseif key == "zoom" and n then
 		cfg.zoom = math.max(1, math.min(50, n))
 		HoldCamera({ cameraDistanceMaxFactor = cfg.maxFactor })
@@ -683,13 +713,16 @@ function C:SetFrame(key, value)
 		ns.Print(("zoom = %.0f applied"):format(cfg.zoom))
 
 	else
-		ns.Print(("camera framing: tilt=%.2f zoom=%.0f"):format(cfg.tilt, cfg.zoom))
+		ns.Print(("camera framing: tilt=%.2f zoom=%.0f sombra=%s"):format(
+			cfg.tilt, cfg.zoom, (cfg.shadow or -1) < 0 and "sin tocar" or tostring(cfg.shadow)))
 		ns.Print("|cffffff00/rts cam tilt <sec>|r - negative tilts back up")
 		ns.Print("|cffffff00/rts cam zoom <yards>|r / |cffffff00fov <deg>|r - |cffffff00frame|r re-applies all")
+		ns.Print("|cffffff00/rts cam shadow <0-5>|r - sombra bajo los personajes, -1 no tocarla")
 		return
 	end
 
-	RTSCommandDB.camFrame = { tilt = cfg.tilt, zoom = cfg.zoom, fov = cfg.fov }
+	RTSCommandDB.camFrame = { tilt = cfg.tilt, zoom = cfg.zoom, fov = cfg.fov,
+	                          shadow = cfg.shadow }
 end
 
 function C:Create()
@@ -700,117 +733,80 @@ function C:Create()
 		if tonumber(saved.tilt) then self.frame.tilt = saved.tilt end
 		if tonumber(saved.zoom) then self.frame.zoom = saved.zoom end
 		if tonumber(saved.fov)  then self.frame.fov  = saved.fov  end
+		-- Acotado AL LEER, no solo al escribir: las SavedVariables sobreviven a
+		-- la version que las escribio (la leccion del `grow = 688`).
+		local sh = tonumber(saved.shadow)
+		if sh then self.frame.shadow = (sh < 0) and -1 or math.min(5, math.floor(sh)) end
 	end
 
-	local f = CreateFrame("Frame", "RTSCameraChannel")
-	f:RegisterEvent("CHAT_MSG_ADDON")
-	f:RegisterEvent("PLAYER_LEAVING_WORLD")
+	-- EL FRAME DE LA CAMARA, que ya no es el del canal. Se queda con sus dos
+	-- eventos propios y con el `OnUpdate` del raton.
+	local f = CreateFrame("Frame", "RTSCameraEvents")
 	-- SetBinding is blocked in combat, so a camera switched off mid-fight would
 	-- leave Q and E ours until the next toggle. Catch the moment combat drops
 	-- and hand them back then.
 	f:RegisterEvent("PLAYER_REGEN_ENABLED")
+	f:RegisterEvent("PLAYER_LEAVING_WORLD")
 
-	f:SetScript("OnEvent", function(_, event, prefix, message)
+	f:SetScript("OnEvent", function(_, event)
 		if event == "PLAYER_REGEN_ENABLED" then
 			if not C.active then ReleaseTurnKeys() end
-			return
-		end
-
-		if event == "PLAYER_LEAVING_WORLD" then
+		elseif event == "PLAYER_LEAVING_WORLD" then
 			-- The server drops the camera on logout and zone change; make sure
 			-- the player's keys come back with us.
 			if C.active then C:OnState(false) end
-			return
-		end
-
-		if prefix ~= PREFIX or type(message) ~= "string" then return end
-		if C.debug then ns.Print("|cff888888<- " .. message .. "|r") end
-
-		-- We hear our own outgoing requests too (they are whispered to us), so
-		-- only the server's state replies are acted on.
-		-- The server module's own version, so all three pieces can be checked
-		-- at once instead of the DLL's standing in for the whole project.
-		-- What the server decided a right-click meant, and how many bots took
-		-- it. Printed because a click that silently does nothing is the single
-		-- most confusing failure in this whole system.
-		local tg = message:match("^TGTS (.+)$")
-		if tg then ns.Targets:OnData(tg) return end
-		if message == "TGTEND" then ns.Targets:OnDataEnd() return end
-
-		local whatGuid, whatKind = message:match("^WHAT (%S+) (%d)$")
-		if whatGuid then ns.RTSMode:OnKind(whatGuid, tonumber(whatKind)) return end
-
-		local bars, blist = message:match("^BARS (%S+) (.*)$")
-		if bars then ns.CommandMode:OnBars(bars, blist) return end
-
-		local barsEnd = message:match("^BARSEND (%S+)$")
-		if barsEnd then ns.CommandMode:OnBarsEnd(barsEnd) return end
-
-		local focus = message:match("^FOCUS (.*)$")
-		if focus then
-			if focus == "-" then ns.Focus:Clear() else ns.Focus:Set(focus, 1) end
-			return
-		end
-
-		local did, n, label = message:match("^DID (%a+)%s*(%d*)%s*(.*)$")
-		if did then
-			if did == "ATTACK" then
-				local p = ns.Orders.lastClick
-				if p then ns.Flare:Show(p.x, p.y, p.z, "attack") end
-				ns.Focus:Set(label ~= "" and label or nil, tonumber(n) or 0)
-				ns.Print(("Attack %s -> %s unit%s"):format(
-					label ~= "" and ("|cffff6666" .. label .. "|r") or "target",
-					n == "" and "0" or n, n == "1" and "" or "s"))
-			elseif did == "INTERACT" then
-				-- NO se manda `talk` aqui. El servidor YA ha interactuado --
-				-- eso es justo lo que este mensaje nos esta contando -- y ademas
-				-- distingue un PNJ (gossip) de un cadaver (botin).
-				--
-				-- La llamada que habia aqui era de cuando el servidor no lo
-				-- hacia y el addon tenia que pedirlo por chat. Al pasarle esa
-				-- tarea al servidor, esta linea se quedo de duplicado: sobre un
-				-- cadaver susurraba `talk` -- querer hablar con un muerto -- y
-				-- encima interrumpia la ventana de botin recien abierta, que es
-				-- por lo que solo recogias una cosa y el resto se quedaba.
-				--
-				-- Mismo patron que ya costo una ronda entera: un apano en pie
-				-- despues de que desapareciera el motivo que lo puso ahi.
-				if n ~= "" and tonumber(n) == 0 then
-					ns.Print("|cffffff00Nadie pudo interactuar.|r")
-				end
-			elseif did == "MOVE" and n == "0" then
-				ns.Print("|cffffff00Move order reached no bots.|r")
-			end
-			return
-		end
-
-		local pback, pup = message:match("^CAMPOS (%-?[%d%.]+) (%-?[%d%.]+)$")
-		if pback then
-			C:OnOffset(tonumber(pback) or 0, tonumber(pup) or 12)
-			return
-		end
-
-		local ver = message:match("^VER (%S+)$")
-		if ver then C.serverVersion = ver return end
-
-		local state = message:match("^CAM ([01])$")
-		if state then
-			-- Any reply at all proves mod-rts is installed and listening, which
-			-- is what lets Orders send moves down this pipe instead of paying
-			-- for a chat whisper (and an emote) per bot.
-			if not C.serverSeen then
-				C.serverSeen = true
-				ns.Print("|cff00ff00server module attached|r - direct orders enabled.")
-			end
-			C:OnState(state == "1")
 		end
 	end)
 
-	self.frame = f
+	-- LOS DOS VERBOS DE LA CAMARA. El resto de los que habia aqui se han ido a
+	-- sus duenos: `WHAT` y `DID` a quien los pide, `GROUNDAT`/`POS` a `Route`,
+	-- los `MARK*` a `Marks`, `VER` a `Link`.
+	ns.Link:On("CAM", function(rest)
+		-- El eco de nuestras propias peticiones (`CAM ON`, `CAM STATUS`,
+		-- `CAM ZV 1`...) llega por aqui igual, asi que el formato SE VALIDA: la
+		-- respuesta del servidor es un solo digito y nada mas.
+		local state = rest:match("^([01])$")
+		if state then C:OnState(state == "1") end
+	end)
+
+	ns.Link:On("CAMPOS", function(rest)
+		local pback, pup = rest:match("^(%-?[%d%.]+) (%-?[%d%.]+)$")
+		if pback then C:OnOffset(tonumber(pback) or 0, tonumber(pup) or 12) end
+	end)
+
+	-- `self.events`, NO `self.frame`. `C.frame` es la tabla de ENCUADRE
+	-- (tilt, zoom, fov, shadow, los dos topes de zoom) que se declara arriba y
+	-- que este mismo `Create` acaba de rellenar desde las SavedVariables --
+	-- guardar aqui el widget la machacaba entera.
+	--
+	-- FALLO PREEXISTENTE, encontrado el 2026-09-02 al mudar el canal, no
+	-- introducido por la mudanza. Lo que rompia, en silencio y sin error:
+	--
+	--   * `cfg.fov` salia nil, o sea que el CVar prestado se escribia a 0 --
+	--     que significa "no toques el FOV". La camara isometrica de la etapa 5g
+	--     no se aplicaba nunca.
+	--   * `cfg.maxFactor` y `cfg.distanceMax` nil: los topes de zoom no subian.
+	--   * `cfg.shadow` nil: las sombras de la etapa 5o no se ponian.
+	--   * `cfg.tilt`/`cfg.zoom` nil en el camino SIN encuadre guardado.
+	--
+	-- Por que no se veia: con un encuadre guardado, `C:Frame()` sale por
+	-- `SetView(VIEW_SLOT)` antes de usar tilt y zoom, y `C:Report()` cae a
+	-- `DEFAULTS` cuando la tabla no contesta -- asi que IMPRIMIA los valores
+	-- correctos mientras no aplicaba ninguno. Un lector que miente en la
+	-- direccion tranquilizadora es lo que lo mantuvo escondido.
+	self.events = f
 
 	if RTSCommandDB and type(RTSCommandDB.camMouselook) == "boolean" then
 		self.mouselook.enabled = RTSCommandDB.camMouselook
 	end
+
+	-- SE BORRA LA CLAVE DE UNA VERSION QUE YA NO EXISTE. `camHold` guardaba la
+	-- altura sobre el suelo, que esta quitada -- y las SavedVariables no olvidan
+	-- ninguna clave: sobreviven a la version que la escribio. Sin esto, un
+	-- cliente que llego a probarla se queda con basura en su fichero para
+	-- siempre. Misma leccion que el `grow = 688` de la etapa 5j: lo guardado se
+	-- revisa AL LEERLO, no solo al escribirlo.
+	if RTSCommandDB then RTSCommandDB.camHold = nil end
 
 	-- Every frame: the camera position it watches is republished every frame,
 	-- and a grace period measured in tens of milliseconds cannot be tracked on
@@ -819,6 +815,6 @@ function C:Create()
 
 	-- The DLL may attach mid-session and the server may already have a camera
 	-- running from before a reload, so ask rather than assume we start off.
+	-- `VERSION` ya lo pide `Link:Create`.
 	Send("CAM STATUS")
-	Send("VERSION")
 end

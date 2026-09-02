@@ -79,6 +79,14 @@ function F:Show(x, y, z, kind)
 	           colour = self.colours[kind or "move"] or self.colours.move }
 end
 
+-- Mover el destello que ya esta puesto, sin reiniciar su desvanecido. Lo usa
+-- la respuesta del servidor con el suelo de verdad: reiniciarlo haria un doble
+-- parpadeo por cada click.
+function F:Move(x, y, z)
+	if not active.t0 or not x then return end
+	active.x, active.y, active.z = x, y, z
+end
+
 function F:Update()
 	local t = texture
 	if not t then return end

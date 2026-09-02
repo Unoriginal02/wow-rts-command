@@ -189,8 +189,15 @@ end
 
 -- True when mod-rts is present to take orders directly. Set by the first reply
 -- the server sends us; until then everything falls back to chat commands.
+--
+-- LO SABE `Link`, NO ESTE FICHERO, desde 2026-09-02: es un hecho del canal, no
+-- de las ordenes. Se queda el nombre porque es el que leen trece sitios y
+-- porque "hay servidor para mandar" es la pregunta que se hace desde aqui.
+--
+-- Y sigue siendo una PROMESA durante el primer segundo: quien necesite actuar
+-- en cuanto haya servidor usa `ns.Link:WhenServer(fn)`, no un bucle propio.
 function O:HasServer()
-	return ns.Camera and ns.Camera.serverSeen == true
+	return ns.Link:HasServer()
 end
 
 -- Order one named bot to hold a specific spot, the chat way.
@@ -313,6 +320,44 @@ function O:FacingTo(x, y)
 	return math.atan2(dy, dx)
 end
 
+-- Move a NAMED list of units to a point, spread around it.
+--
+-- Takes the list rather than reading the selection, because two callers need
+-- exactly that: the RTS right-click (which is the selection) and Route.lua
+-- (which is whoever was selected when the route was drawn, and that is not the
+-- same thing a few seconds later).
+--
+-- YOUR OWN CHARACTER goes in the list too, under its own name, and takes a slot
+-- in the spread. It moves by a different route -- the server can only drive
+-- your body while the RTS camera holds client control -- but that is exactly
+-- when you are giving orders, so the distinction never shows.
+function O:MoveGroupTo(names, x, y, z, quiet)
+	if not names or #names == 0 then return false end
+
+	local playerName = UnitName("player")
+	local offsets = self:SpreadOffsets(#names, self:FacingTo(x, y))
+	local batch, movedSelf = {}, false
+
+	for i, name in ipairs(names) do
+		local o = offsets[i]
+		if name == playerName then
+			self:MoveSelfTo(x + o[1], y + o[2], z)
+			movedSelf = true
+		else
+			tinsert(batch, { name, x + o[1], y + o[2], z })
+		end
+	end
+
+	if #batch > 0 then self:MoveBatch(batch) end
+	ns.Flare:Show(x, y, z, "move")
+
+	local total = #batch + (movedSelf and 1 or 0)
+	if not quiet and total > 0 then
+		ns.Print(("Move order -> %d unit%s"):format(total, total == 1 and "" or "s"))
+	end
+	return true
+end
+
 -- Move the whole selection to a point, spread around it.
 function O:MoveTo(x, y, z)
 	local sel = ns.Selection:Get()
@@ -320,18 +365,8 @@ function O:MoveTo(x, y, z)
 		ns.Print("No units selected.")
 		return false
 	end
-
-	local offsets = self:SpreadOffsets(#sel, self:FacingTo(x, y))
-	local batch = {}
-	for i, name in ipairs(sel) do
-		local o = offsets[i]
-		batch[i] = { name, x + o[1], y + o[2], z }
-	end
-	self:MoveBatch(batch)
-	ns.Flare:Show(x, y, z, "move")
-
-	ns.Print(("Move order (%d unit%s)"):format(#sel, #sel == 1 and "" or "s"))
-	return true
+	if ns.Route then ns.Route:ClearFor(sel) end
+	return self:MoveGroupTo(sel, x, y, z)
 end
 
 -- Anything that hands control back to normal behaviour clears the hold flags,
@@ -356,10 +391,12 @@ function O:MoveSelfTo(x, y, z)
 end
 
 --- Direct control ----------------------------------------------------------
--- Possession was removed 2026-08-15 in favour of command mode (CommandMode.lua),
--- which borrows a bot's action bar without moving the camera or leaving RTS
--- mode. The server side still exists for the day a "play as this character"
--- mode is wanted again; nothing in the addon reaches for it.
+-- Possession was removed 2026-08-15 in favour of borrowing a bot's action bar
+-- without moving the camera or leaving RTS mode. That borrowing was a floating
+-- panel and a mode of its own until 2026-08-24; it is now the console's skill
+-- row (Skills.lua), driven by whoever is selected, with no mode to enter.
+-- The possession server side still exists for the day a "play as this
+-- character" mode is wanted again; nothing in the addon reaches for it.
 
 --- Attack-move -------------------------------------------------------------
 -- Advance to a point, engaging on the way. There is no attack-move verb in
@@ -385,6 +422,15 @@ function O:AttackMoveTo(x, y, z)
 		self.holding[name] = true
 	end
 
+	-- El mismo tramo '@' que el click derecho: el avance con ataque tambien
+	-- sale del cursor, asi que el servidor le corta el suelo de verdad al rayo
+	-- y desplaza los destinos en bloque. Ver Orders:Click.
+	local ox, oy, oz, dx, dy, dz = ns.Markers:CursorRay()
+	if ox then
+		tinsert(parts, ("@ 0 %.2f %.2f %.2f %.5f %.5f %.5f %.2f %.2f %.2f")
+			:format(ox, oy, oz, dx, dy, dz, x, y, z))
+	end
+
 	ns.SendServer("AMOVE " .. table.concat(parts, ";"))
 	ns.Flare:Show(x, y, z, "attack")
 	ns.Print(("Attack-move (%d unit%s)"):format(#sel, #sel == 1 and "" or "s"))
@@ -403,13 +449,18 @@ end
 
 function O:Hold()
 	-- stay pins each bot where it stands, which is exactly hold-position.
-	for _, name in ipairs(ns.Selection:Get()) do self.holding[name] = true end
+	-- It also ENDS any route: "hold here" and "keep walking the path" are
+	-- contradictory orders, and leaving the path drawn would say the wrong one.
+	local sel = ns.Selection:Get()
+	if ns.Route then ns.Route:ClearFor(sel) end
+	for _, name in ipairs(sel) do self.holding[name] = true end
 	return self:Send("stay", "Hold position")
 end
 
 function O:Follow()
 	-- follow turns StayStrategy back off, so the anchors are gone and the next
-	-- move order has to re-arm stay mode.
+	-- move order has to re-arm stay mode. Same reasoning as Hold for the route.
+	if ns.Route then ns.Route:ClearFor(ns.Selection:Get()) end
 	self:ClearHolding()
 
 	if self:HasServer() then
@@ -434,7 +485,21 @@ function O:Flee()   return self:Send("flee",   "Flee")          end
 -- An undecided right-click: a guid (or "0"), a ground point, and who is
 -- selected. The server works out whether that means attack, interact or move,
 -- because it is the only side that can -- see RtsOrders::ClassifyClick.
-function O:Click(guid, x, y, z)
+-- Preguntar por el suelo de un rayo sin mandar ninguna orden. Es el camino del
+-- shift + click derecho, que anota un punto de ruta y no manda nada todavia.
+--
+-- SIN RESPUESTA NO PASA NADA MALO: el punto se queda con la estimacion del
+-- plano, que es lo que habia antes de todo esto.
+function O:AskGround(id)
+	if not id or id == 0 or not self:HasServer() then return false end
+	local ox, oy, oz, dx, dy, dz = ns.Markers:CursorRay()
+	if not ox then return false end
+	ns.SendServer(("GROUND %d %.2f %.2f %.2f %.5f %.5f %.5f")
+		:format(id, ox, oy, oz, dx, dy, dz))
+	return true
+end
+
+function O:Click(guid, x, y, z, rayId)
 	local sel = ns.Selection:Get()
 	if #sel == 0 then return false end
 
@@ -451,6 +516,21 @@ function O:Click(guid, x, y, z)
 	local parts = {}
 	for i, n in ipairs(sel) do
 		tinsert(parts, ("%s %.2f %.2f %.2f"):format(n, x + offsets[i][1], y + offsets[i][2], z))
+	end
+
+	-- EL RAYO VIAJA CON LA ORDEN, en un tramo final marcado con '@'.
+	--
+	-- Los puntos de arriba salen de cortar el rayo del cursor contra un PLANO
+	-- horizontal, que es lo unico que Lua puede hacer sin mapa -- y en una
+	-- cuesta ese corte cae detras de la cuesta y bajo tierra. El servidor si
+	-- tiene mapa: con el rayo y el punto base recorta el suelo de verdad y
+	-- desplaza todos los destinos en bloque, asi que la formacion se conserva y
+	-- solo se corrige de donde cuelga. Sin rayo (sin camara publicada) el
+	-- servidor usa los puntos tal cual y todo sigue como antes.
+	local ox, oy, oz, dx, dy, dz = ns.Markers:CursorRay()
+	if ox then
+		tinsert(parts, ("@ %d %.2f %.2f %.2f %.5f %.5f %.5f %.2f %.2f %.2f")
+			:format(rayId or 0, ox, oy, oz, dx, dy, dz, x, y, z))
 	end
 
 	local hex = tostring(guid):gsub("^0[xX]", "")
@@ -542,3 +622,64 @@ function O:Raw(text)
 	if not text or text == "" then return false end
 	return self:Send(text, "> " .. text)
 end
+
+--- Lo que el servidor dice que hizo ---------------------------------------
+--
+-- `DID <VERBO> [n] [etiqueta]` es el acuse de cada orden: que decidio el
+-- servidor que significaba el click, y a cuantos bots llego. **Se imprime
+-- siempre que la respuesta sea util**, porque un click que en silencio no hace
+-- nada es el fallo mas confuso de todo este sistema.
+--
+-- Vivia en `Camera.lua` hasta 2026-09-02 y esta aqui porque son las ordenes de
+-- este fichero las que se acusan. Registrado en el ambito del fichero y no en
+-- un `Create` porque `Orders` no tiene: sus estructuras son tablas planas y no
+-- crea ningun frame.
+ns.Link:On("DID", function(rest)
+	local did, n, label = rest:match("^(%a+)%s*(%d*)%s*(.*)$")
+	if not did then return end
+
+	if did == "ATTACK" then
+		local p = O.lastClick
+		if p then ns.Flare:Show(p.x, p.y, p.z, "attack") end
+		ns.Print(("Attack %s -> %s unit%s"):format(
+			label ~= "" and ("|cffff6666" .. label .. "|r") or "target",
+			n == "" and "0" or n, n == "1" and "" or "s"))
+
+	elseif did == "INTERACT" then
+		-- NO se manda `talk` aqui. El servidor YA ha interactuado -- eso es
+		-- justo lo que este mensaje nos esta contando -- y ademas distingue un
+		-- PNJ (gossip) de un cadaver (botin).
+		--
+		-- La llamada que habia aqui era de cuando el servidor no lo hacia y el
+		-- addon tenia que pedirlo por chat. Al pasarle esa tarea al servidor,
+		-- esta linea se quedo de duplicado: sobre un cadaver susurraba `talk`
+		-- -- querer hablar con un muerto -- y encima interrumpia la ventana de
+		-- botin recien abierta, que es por lo que solo recogias una cosa y el
+		-- resto se quedaba.
+		--
+		-- Mismo patron que ya costo una ronda entera: un apano en pie despues
+		-- de que desapareciera el motivo que lo puso ahi.
+		if n ~= "" and tonumber(n) == 0 then
+			ns.Print("|cffffff00Nadie pudo interactuar.|r")
+		end
+
+	elseif did == "SELFCAST" then
+		-- El acuse del lanzamiento sobre tu propio cuerpo. Un lanzamiento del
+		-- servidor puede no dar NINGUNA senal en el cliente, asi que sin esto
+		-- "no ha pasado nada" y "no llego la orden" se ven igual
+		-- (PRUEBAS-18 C10).
+		local spell = GetSpellInfo(tonumber(n) or 0)
+		ns.Print(("|cff33ccfftu|r: %s"):format(spell or ("hechizo " .. n)))
+
+	elseif did == "MOVE" and n == "0" then
+		ns.Print("|cffffff00Move order reached no bots.|r")
+
+	elseif did == "LOOT" and n == "0" then
+		-- Cero bots cambiados. Sin esto la estrategia de botin fallaria EN
+		-- SILENCIO, que es exactamente el fallo que este verbo vino a arreglar:
+		-- el addon dice "botin: TODO" y no ha llegado a nadie.
+		ns.Print("|cffffff00El botin no llego a ningun bot.|r " ..
+			"Estas en grupo? Son bots de playerbots?")
+	end
+end)
+

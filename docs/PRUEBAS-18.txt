@@ -1,0 +1,364 @@
+RTS COMMAND - LISTA DE PRUEBAS  #18
+Generada 2026-08-24   ·   addon 0.47.0 · mod-rts 0.14.0 · rts_core sin tocar
+
+HAY QUE REINICIAR EL SERVIDOR. mod-rts pasa de 0.13.0 a 0.14.0 con cuatro
+verbos nuevos (SELFCAST, ROLES, ROLE, PFOCUS). El worldserver.exe recien
+compilado esta en C:\Server\build\bin\Release y 1_Iniciar_Servidor.bat lo copia
+a dist el solo, asi que basta con cerrar bien (NO con la X) y volver a arrancar.
+
+Comprueba en el chat al entrar en modo RTS que dice mod-rts 0.14.0. Si dice
+0.13.0, el servidor viejo sigue corriendo y TODA la seccion D, E y F fallara de
+la misma forma -- sin error, sin nada.
+
+QUE HAY EN ESTA RONDA
+  La seccion central del panel de control (brief-panel-control-personajes.md).
+  La mitad derecha de la sala deja de ser "enemigos + una fila de ordenes" y
+  pasa a ser cuatro bandas:
+
+      [ objetivos, UNA fila, ahora con nombre ]
+      ----------------- divisor -----------------
+      [ huecos de habilidad, vacios de inicio ]
+      [  Tanquear ][ Atacar ][ Curar ][ Esperar ]
+
+  Y con ello:
+    - la fila de trece ordenes bajo el divisor SE HA IDO; el panel 4x4 de la
+      derecha manda ahora a la SELECCION cuando hay una y al grupo cuando no.
+    - `CommandMode.lua` esta borrado: /rts command ya no abre nada. Seleccionar
+      UNA unidad es lo que antes era entrar en el modo mando.
+    - la fila de enemigos baja de dos filas a una (30 -> 14 visibles). Es el
+      precio de las dos bandas nuevas y esta pagado a sabiendas.
+
+  El detalle y los porques estan en docs/UI-RTS-SALA.md seccion 11.
+
+COMO LEER ESTA LISTA
+  [x] funciona   [!] falla   [?] no lo tengo claro
+  Debajo de cada bloque hay una linea `notas:` para escribir lo que se vea.
+  Cada prueba dice QUE SIGNIFICA que falle, para que un resultado malo estreche
+  el problema en vez de solo reportarlo.
+
+---------------------------------------------------------------------------
+A. QUE LA CONSOLA SIGA SIENDO LA CONSOLA
+---------------------------------------------------------------------------
+
+Antes de nada, que lo que ya funcionaba siga funcionando. La geometria esta
+simulada fuera del juego (sim/bar_layout.py) y aguanto entera la ultima vez que
+se toco, asi que un fallo aqui NO deberia ser de medidas.
+
+[x] A1. Entra en modo RTS. La barra sale entera: minimapa, retrato, grupo, y a
+        la derecha CUATRO bandas -- objetivos, raya, huecos, roles.
+        Si falta una banda -> el hueco no existe en Bar.lua o su modulo no
+        entro en la lista `Panels()`.
+	nota: has recortado los iconos de la barra veritcal derecha, epro has usado el lado que no era xD y ahora se ven transparentes. 
+
+[x] A2. `/rts bar status`. Tiene que decir algo como:
+            sala: 14 objetivos  14 huecos de habilidad  N roles
+        En 2560x1440 a pantalla completa esperamos 14 y 14. El numero de roles
+        depende de a quien tengas seleccionado y puede salir 0 aqui.
+        Si sale 5 y 5 -> la barra esta en grow 2, o sea que la ventana es mas
+        baja de lo que creemos. No es un fallo de esta ronda.
+	nota: Ver imagen
+
+[x] A3. Ninguna banda pisa a otra ni se sale del arte. Mira sobre todo la raya
+        divisoria y el borde de abajo de la sala.
+        Si algo desborda -> es lo unico que la simulacion no puede ver, porque
+        depende de como el cliente coloca los hijos.
+
+notas:
+
+
+---------------------------------------------------------------------------
+B. LA FILA DE OBJETIVOS
+---------------------------------------------------------------------------
+
+Una sola fila, celda mas grande, y con el NOMBRE debajo de la barrita de vida.
+
+[x] B1. Coge un objetivo. Sale su cuadrado con cara, barra de vida y su nombre
+        legible debajo.
+        Si no hay nombre -> el FontString no se coloco (mira si la celda es mas
+        baja de lo previsto). Si el nombre sale en DOS lineas y la segunda esta
+        cortada, el recorte por letras no se aplico.
+
+[x] B2. Un enemigo de nombre largo ("Defias Pillager", "Lobo de las llanuras")
+        sale recortado con un punto al final, no partido en dos lineas.
+
+[x] B3. Con el grupo peleando, salen los objetivos de todos y el "x2" en la
+        esquina de los que tienen a mas de uno encima.
+        Si solo sale el tuyo -> el servidor no esta contestando TGTS: mira que
+        diga 0.14.0 y prueba `/rts debug`.
+
+[ ] B4. Click IZQUIERDO en un cuadrado: la seleccion ataca a ese. Es lo de
+        siempre y tiene que seguir igual.
+
+notas:
+
+
+---------------------------------------------------------------------------
+C. LOS HUECOS DE HABILIDAD
+---------------------------------------------------------------------------
+
+Esto es lo nuevo grande. Empiezan VACIOS y son POR PERSONAJE.
+
+[x] C1. Sin nada seleccionado (o con varios): la fila de huecos esta VACIA --
+        ni un socket. Es a proposito: una habilidad es de alguien.
+
+[x] C2. Selecciona UN bot. Aparecen los sockets vacios (ranura gris).
+        Si no aparece ninguno -> `Bar:Cells("skills")` devolvio 0, o sea que la
+        banda no cabe. Mira A2.
+	note: see image, the box of the button is smaller than its socket
+
+[x] C3. Click DERECHO en un socket. Sale un desplegable con los hechizos de ESE
+        bot -- los de su barra de acciones, no los tuyos.
+        Si pone "pidiendo su barra..." y se queda asi mas de 5-6 segundos, el
+        verbo BARS no esta contestando. ES LA PRUEBA QUE MAS INFORMACION DA de
+        toda la ronda: sin ella, C4 en adelante no se pueden hacer.
+        Si pone "sin hechizos en sus barras" -> ese bot tiene las barras vacias
+        de verdad. Juegalo cinco minutos, ponle hechizos, y luego
+        `/rts skills rescan`.
+
+[!] C4. Elige uno. El icono aparece en el socket. Pasa el raton: el tooltip
+        dice el nombre del hechizo.
+	Note: NO tooltip. it would be nice to have one overall
+
+
+x] C5. Click IZQUIERDO en ese socket: el bot lanza el hechizo.
+        Si no pasa nada y no sale ningun mensaje -> el verbo CAST no llego.
+        Si sale un "RTS: ..." explicando por que no (alcance, enfriamiento,
+        linea de vision), ESO ES CORRECTO: el servidor lo esta pasando por la
+        IA del bot y ella decide.
+
+[x C6. Selecciona OTRO bot. La fila cambia entera a la suya (vacia si no la has
+        configurado). Vuelve al primero: sus huecos siguen puestos.
+
+[x] C7. `/reload`. Los huecos del primer bot siguen puestos.
+        Si se pierden -> no se estan guardando en RTSCommandDB.skills.
+
+[x] C8. `/rts skills fill` con un bot seleccionado: rellena los huecos vacios de
+        golpe con su barra. Dice cuantos ha puesto.
+
+[x] C9. `/rts skills clear`: los vacia.
+
+[!] C10. Selecciona a TU PROPIO personaje (click en el retrato). Salen sockets y
+         el desplegable ofrece TUS hechizos (los de tus barras de accion).
+         Click en uno: lo lanzas.
+         Si no lanza -> SELFCAST es el verbo mas nuevo de todos y el unico que
+         toca tu cuerpo. Mira que la camara RTS este puesta: sin ella el
+         servidor no manda tu personaje.
+
+	notas: Ni de coña, no lol xD. me salen hechizos raros. 
+
+
+---------------------------------------------------------------------------
+D. LOS DOS CLICKS DERECHOS SOBRE UN OBJETIVO
+---------------------------------------------------------------------------
+
+El nucleo del brief. Recuerda: SOLO con UN companero seleccionado.
+
+[x] D1. Con varios seleccionados, click derecho en un enemigo del HUD. Sale
+        "Selecciona un solo personaje...". No hace nada mas.
+
+[x] D2. Selecciona un bot. Click derecho UNA vez en un enemigo del HUD.
+        - sale "X: la siguiente habilidad va contra <nombre>"
+        - el cuadrado de ese enemigo se ilumina en amarillo
+        Si no se ilumina pero el mensaje sale -> es solo el dibujo; sigue con
+        D3, que es lo que importa.
+	Nota: No se ilumina
+
+[X] D3. Ahora pulsa un hueco de habilidad. El bot lo lanza CONTRA ESE ENEMIGO
+        (no contra el que estuviera pegando), y el resaltado amarillo se apaga.
+        ES LA PRUEBA CENTRAL DE LA RONDA.
+
+[x] D4. Mira que hace el bot DESPUES: vuelve a lo que estaba, sin que le digas
+        nada. No deberia quedarse pegado al enemigo del D3.
+        Si se queda pegado -> `CastAs` estaria escribiendo la seleccion del bot,
+        que es justo lo que no deberia hacer.
+
+[x] D5. Apunta con click derecho y NO pulses nada. A los 12 segundos la orden
+        caduca sola: el resaltado se apaga y la siguiente habilidad va a lo que
+        el bot tuviera.
+
+[x] D6. DOBLE click derecho en un enemigo del HUD.
+        - sale "X se centra en <nombre> hasta nueva orden"
+        - el cuadrado se rodea de un marco AZUL (distinto del amarillo de D2)
+        - el bot se va a por el y se queda con el
+        Si sale el mensaje pero el bot no va -> `AttackBot`, que es la misma
+        llamada que ya usa el click derecho en el mundo. Si aquello funciona y
+        esto no, el guid no esta llegando bien.
+
+[x] D7. `/rts skills drop`: suelta el foco. El marco azul se va.
+
+notas:
+
+
+---------------------------------------------------------------------------
+E. APUNTAR A UN AMIGO
+---------------------------------------------------------------------------
+
+La otra mitad, y la que menos se puede predecir desde el codigo.
+
+[!] E1. Selecciona al SANADOR. Click derecho UNA vez sobre la fila del TANQUE
+        en el grupo. Sale el mensaje de orden puntual.
+	Nota: Intenta tirar el spell pero se cancela. 
+
+[x] E2. Pulsa una habilidad de curacion del sanador: la lanza SOBRE EL TANQUE.
+        Si dice "ese hechizo no va contra ese objetivo" con una curacion, la
+        comprobacion de positivo/negativo del servidor esta al reves.
+
+[x] E3. Selecciona al sanador. Click derecho sobre TU RETRATO. Pulsa una
+        curacion: te cura a TI.
+	nota: intenta lanzar el spell y la animacion se cancela enseguida. 
+	Mi avatar no se iluina en azul ni nada. 
+
+[x] E4. DOBLE click derecho sobre la fila del tanque, con el sanador
+        seleccionado. Sale "cuida de ese objetivo (foco de sanacion)".
+
+[!] E5. Deja pasar un combate. ¿El sanador prioriza al tanque?
+        ESTA ES LA APUESTA MAS GRANDE DE LA RONDA. Usa la lista
+        `focus heal targets` de playerbots, que existe y tiene su estrategia,
+        pero cuanta prioridad le da la IA frente al que se esta muriendo no se
+        puede leer del codigo en un rato. Un [?] aqui es un resultado util:
+        significa que el mecanismo esta pero manda menos de lo que parecia.
+	MNota: los enemigoc contra los que testeo son muy olos en esta zona. ya te dire. 
+
+notas:
+
+
+---------------------------------------------------------------------------
+F. LOS ROLES
+---------------------------------------------------------------------------
+
+La fila de abajo. Rectangulos alargados con texto.
+
+[x] F1. Selecciona un bot. Salen SOLO los roles que su clase tiene de verdad.
+        - un guerrero NO deberia tener "Curar"
+        - un mago NO deberia tener "Tanquear"
+        - todos deberian tener "Esperar" (passive)
+        Si salen los cinco para todos -> el servidor no esta filtrando por
+        GetSupportedStrategies. Si NO SALE NINGUNO -> el verbo ROLES no
+        contesta; mira `/rts roles` en el chat.
+
+[ x] F2. El rol que el bot tiene puesto sale en DORADO con marco; los demas en
+        gris. Un bot de dano recien invocado deberia salir con "Atacar" puesto.
+
+[x] F3. Pulsa "Tanquear" en un bot que pueda. Se enciende.
+
+[x] F4. Mira que "Atacar" y "Curar" se hayan APAGADO solos. Son excluyentes y
+        lo aplica el servidor.
+        Si se quedan los dos encendidos -> la exclusion no se esta aplicando, o
+        el boton se pinto con su propia peticion en vez de con la respuesta.
+
+[x] F5. Pulsa el que este encendido: se apaga.
+
+[x] F6. Pon "Esperar" (passive) en un bot y entra en combate: no hace nada por
+        su cuenta, pero sigue obedeciendo el panel 4x4 y sus habilidades.
+
+[x] F7. Selecciona VARIOS bots. La fila ensena la union de sus roles y pulsar
+        uno lo manda a todos los que lo tengan. El mensaje dice a cuantos fue.
+
+[x] F8. Reinicia el servidor y vuelve a mirar el rol que pusiste en F3.
+        Deberia seguir puesto -- se guarda con PlayerbotRepository, igual que
+        el comando `co` del propio playerbots.
+        Un fallo aqui es cosmetico y no bloquea nada.
+
+notas:
+
+
+---------------------------------------------------------------------------
+G. EL PANEL 4x4, QUE AHORA TIENE DOS ALCANCES
+---------------------------------------------------------------------------
+
+Es el cambio con mas riesgo de confusion de toda la ronda, y por eso el alcance
+se ve en pantalla.
+
+[x] G1. SIN nada seleccionado: las etiquetas de las ordenes estan en BLANCO. El
+        tooltip dice "-> todo el grupo".
+
+[x] G2. Con dos bots seleccionados: las etiquetas de Seguir, Quieto, Atacar,
+        Traer, A saco, Cazar, Huir, Tanque y Beber pasan a AZUL. El tooltip
+        dice "-> 2 seleccionada(s)".
+        Si no cambian de color -> el repintado no se engancho al cambio de
+        seleccion. La orden probablemente SI respete la seleccion (G3); lo que
+        falta es la senal, que es justo lo que evita la confusion.
+
+[x] G3. Con dos de cuatro bots seleccionados, pulsa "Quieto". Se paran ESOS DOS.
+        Los otros dos siguen andando.
+
+[x] G4. Reunir, Botin, Revivir, Formar, Salir, Matar y Contro se quedan SIEMPRE
+        en blanco, aunque haya seleccion, y van al grupo entero.
+
+[x] G5. "Salir" sigue en la casilla doce y sigue funcionando.
+
+notas:
+
+
+---------------------------------------------------------------------------
+H. LO QUE SE HA BORRADO: QUE NO DEJE AGUJEROS
+---------------------------------------------------------------------------
+
+Se han ido dos ficheros. Lo que se busca aqui es un error de Lua, no una
+funcion que falte.
+
+[ ] H1. `/rts command`. Ya no abre ningun panel: imprime que el modo ya no
+        existe y ensena el estado de las habilidades.
+
+[ ] H2. Alt-click sobre un bot en el mundo. Lo selecciona e imprime "sus
+        habilidades, en la consola". Antes abria el panel flotante.
+
+[ ] H3. Sal del modo RTS y vuelve a entrar tres veces seguidas. Sin errores de
+        Lua rojos.
+        (Comprueba que scriptErrors sigue a 1 en Config.wtf, o WoW se los
+        traga y esta prueba no vale de nada.)
+
+[ ] H4. Sal del modo RTS EN COMBATE. La consola se queda (es lo de siempre,
+        etapa 5m) y no salta ningun error.
+
+[ ] H5. Si tienes una tecla asignada a "modo mando" o a "soltar", pulsalas. No
+        deberian dar error: las dos funciones siguen existiendo apuntando a lo
+        nuevo.
+
+notas:
+
+
+---------------------------------------------------------------------------
+I. LO GUARDADO DE VERSIONES ANTERIORES
+---------------------------------------------------------------------------
+
+[ ] I1. Al cargar, si sale "habilidades: N hueco(s) guardado(s) descartado(s)",
+        esta bien: es la poda haciendo su trabajo. Solo deberia salir una vez.
+        Si sale en CADA carga con el mismo numero -> la poda no esta guardando
+        el resultado.
+
+notas:
+
+
+---------------------------------------------------------------------------
+LO QUE NO ESTA EN ESTA RONDA, A PROPOSITO
+---------------------------------------------------------------------------
+
+  - Arrastrar hechizos desde el libro al hueco. No puede funcionar para un bot:
+    tu libro solo tiene tus hechizos. Se llena eligiendo de la barra del propio
+    bot. Explicado en UI-RTS-SALA seccion 11.2.
+
+  - El click derecho de apuntar SOBRE EL MUNDO. Ahi el click derecho ya
+    significa mover / atacar / hablar, y cambiarle el significado segun cuantas
+    unidades tengas cogidas rompe el gesto central del RTS.
+
+  - Configurar QUE roles hay. Los da la clase del bot; no hay slots que editar.
+    El brief lo dejaba abierto ("el mecanismo concreto queda pendiente") y esta
+    es la respuesta: no hace falta mecanismo, porque la lista no es una opinion.
+
+  - Un indicador de "habilidad congelada esperando el tick". La orden puntual se
+    consume en el mismo click, asi que no hay espera que ensenar. Lo que si hay
+    es el resaltado del objetivo apuntado, que es D2.
+
+  - Las teclas de altura de camara siguen cortando el avance (#16 C1/C2).
+    Decidido dejarlo asi; las tres salidas estan en CLAUDE.md.
+
+
+LO QUE SE HA ROTO: 
+- por algun motivo ahora selecciono varios pj y hago click derecho en un enemigo y no van a atacarle. no se el motivo, peude ser que no tenga los bots en modo de que ataquena mi orden. 
+- No puedo seleccionar el POJ principal desde el mundo oslo desde el hud. 
+- Con toods seleccionados boton derecho sobre un enemigo no van a matar. deberia ser maar. 
+
+Adiciones: 
+- Click izquierdo en mob sobre el mundo (enemigos) y aparece en la seccion de enemigos del hud. shift+click derecho para añadir otro mob al hud y poder usarlos como tarjeta mas tarde. 
+- Puedo tener sombras mas duras y grandes debajo de los parsonajes para distinguirlos mejor? 

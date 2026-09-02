@@ -3,9 +3,11 @@
 #include "CharmInfo.h"   // CharmType / CHARM_TYPE_POSSESS -- Unit.h only forward-declares the enum
 #include "Config.h"
 #include "Creature.h"
+#include "DBCStructure.h"   // SummonPropertiesEntry, built by hand below
 #include "Log.h"
 #include "ObjectAccessor.h"
 #include "Player.h"
+#include "SharedDefines.h"   // SUMMON_CATEGORY_PUPPET
 #include "TemporarySummon.h"
 
 #include <algorithm>
@@ -171,6 +173,53 @@ namespace
     }
 }
 
+// A PUPPET, AND THAT IS THE WHOLE FIX FOR THE ABORT.
+//
+// The camera used to be an ordinary TempSummon that we possessed by hand with
+// Unit::SetCharmedBy(player, CHARM_TYPE_POSSESS). That works -- and it is a
+// LANDMINE, because the core undoes charms by removing AURAS, and a bare
+// SetCharmedBy leaves none. Player::StopCastingCharm strips the four charm aura
+// types, finds the player still charming something, and calls ABORT(): to the
+// core, a charm it cannot unwind is its own state corrupted. Dying with the
+// camera up killed the worldserver, and so would a flight path or a spec
+// switch, and there is no hook for either.
+//
+// The core already has the answer, because it needs the same thing itself. A
+// Puppet -- Eye of Acherus and friends -- IS an aura-less possession:
+// Puppet::InitSummon does exactly the SetCharmedBy(owner, CHARM_TYPE_POSSESS)
+// we were doing by hand. And StopCastingCharm opens with a branch for it:
+//
+//     if (charm->ToCreature()->HasUnitTypeMask(UNIT_MASK_PUPPET))
+//         ((Puppet*)charm)->UnSummon();
+//
+// UnSummon -> Puppet::RemoveFromWorld -> RemoveCharmedBy(nullptr). The charm is
+// gone before the check that aborts ever runs. So the camera does not need an
+// aura and it does not need a hook for every unwind path in the core: it needs
+// to BE the thing the core already knows how to take apart.
+//
+// Making it a Puppet is one argument: Map::SummonCreature switches on
+// properties->Category, and WorldObject::SummonCreature already forwards a
+// SummonPropertiesEntry. Ours is written here rather than looked up in
+// SummonProperties.dbc on purpose -- every other field of a real row does
+// something (Slot evicts whatever else is in that slot, Faction overrides the
+// faction, Flags change the summon rules) and we want none of it. Six fields,
+// five of them zero, and no DBC row to go missing.
+//
+// What comes with being a Minion: SetOwnerGUID, a place in the owner's
+// m_Controlled (so RemoveAllControlled tidies it too), UNIT_FLAG_PLAYER_
+// CONTROLLED, REACT_PASSIVE and the owner's level and faction. None of that
+// fights what the camera wants; the pet slot is untouched because a Puppet is
+// not a GuardianPet and Type 0 is not SUMMON_TYPE_MINIPET.
+SummonPropertiesEntry const kPuppetProps =
+{
+    0,                          // Id     -- not looked up, never used
+    SUMMON_CATEGORY_PUPPET,     // Category -- the only field that matters
+    0,                          // Faction  -- 0 = keep the owner's
+    SUMMON_TYPE_NONE,           // Type
+    0,                          // Slot     -- 0 = evict nothing
+    0                           // Flags
+};
+
 bool rts::camera::IsActive(Player const* player)
 {
     return player && g_cameras.find(player->GetGUID()) != g_cameras.end();
@@ -189,16 +238,33 @@ bool rts::camera::Enable(Player* player)
     if (!player->IsAlive() || player->IsInFlight() || player->GetVehicle())
         return false;
 
+    // AND NOT WHILE THE CLIENT IS STILL ARRIVING. Possession mid-load is a
+    // known-bad state, and the core says so in the most direct way available:
+    // the failure log inside Puppet::InitSummon prints IsBeingTeleported() and
+    // isBeingLoaded() -- somebody put those two there because that is what goes
+    // wrong. A possession that half-succeeds leaves the client controlling
+    // nothing, which costs the player their collision.
+    if (player->IsBeingTeleported() || player->isBeingLoaded() ||
+        player->IsDuringRemoveFromWorld())
+    {
+        LOG_DEBUG("module.rts", "RTS camera: refused for '{}' -- still arriving",
+                  player->GetName());
+        return false;
+    }
+
     float const speed = sConfigMgr->GetOption<float>("RTS.Camera.Speed", kDefaultSpeed);
 
     float cx, cy, cz;
     PlacementFor(player, cx, cy, cz);
 
+    // The properties are what make this a Puppet, and the Puppet is what
+    // possesses itself in InitSummon -- so the camera is already being driven by
+    // the client when this call returns. See the note on kPuppetProps.
     TempSummon* cam = player->SummonCreature(
         kCameraEntry,
         cx, cy, cz,
         player->GetOrientation(),
-        TEMPSUMMON_MANUAL_DESPAWN, 0, nullptr,
+        TEMPSUMMON_MANUAL_DESPAWN, 0, &kPuppetProps,
         /*visibleBySummonerOnly*/ true);
 
     if (!cam)
@@ -214,15 +280,23 @@ bool rts::camera::Enable(Player* player)
                                UNIT_FLAG_IMMUNE_TO_PC | UNIT_FLAG_IMMUNE_TO_NPC));
     cam->SetReactState(REACT_PASSIVE);
 
-    // POSSESS it, do not merely SetClientControl. SetClientControl alone moves
-    // the VIEW and nothing else -- confirmed in game, the camera detached and
-    // then would not budge. The possess branch (Unit.cpp:14754, marked
-    // "verified" in the core's own source) is what makes the client actually
-    // drive the unit, and it roots the player's character as a side effect,
-    // which is exactly what an RTS camera wants.
-    if (!cam->SetCharmedBy(player, CHARM_TYPE_POSSESS))
+    // POSSESSION IS ALREADY DONE, by Puppet::InitSummon inside the summon
+    // above. It is still the same call we used to make by hand -- possess, not
+    // merely SetClientControl, because SetClientControl alone moves the VIEW and
+    // nothing else (confirmed in game: the camera detached and then would not
+    // budge). The possess branch is what makes the client drive the unit, and it
+    // roots the player's character as a side effect, which is what an RTS camera
+    // wants.
+    //
+    // It is CHECKED and not assumed: InitSummon only logs when SetCharmedBy
+    // fails (the ABORT beside it is commented out in the core), so a refusal
+    // would otherwise leave a camera creature standing there that the client
+    // cannot move -- which reads as "the camera is broken" rather than as "the
+    // possession was refused".
+    if (cam->GetCharmerGUID() != player->GetGUID())
     {
-        LOG_ERROR("module.rts", "RTS camera: possession refused for player '{}'", player->GetName());
+        LOG_ERROR("module.rts", "RTS camera: possession refused for player '{}' "
+                  "(already charming something?)", player->GetName());
         Despawn(cam);
         return false;
     }
@@ -325,7 +399,7 @@ void rts::camera::ForgetOffset(Player const* player)
     {
         g_offsets.erase(player->GetGUID());
         g_vertical.erase(player->GetGUID());
-    }
+        }
 }
 
 void rts::camera::SetVertical(Player const* player, int direction)
@@ -352,6 +426,40 @@ void rts::camera::SetPivot(Player const* player, int direction)
 
 void rts::camera::Update(uint32 diff)
 {
+    // --- the sweep --------------------------------------------------------
+    //
+    // Anything in the core may now take the camera down without telling us --
+    // that is the POINT of it being a Puppet -- so our own table has to be able
+    // to notice. A stale entry would leave IsActive() saying yes about a
+    // creature that is gone: the addon would think the camera is on, and
+    // re-enabling would be refused as already-on.
+    //
+    // Cheap because it only runs while a camera exists, which is almost never
+    // more than one.
+    for (auto it = g_cameras.begin(); it != g_cameras.end();)
+    {
+        Player* player = ObjectAccessor::FindPlayer(it->first);
+        Creature* cam = player ? ObjectAccessor::GetCreature(*player, it->second) : nullptr;
+
+        // Gone, or no longer ours. Either way it is not a camera any more.
+        if (player && (!cam || cam->GetCharmerGUID() != player->GetGUID()))
+        {
+            LOG_DEBUG("module.rts", "RTS camera for '{}' was taken down elsewhere; "
+                      "forgetting it", player->GetName());
+            g_pivot.erase(it->first);
+            g_vertical.erase(it->first);
+            it = g_cameras.erase(it);
+
+            // The creature is already gone, so the viewpoint is the only thing
+            // that could still dangle -- and a dangling seer is what takes the
+            // CLIENT down with ERROR #134 on the next reload.
+            if (WorldObject* seen = player->GetViewpoint())
+                player->SetViewpoint(seen, false);
+            continue;
+        }
+        ++it;
+    }
+
     // --- pivot ------------------------------------------------------------
     //
     // Orbit the camera around the point it is looking at. The focus is
@@ -391,6 +499,21 @@ void rts::camera::Update(uint32 diff)
     }
 
     // --- height keys ------------------------------------------------------
+    //
+    // The LAST section, and the only one that touches the camera's Z. There
+    // used to be a ground hold below this -- keep a constant clearance over the
+    // terrain while panning -- and it is GONE, not parked: both mechanisms were
+    // seen in game 2026-08-23 and both were worse than no feature at all. The
+    // server-side one (measure the terrain, NearTeleportTo) descends in visible
+    // steps and each teleport cancels the movement the client is applying, so
+    // panning stops dead every step. The client-side one (UNIT_FIELD_HOVERHEIGHT
+    // + SMSG_MOVE_SET_HOVER) needs gravity back ON to have any ground-following
+    // to modify, and gravity is what the camera has disabled so it hangs where
+    // it is put -- so arming it drops the camera to the floor and the hover then
+    // lifts it back, every time. That drop IS the mechanism, not a bug in it.
+    //
+    // So the camera is back to what it always was: it hangs at the height it is
+    // given, and Q/E -- SPACE/C now -- are the only thing that moves it.
     if (g_vertical.empty())
         return;
 
@@ -469,6 +592,91 @@ bool rts::camera::IsFlying(Player const* player)
 {
     Creature* cam = player ? FindCamera(const_cast<Player*>(player)) : nullptr;
     return cam && cam->CanFly();
+}
+
+// WHAT THIS IS FOR, because a function that quietly fixes things is worthless
+// if nobody knows what it was fixing.
+//
+// The symptom: entering the world, the character clips through the ground and
+// falls forever. The server logs nothing -- and that absence is the clue. If the
+// server thought the character were under the map it would say so and yank them
+// to a graveyard; the saved position is a perfectly ordinary bit of Elwynn. So
+// the server's idea of the character is fine and the CLIENT's is not: it came
+// back into the world without control of its own character, and a client that is
+// not the mover has no collision.
+//
+// Which is exactly the shape of a possession that was taken apart badly. The
+// camera hands control of the character away, and every path that gives it back
+// runs through Unit::RemoveCharmedBy -- which has an early return in it:
+//
+//     if (!charmer) return;      // "If charmer still exists"
+//
+// Everything that restores the player is BELOW that line: SetClientControl,
+// RemoveUnitFlag(UNIT_FLAG_DISABLE_MOVE), SetCharm(this, false). So a teardown
+// that happens while the player cannot be resolved -- mid-logout, mid-map-change
+// -- undoes the charm halfway and leaves the client with nothing to drive. No
+// error, no log line, and the damage is only visible on the NEXT login.
+//
+// So this does not try to prove which path did it. It checks the four things
+// that must be true for a player who is standing in the world under their own
+// control, and puts back whatever is not. Every repair is logged, because a
+// rescue that fires silently every login is a bug we would never hear about.
+void rts::camera::Rescue(Player* player)
+{
+    if (!player || !player->IsInWorld())
+        return;
+
+    // 1. A viewpoint. Ours is always a camera creature that no longer exists by
+    //    the time we get here, and a dangling seer is what takes the CLIENT down
+    //    with ERROR #134 on the next reload.
+    if (WorldObject* seen = player->GetViewpoint())
+    {
+        LOG_INFO("module.rts", "RTS rescue: '{}' entered the world still seeing "
+                 "through something else", player->GetName());
+        player->SetViewpoint(seen, false);
+    }
+
+    ObjectGuid const charmed = player->GetCharmGUID();
+    if (charmed)
+    {
+        Unit* charm = ObjectAccessor::GetUnit(*player, charmed);
+        if (charm && charm->GetEntry() == kCameraEntry)
+        {
+            // 2. Still possessing a camera. Take it apart properly, which from
+            //    here works because the player is resolvable again.
+            LOG_INFO("module.rts", "RTS rescue: '{}' entered the world still "
+                     "possessing a camera; releasing it", player->GetName());
+            charm->RemoveCharmedBy(player);
+            if (Creature* c = charm->ToCreature())
+                c->DespawnOrUnsummon();
+        }
+        else if (!charm)
+        {
+            // 3. Possessing a unit that does not exist. This is the state that
+            //    costs the collision, and there is no polite way out of it:
+            //    StopCastingCharm cannot help, because it starts by resolving
+            //    the charm and gives up when that fails. The field is cleared by
+            //    hand and control handed back.
+            LOG_INFO("module.rts", "RTS rescue: '{}' entered the world charming a "
+                     "unit that no longer exists ({}); clearing it",
+                     player->GetName(), charmed.ToString());
+            player->SetGuidValue(UNIT_FIELD_CHARM, ObjectGuid::Empty);
+            player->RemoveUnitFlag(UNIT_FLAG_DISABLE_MOVE);
+            player->SetClientControl(player, true);
+        }
+    }
+    else if (player->HasUnitFlag(UNIT_FLAG_DISABLE_MOVE))
+    {
+        // 4. Rooted by a possession that is over. UNIT_FLAG_DISABLE_MOVE is the
+        //    flag the possess path puts on the CHARMER, and with nothing charmed
+        //    there is nothing that should still be holding it. Ordinary roots do
+        //    not use this flag -- they are UNIT_STATE_ROOT and an aura -- so this
+        //    is not stepping on a live effect.
+        LOG_INFO("module.rts", "RTS rescue: '{}' entered the world rooted by a "
+                 "possession that is over", player->GetName());
+        player->RemoveUnitFlag(UNIT_FLAG_DISABLE_MOVE);
+        player->SetClientControl(player, true);
+    }
 }
 
 void rts::camera::Abandon(Player* player)

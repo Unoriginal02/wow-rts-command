@@ -1,0 +1,188 @@
+RTS COMMAND - LISTA DE PRUEBAS  #14
+Generada 2026-08-23   ·   addon 0.41.0 · mod-rts 0.11.0 · rts_core sin tocar
+
+CERRADA 2026-08-23. A1/A2 en juego: la camara baja A ESCALONES y al subir o
+bajar deja de avanzar -- se siente como un ascensor. Es el riesgo que A6 tenia
+escrito, y la causa la que decia: un NearTeleportTo por tick sobre una criatura
+que mueve el cliente es un escalon y ademas cancela el avance del cliente. El
+mecanismo es el fallo, asi que no hay numero que lo arregle: queda APAGADO.
+La via del cliente (hover) se prueba en la #15, seccion B.
+
+QUE HAY EN ESTA RONDA
+  UNA cosa: la camara mantiene su altura sobre el SUELO mientras panoramizas,
+  asi que se puede cruzar un desnivel sin acabar dentro de la ladera ni cien
+  yardas en el aire sobre el valle de detras.
+
+  Nada mas. Los botones pequenos de la #13 (A2/A5, van a otro sitio) siguen
+  pendientes de decidir donde, y no se ha tocado nada de eso.
+
+LO QUE DIJO LA #13, PARA NO REPETIRLO
+  - Todo pasa. Alojar los botones de Blizzard funciona y se devuelven bien.
+  - El punto del suelo cae donde se pincha, tambien en cuesta y sobre tejados.
+  - /rts aim contesta EXACTO, d=2px, k=1.02, y el punto que usa es el del DLL.
+    O SEA QUE EL RAYO DEL DLL NO SE ESTA DESCARTANDO: la seccion E de la #13
+    estaba escrita sobre una averia que ya no existe. Queda cerrada.
+
+COMO FUNCIONA, PORQUE DECIDE QUE MIRAR
+  El cliente mueve la camara EN PLANO -- eso es lo que compra apagar el vuelo --
+  asi que la altura sobre el terreno no la mantiene nadie. El servidor si sabe
+  donde esta el suelo (el addon no: Lua no tiene mapa), asi que mide la altura
+  del terreno bajo la camara en cada tick y la corrige.
+
+  Tres decisiones que se ven en juego:
+
+    * SOLO TERRENO, nunca los modelos de colision. Tomar el suelo de los vmaps
+      haria que la camara subiera cada tejado y, peor, cada arbol con caja de
+      colision: una panoramica sobre un bosque daria botes.
+    * EN LLANO NO SE MANDA NADA. Hay una banda muerta de 0,35 yd, asi que en
+      terreno plano el error es cero y panoramizar cuesta exactamente lo mismo
+      que antes. Solo la cuesta gasta paquetes.
+    * Q/E REDEFINEN LA ALTURA. Mientras la tecla esta pulsada el servidor remide
+      la altura, asi que subir con Q y soltar deja la nueva. Sin eso, las teclas
+      y la retencion serian un tira y afloja que la retencion gana siempre -- y
+      Q/E se leerian como roto.
+
+  Viene ENCENDIDO de fabrica a 12 yardas, que es el mismo numero que el offset
+  "up" de la camara: el personaje esta sobre el suelo, asi que al aparecer la
+  camara su altura sobre el terreno ya es esa y no hay tiron en el primer
+  segundo.
+
+EL SERVIDOR HAY QUE REINICIARLO
+  worldserver.exe nuevo (mod-rts 0.11.0). Sin reiniciar no hay verbo AGL y toda
+  la ronda da falso negativo -- ademas de que /rts version lo cantaria.
+
+ANTES DE EMPEZAR
+  1. 3_Detener_Servidor + 1_Iniciar_Servidor
+  2. rts-tools\Deploy_Addon.bat y Deploy_Mod.bat (los dos ya ejecutados)
+  3. rts-tools\2-Jugar.bat  (desde el Explorador, no Git Bash)
+  4. /rts version  ->  addon 0.41.0, mod-rts 0.11.0, rts_core inyectado
+  5. Fuera, en un sitio con una cuesta LARGA a la vista y, si se puede, un
+     risco. Un llano no prueba nada de esto.
+
+---------------------------------------------------------------------------
+A. LO QUE SE PIDIO
+---------------------------------------------------------------------------
+
+[ ] A1  ES LA PRUEBA QUE DECIDE. Entrar en modo RTS en llano y panoramizar con
+        WASD cuesta ARRIBA por una ladera larga: la camara sube con el terreno y
+        se sigue viendo lo mismo -- ni se mete en la ladera ni se queda pegada
+        al suelo.
+        notas:
+
+[ ] A2  Seguir hasta pasar la cima y bajar por el otro lado: la camara baja con
+        el terreno.
+        notas:
+        La bajada esta limitada a 20 yd/s (RTS.Camera.HoldRate), asi que en una
+        caida muy brusca se ve descender detras del suelo un instante. Subir NO
+        esta limitado del todo -- ver A3.
+
+[ ] A3  Panoramizar de frente contra una pared de roca o un risco vertical: la
+        camara NO se queda dentro de la piedra.
+        notas:
+        Por debajo de 2 yardas de altura la correccion va entera en un paso, sin
+        limite de velocidad, a proposito: un limite prudente en el borde de un
+        risco es justo lo que deja media pantalla dentro de la ladera, que es
+        una pantalla negra. Si ves un salto brusco AQUI, es lo correcto.
+
+[ ] A4  Salirse por el borde de un risco hacia el aire: la camara BAJA hasta
+        ponerse a la misma altura del suelo de abajo.
+        notas:
+        Es la mitad menos obvia de lo pedido y la que puede sorprender: "guardar
+        la altura" tambien significa bajar. Si prefieres que solo suba y nunca
+        baje, dilo y es un if -- pero entonces cruzar un valle deja la camara
+        alta para siempre.
+
+[ ] A5  En LLANO, panoramizar largo: no se nota ninguna diferencia con antes --
+        ni tirones, ni frenazos, ni la camara respirando arriba y abajo.
+        notas:
+        ES LA PRUEBA QUE MAS IMPORTA DESPUES DE A1, porque en llano esto no
+        deberia existir: la banda muerta hace que no se mande nada. Si aqui hay
+        tirones, el problema es la banda muerta y no la cuesta.
+
+[ ] A6  EN CUESTA, panoramizando: los bots y el mundo se mueven suaves, sin
+        tirones ni rebotes.
+        notas:
+        ES EL RIESGO CONOCIDO Y NO SE PUEDE SABER SIN PROBARLO. Cada correccion
+        es un NearTeleportTo sobre una criatura que el CLIENTE esta moviendo, asi
+        que las dos mitades pueden pelearse: el sintoma seria goma -- la camara
+        avanza y se echa atras. Si pasa, /rts cam agl off lo apaga en el acto
+        y hay que replantear el como, no el que.
+
+[ ] A7  Q/E siguen subiendo y bajando la camara, y al soltar la camara SE QUEDA
+        a la altura nueva (no vuelve a la de antes).
+        notas:
+        Si al soltar Q la camara se hunde otra vez a la altura vieja, el remedido
+        mientras la tecla esta pulsada no esta llegando -- y entonces la
+        retencion es una jaula, no un candado.
+
+[ ] A8  Despues de subir con Q y soltar, panoramizar por la cuesta: mantiene la
+        altura NUEVA.
+        notas:
+
+---------------------------------------------------------------------------
+B. LOS MANDOS
+---------------------------------------------------------------------------
+
+[ ] B1  /rts cam agl  ->  lo apaga y dice "apagada", con la altura de ahora.
+        Otra vez  ->  lo enciende con la altura que la camara tenga en ese
+        momento.
+        notas:
+
+[ ] B2  /rts cam agl 25  ->  la camara sube (o baja) hasta 25 yardas sobre el
+        suelo y se queda ahi.
+        notas:
+
+[ ] B3  /rts cam agl here  con la camara puesta a ojo donde te gusta: contesta
+        con el numero medido, y ese numero es el que se mantiene a partir de
+        entonces.
+        notas:
+        Es el gesto util: subir con Q/E hasta que se vea bien y decir "esta".
+
+[ ] B4  Salir del modo RTS y volver a entrar: sigue con la altura que dejaste
+        (o apagada, si la dejaste apagada).
+        notas:
+        Lo guarda el addon y lo reenvia medio segundo despues de encender la
+        camara. Si vuelve a 12 siempre, el reenvio no esta llegando; si el
+        primer medio segundo se ve raro, es que ese aplazamiento es demasiado.
+
+[ ] B5  /rts cam agl 999 y /rts cam agl -5: los dos se acotan (2..300) y lo
+        dicen, sin dejar la camara en ningun sitio absurdo.
+        notas:
+
+---------------------------------------------------------------------------
+C. QUE NO SE HA ROTO
+---------------------------------------------------------------------------
+
+[ ] C1  El pivote (el arrastre con boton derecho) sigue girando la camara
+        alrededor del punto que mira, y en cuesta la altura se mantiene
+        mientras gira.
+        notas:
+        El pivote mueve la camara en arco, o sea que cambia el suelo de debajo:
+        las dos cosas trabajan juntas por primera vez aqui.
+
+[ ] C2  /rts cam here recentra sobre el personaje como siempre.
+        notas:
+
+[ ] C3  El click derecho, las rutas con shift y el avance con ataque siguen
+        cayendo donde se pincha.
+        notas:
+        No se ha tocado nada de eso; esta aqui porque la camara es de donde sale
+        el rayo, y si la camara da tirones el punto tambien.
+
+[ ] C4  Morir con la camara puesta, y una ruta de vuelo: el servidor no se cae.
+        notas:
+        Es el arreglo de la #12 (el Puppet). Se vuelve a mirar porque esta ronda
+        anade estado por jugador al lado de ese, y un estado que sobrevive a la
+        camara seria una entrada muerta.
+
+[ ] C5  Nada de esto imprime errores de Lua.
+        notas:
+
+---------------------------------------------------------------------------
+LO QUE DECIDE ESTA RONDA
+---------------------------------------------------------------------------
+  1. A1 dice si la altura se mantiene.
+  2. A6 dice si el precio es aceptable -- es el unico riesgo real y no hay
+     forma de saberlo sin jugarlo.
+  3. A4 dice si "mantener la altura" tambien debe bajar, que es una decision
+     tuya y no un fallo.

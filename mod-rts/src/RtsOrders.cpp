@@ -6,18 +6,27 @@
 #include "ObjectDefines.h"   // INTERACTION_DISTANCE
 #include "Group.h"
 #include "Log.h"
+#include "Map.h"
+#include "MapCollisionData.h"
 #include "MotionMaster.h"
 #include "ObjectAccessor.h"
 #include "Player.h"
+#include "SpellInfo.h"
+#include "SpellMgr.h"
 
 // AiObjectContext is only forward-declared by PlayerbotAI.h, and GetValue is a
 // template on it, so the full definition has to be here.
 #include "AiObjectContext.h"
 #include "LastMovementValue.h"
+#include "LootStrategyValue.h"
 #include "PlayerbotAI.h"
 #include "PlayerbotMgr.h"
 #include "PositionValue.h"
 
+#include <algorithm>
+#include <cmath>
+#include <iomanip>
+#include <sstream>
 #include <unordered_map>
 
 namespace
@@ -62,6 +71,165 @@ namespace
     }
 }
 
+// NADIE CAMINA POR EL AIRE, Y EL CLIENTE NO ES QUIEN DECIDE DONDE ESTA EL SUELO.
+//
+// La Z de un click viene del cliente, y por buena que sea es su idea del
+// terreno, no la del servidor -- que es quien tiene los vmaps y quien manda.
+// Cuando las dos no coinciden el destino queda flotando, y un bot mandado a un
+// destino flotante acaba flotando: se le vio en juego a media altura sobre un
+// arbol.
+//
+// UpdateAllowedPositionZ es la funcion que el propio nucleo usa para esto, y se
+// le pide a la UNIDAD que va a ir -- no al mapa a secas -- porque la respuesta
+// depende de quien pregunta: quien puede nadar tiene permitido el agua, quien
+// vuela tiene permitido el aire.
+void rts::orders::GroundZ(WorldObject const* who, float x, float y, float& z)
+{
+    if (!who)
+        return;
+
+    float const before = z;
+    who->UpdateAllowedPositionZ(x, y, z);
+    if (std::fabs(z - before) > 0.5f)
+        LOG_DEBUG("module.rts", "RTS: Z snapped {:.2f} -> {:.2f} at {:.1f} {:.1f}",
+                  before, z, x, y);
+}
+
+namespace
+{
+    // Un paso de una yarda a lo largo del rayo. La colina mas estrecha que
+    // importa mide bastante mas que eso, y el corte se afina despues con una
+    // biseccion -- que es donde se gana la precision, no en el paso.
+    constexpr float kRayStep = 1.0f;
+    constexpr int   kRayBisect = 14;
+
+    // Por debajo de esto la casilla no tiene datos de altura (INVALID_HEIGHT es
+    // -100000 y el valor real de "no se" es -200000).
+    constexpr float kNoHeight = -50000.0f;
+}
+
+bool rts::orders::GroundRay(Player const* who,
+                            float ox, float oy, float oz,
+                            float dx, float dy, float dz,
+                            float maxDist,
+                            float& hx, float& hy, float& hz)
+{
+    if (!who || !who->IsInWorld())
+        return false;
+
+    Map* map = who->GetMap();
+    if (!map)
+        return false;
+
+    float const len = std::sqrt(dx * dx + dy * dy + dz * dz);
+    if (len < 1e-4f)
+        return false;
+    dx /= len; dy /= len; dz /= len;
+
+    if (maxDist < 1.0f || maxDist > 1000.0f)
+        maxDist = 500.0f;
+
+    // 1) Los MODELOS: edificios, puentes, arboles con colision. Esto si es una
+    // interseccion de verdad, la misma que usa el nucleo para la linea de
+    // vision, asi que no hay nada que aproximar.
+    float vdist = maxDist + 1.0f;
+    float vx = 0.0f, vy = 0.0f, vz = 0.0f;
+    {
+        float const ex = ox + dx * maxDist;
+        float const ey = oy + dy * maxDist;
+        float const ez = oz + dz * maxDist;
+
+        float rx = 0.0f, ry = 0.0f, rz = 0.0f;
+        if (map->GetMapCollisionData().GetStaticTree().GetObjectHitPos(
+                ox, oy, oz, ex, ey, ez, rx, ry, rz, 0.0f))
+        {
+            vx = rx; vy = ry; vz = rz;
+            vdist = std::sqrt((rx - ox) * (rx - ox) + (ry - oy) * (ry - oy) + (rz - oz) * (rz - oz));
+        }
+
+        // Y los objetos del mundo que se mueven (puertas, ascensores, un puente
+        // que aparece). Se queda el mas cercano de los dos.
+        rx = ry = rz = 0.0f;
+        if (map->GetMapCollisionData().GetDynamicTree().GetObjectHitPos(
+                who->GetPhaseMask(), ox, oy, oz, ex, ey, ez, rx, ry, rz, 0.0f))
+        {
+            float const d = std::sqrt((rx - ox) * (rx - ox) + (ry - oy) * (ry - oy) + (rz - oz) * (rz - oz));
+            if (d < vdist)
+            {
+                vx = rx; vy = ry; vz = rz;
+                vdist = d;
+            }
+        }
+    }
+
+    // 2) EL TERRENO, que no es un modelo y no se puede intersecar: es un campo
+    // de alturas, asi que se anda el rayo hasta que deja de estar por encima.
+    // El limite del paseo es el corte con los modelos, porque lo que hay detras
+    // de una pared no se ha pinchado.
+    float const walk = std::min(maxDist, vdist);
+    float prev = 0.0f;
+    bool crossed = false;
+    float hit = 0.0f;
+
+    for (float t = kRayStep; t <= walk; t += kRayStep)
+    {
+        float const px = ox + dx * t;
+        float const py = oy + dy * t;
+        float const pz = oz + dz * t;
+
+        float const g = map->GetGridHeight(px, py);
+        if (g < kNoHeight)
+        {
+            prev = t;       // sin datos ahi: no se puede decir que se haya cruzado
+            continue;
+        }
+
+        if (pz <= g)
+        {
+            crossed = true;
+            hit = t;
+            break;
+        }
+        prev = t;
+    }
+
+    if (crossed)
+    {
+        // La biseccion es la que da la precision. Catorce vueltas dejan el corte
+        // en menos de un milimetro de la yarda del paso.
+        float lo = prev, hiT = hit;
+        for (int i = 0; i < kRayBisect; ++i)
+        {
+            float const m = (lo + hiT) * 0.5f;
+            float const px = ox + dx * m;
+            float const py = oy + dy * m;
+            float const pz = oz + dz * m;
+            float const g = map->GetGridHeight(px, py);
+            if (g >= kNoHeight && pz <= g)
+                hiT = m;
+            else
+                lo = m;
+        }
+
+        hx = ox + dx * hiT;
+        hy = oy + dy * hiT;
+        hz = map->GetGridHeight(hx, hy);
+        if (hz < kNoHeight)
+            hz = oz + dz * hiT;
+        return true;
+    }
+
+    if (vdist <= maxDist)
+    {
+        hx = vx; hy = vy; hz = vz;
+        return true;
+    }
+
+    // El rayo se fue al cielo. Mejor no contestar que contestar cualquier cosa:
+    // el addon se queda con su estimacion, que al menos esta delante.
+    return false;
+}
+
 bool rts::orders::MoveBot(Player* master, std::string const& botName, float x, float y, float z)
 {
     Player* bot = ResolveBot(master, botName);
@@ -71,6 +239,11 @@ bool rts::orders::MoveBot(Player* master, std::string const& botName, float x, f
 
     // The same strategy flip StayChatShortcutAction performs, minus the
     // TellMaster that made the bot stop and mime a conversation first.
+    // Al suelo ANTES de anotar el destino, no despues: playerbots guarda esta
+    // posicion y la reutiliza en cada tick de la estrategia `stay`, asi que una
+    // Z mala se queda dentro y no hay donde corregirla luego.
+    GroundZ(bot, x, y, z);
+
     ai->ChangeStrategy("+stay,-passive,-move from group", BOT_STATE_NON_COMBAT);
     ai->ChangeStrategy("+stay,-follow,-passive,-move from group", BOT_STATE_COMBAT);
 
@@ -95,6 +268,15 @@ bool rts::orders::MoveBot(Player* master, std::string const& botName, float x, f
     bot->GetMotionMaster()->Clear();
 
     return true;
+}
+
+bool rts::orders::IsPassive(Player* master, std::string const& botName)
+{
+    PlayerbotAI* ai = AiFor(ResolveBot(master, botName));
+    if (!ai)
+        return false;
+    return ai->HasStrategy("passive", BOT_STATE_COMBAT)
+        || ai->HasStrategy("passive", BOT_STATE_NON_COMBAT);
 }
 
 bool rts::orders::AttackBot(Player* master, std::string const& botName, ObjectGuid targetGuid)
@@ -168,6 +350,16 @@ bool rts::orders::PossessBot(Player* master, std::string const& botName)
 
     // Stand the AI down first. A bot still running its own strategies while
     // you steer it would be fighting you for the controls every tick.
+    //
+    // ESTO PONE PASSIVE A CIEGAS Y `ReleaseBot` LO QUITA A CIEGAS, que es el
+    // fallo que `Suppress` (RtsCommandMode.cpp) ya tiene arreglado: si el
+    // jugador habia puesto el rol "Esperar" a mano, soltar el bot se lo quita
+    // sin decir nada. Aqui se deja como esta A PROPOSITO y no por descuido: el
+    // verbo POSSESS no lo manda nadie -- el primer plano se descarto en la etapa
+    // 5h -- asi que capturar y restaurar seria maquinaria para un camino sin
+    // llamante. Si POSSESS vuelve a usarse, la version correcta esta escrita en
+    // `Suppress`: capturar `HasStrategy` antes del primer cambio y devolver a lo
+    // capturado, no a "no pasivo".
     ai->ChangeStrategy("+passive", BOT_STATE_NON_COMBAT);
     ai->ChangeStrategy("+passive", BOT_STATE_COMBAT);
 
@@ -254,6 +446,10 @@ bool rts::orders::MoveSelf(Player* player, float x, float y, float z, std::strin
 
     if (player->HasUnitState(UNIT_STATE_ROOT))
         player->SetControlled(false, UNIT_STATE_ROOT);
+
+    // Al suelo tambien aqui: la Z del click vale lo mismo para tu personaje que
+    // para un bot, y un MovePoint a una Z flotante te deja flotando igual.
+    GroundZ(player, x, y, z);
 
     player->StopMoving();
     player->GetMotionMaster()->Clear();
@@ -474,6 +670,51 @@ bool rts::orders::SelfAttack(Player* player, ObjectGuid targetGuid)
     return true;
 }
 
+bool rts::orders::SelfCast(Player* player, uint32 spellId, ObjectGuid targetGuid,
+                           std::string* why)
+{
+    auto fail = [why](char const* reason) { if (why) *why = reason; return false; };
+
+    if (!player || !spellId)
+        return fail("no spell");
+
+    if (!player->HasSpell(spellId))
+        return fail("no conoces ese hechizo");
+
+    SpellInfo const* info = sSpellMgr->GetSpellInfo(spellId);
+    if (!info)
+        return fail("ese hechizo no existe en este servidor");
+
+    Unit* target = nullptr;
+    if (targetGuid)
+    {
+        target = ObjectAccessor::GetUnit(*player, targetGuid);
+        // An explicit target that cannot be found is an ERROR, not a fallback.
+        // Silently turning "heal the tank" into "heal myself" is the kind of
+        // helpfulness that costs a wipe and reads as the button being broken.
+        if (!target)
+            return fail("no veo ese objetivo");
+    }
+    else if (ObjectGuid const own = player->GetTarget())
+    {
+        target = ObjectAccessor::GetUnit(*player, own);
+    }
+
+    if (!target)
+        target = player;
+
+    // A hostile spell at a friend, or a friendly spell at an enemy, is a mistake
+    // the client would have caught before sending anything. Here it would go out
+    // as a cast that fails deep in the spell system with no explanation, so it
+    // is checked where it can still be explained.
+    bool const hostileSpell = !info->IsPositive();
+    if (target != player && hostileSpell != player->IsValidAttackTarget(target))
+        return fail("ese hechizo no va contra ese objetivo");
+
+    player->CastSpell(target, spellId, false);
+    return true;
+}
+
 bool rts::orders::SelfInteract(Player* player, ObjectGuid targetGuid)
 {
     if (!player || !targetGuid)
@@ -550,6 +791,86 @@ void rts::orders::ForgetPlayer(Player* master)
     }
 
     ReleaseAll(master);
+}
+
+// Every bot in the master's group picks up EVERYTHING, greys included.
+//
+// This used to be the chat command `ll all`, broadcast to the party on entering
+// RTS mode and again on every roster change. It worked, and it was wrong in two
+// ways at once: the player saw a bot command scroll past in their own chat
+// every time, and it had to be re-sent by hand because nothing on the server
+// remembered it.
+//
+// The bot's loot strategy is an ordinary value in its AI context
+// (`LootStrategyValue`, default `normal`, which runs items through ItemUsage
+// and leaves greys on the ground). mod-rts already reaches into that context to
+// move bots and read their targets, so setting it here costs one line and no
+// chat at all -- the same reasoning that took every other order off the chat
+// channel in the first place. There is no config option for it in playerbots;
+// this is the closest thing to a default that does not mean forking the module.
+//
+// Returns how many bots were changed, so the addon can say so instead of
+// assuming.
+int rts::orders::SetGroupLoot(Player* master, bool everything)
+{
+    if (!master)
+        return 0;
+
+    Group* group = master->GetGroup();
+    if (!group)
+        return 0;
+
+    LootStrategy* wanted = everything ? LootStrategyValue::all : LootStrategyValue::normal;
+    int changed = 0;
+
+    for (GroupReference* ref = group->GetFirstMember(); ref; ref = ref->next())
+    {
+        Player* member = ref->GetSource();
+        if (!member || member == master)
+            continue;
+
+        PlayerbotAI* ai = AiFor(member);
+        if (!ai)
+            continue;
+
+        ai->GetAiObjectContext()->GetValue<LootStrategy*>("loot strategy")->Set(wanted);
+        ++changed;
+    }
+
+    return changed;
+}
+
+std::string rts::orders::GroupPositions(Player* master)
+{
+    std::ostringstream out;
+    if (!master)
+        return out.str();
+
+    Group* group = master->GetGroup();
+    if (!group)
+        return out.str();
+
+    bool first = true;
+    for (GroupReference* ref = group->GetFirstMember(); ref; ref = ref->next())
+    {
+        Player* member = ref->GetSource();
+        if (!member || member == master || !member->IsInWorld())
+            continue;
+
+        if (!first)
+            out << ';';
+        first = false;
+
+        // Two decimals is a centimetre. The addon compares this against a
+        // three-yard arrival radius, so anything finer is bytes for nothing.
+        out << member->GetName() << ','
+            << std::fixed << std::setprecision(2)
+            << member->GetPositionX() << ','
+            << member->GetPositionY() << ','
+            << member->GetPositionZ();
+    }
+
+    return out.str();
 }
 
 bool rts::orders::FollowBot(Player* master, std::string const& botName)

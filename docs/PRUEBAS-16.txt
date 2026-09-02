@@ -1,0 +1,215 @@
+RTS COMMAND - LISTA DE PRUEBAS  #16
+Generada 2026-08-23   ·   addon 0.45.0 · mod-rts 0.13.0 · rts_core sin tocar
+
+HAY QUE REINICIAR EL SERVIDOR. La primera version de esta ronda era solo addon,
+pero la retencion de altura de camara esta BORRADA y eso toca mod-rts: 0.13.0.
+Con el worldserver viejo corriendo, el addon 0.45.0 no le pide nada nuevo -- asi
+que no rompe nada -- pero el verbo `CAM AGL` seguiria ahi para quien lo teclee.
+
+QUE HAY EN ESTA RONDA
+  Cuatro cosas pedidas, ninguna nueva por mi cuenta:
+
+    A. Los railes AL REVES: mapa a la izquierda, personaje a la derecha.
+    B. El panel de ordenes a 4x4 -- dieciseis ordenes, la cuarta fila son
+       ordenes y no botones del cliente.
+    C. ESPACIO sube la camara y C la baja.
+    D. La retencion de altura de camara, BORRADA. Estaba OCULTA -- fuera de la
+       ayuda, la maquinaria intacta -- y esconderla NO BASTO: seguia saliendo en
+       juego. Ver el apartado D.
+
+---------------------------------------------------------------------------
+A. LOS RAILES, AL REVES
+---------------------------------------------------------------------------
+
+  RAIL IZQUIERDO  Mapa · Rastreo · Correo · Fecha · Acercar · Alejar
+  RAIL DERECHO    Ficha · Hechizos · Talentos · Misiones · Menu · Bolsas
+
+Las dos listas se llaman ahora por lo que SON (`MAP`, `CHAR`) y no por donde
+estan, y el lado se decide en dos lineas de una tabla. Lo tenia al reves porque
+lo deduje de una frase de la ronda anterior en vez de preguntarlo; nombradas asi,
+cambiarlas de lado vuelve a ser trivial.
+
+[X] A1  El rail de la IZQUIERDA (el del minimapa) tiene los seis del mapa.
+        notas: tamaño ok
+
+[!] A2  El rail de la DERECHA (el de las ordenes) tiene ficha, hechizos,
+        talentos, misiones, menu y bolsas.
+        notas: solo bolsa es del tamaño correcto
+        ESTAN LOS SEIS, pero los cinco micro-botones salen a la MITAD de ancho
+        que la bolsa. No es el reparto: es la forma del arte. El micro-boton es
+        28x58 (1:2) y la celda 78x74 (casi cuadrada), asi que respetar la
+        proporcion topa con el alto y deja 50 unidades de ancho sin usar. El sim
+        lo da en un numero: 48% del ancho de la bolsa, que es exactamente "la
+        mitad" que se vio. Arreglado en la #17 recortando el glifo.
+
+[x] A3  Todos abren lo que dicen.
+        notas:
+
+[x] A4  Al salir del modo RTS los doce vuelven a su sitio de siempre y a su
+        tamano.
+        notas:
+        Se les guarda padre, anclajes, escala, estrato, nivel y visibilidad
+        antes de tocarlos. Un boton que no vuelve es peor que el problema que
+        esto arregla.
+
+[x] A5  El tamano. `/rts rails` imprime los pixeles de cada uno; si son
+        pequenos, `/rts rails scale 1.5` (o el numero que sea) y dime cual queda
+        bien -- se guarda y lo bajo al codigo como valor de fabrica.
+        notas:
+        Con seis por rail el limite es el ALTO del hueco (250 px de pantalla),
+        asi que salen a ~20x42. Subir la escala los hace mas grandes hasta que
+        empiezan a pisarse.
+
+[x] A6  Si sale una MARCA ROJA en alguna casilla, ese frame no existe con
+        ninguno de los nombres que se prueban. `/rts rails` dice cuales.
+        notas:
+        Los candidatos de `Rastreo` y `Correo` son los que menos seguros son.
+
+---------------------------------------------------------------------------
+B. EL PANEL, 4x4 DE ORDENES
+---------------------------------------------------------------------------
+
+Las doce de siempre en sus mismas casillas, Salir incluida en la doce -- final
+de la tercera fila, donde ha estado siempre, aunque ahora tenga una fila debajo.
+Las cuatro nuevas son la version "para todo el grupo" de lo que la carta hace
+por seleccion, y son verbos de playerbots que ya usaba Card.lua:
+
+  13 Tanque   `tank attack`  los tanques cogen tu objetivo
+  14 Matar    craneo + `rti`     todo el grupo va a por el
+  15 Contro   luna + `rti cc`    la IA lo deja fuera de combate
+  16 Beber    `drink`        todos se sientan a comer y beber
+
+[x] B1  El panel tiene CUATRO filas y las tres primeras son las doce de siempre
+        en el mismo orden, con Salir en rojo al final de la tercera.
+        notas:
+
+[x] B2  La cuarta fila trae Tanque, Matar, Contro y Beber, con sus iconos.
+        notas:
+        Matar y Contro son iconos de marca de banda: se dibujan SIN recortar
+        (van con `raw`), porque el recorte que llevan los iconos de hechizo les
+        come la punta. Si se ven con la esquina cortada, el recorte esta puesto.
+
+[x] B3  Tanque: con un objetivo hostil, los bots tanque van a por el.
+        notas:
+
+[x] B4  Matar: pone el craneo en tu objetivo Y el grupo va a por el.
+        notas:
+        Son las dos mitades del gesto. Si el craneo aparece pero nadie ataca, la
+        orden no salio; si atacan sin craneo, `SetRaidTarget` no existe con ese
+        nombre en este cliente.
+
+[x] B5  Contro: pone la luna, y el que pueda controlar (oveja, miedo...) lo deja
+        fuera de combate cuando toque.
+        notas:
+        `rti cc` es la marca de CONTROLAR de playerbots y la IA de cada clase ya
+        sabe que ese no se toca.
+
+[x] B6  Beber: todo el grupo se sienta a comer y beber.
+        notas:
+
+[x] B7  Las celdas encogen un 5% (110 -> 105) porque cuatro filas de 118 no
+        caben en los 452 de alto. Sigue leyendose bien.
+        notas:
+        Ese 5% es el precio de la cuarta fila. La rejilla mide ahora 452x452
+        justos, o sea cuadrada de verdad.
+
+[x] B8  Formar (la lista de formaciones) sigue apareciendo encima de su boton y
+        sin cortarse, con la rejilla mas pequena.
+        notas:
+
+---------------------------------------------------------------------------
+C. ESPACIO SUBE, C BAJA
+---------------------------------------------------------------------------
+
+[!] C1  ESPACIO sube la camara mientras se mantiene pulsado.
+        notas: hace lo de lasescaleras que coemntamos. no puedo avanzar y subir a la vez.
+        SUBE, PERO CORTA EL AVANCE, y es el MISMO fallo que la retencion de
+        altura que se borro en esta ronda -- misma causa exacta. La camara la
+        controla el cliente, asi que desde el servidor solo se puede mover con
+        `NearTeleportTo`, y un teleport CANCELA el movimiento que el cliente esta
+        aplicando. Corre en el tick del mundo: 10-20 teleports por segundo, cada
+        uno cortando el avance. No hay ajuste que lo arregle -- o el movimiento
+        vertical lo hace el cliente, o corta el horizontal.
+        DECIDIDO 2026-08-23: SE QUEDA ASI. Sube y baja bien parado, que es como
+        se va a usar. Las tres alternativas (el DLL escribiendo la altura de
+        camara, el zoom, o el modo vuelo mientras se pulsa) estan escritas en
+        CLAUDE.md con lo que cuesta cada una.
+
+[!] C2  C la baja.
+        notas:hace lo de lasescaleras que coemntamos. no puedo avanzar y subir a la vez.
+        Lo mismo que C1: misma causa, misma decision.
+
+[x] C3  Ya no suben ni bajan con + ni con -.
+        notas:
+        Se han quitado, no se han dejado de repuesto: eran las teclas de un
+        editor, no las de un juego.
+
+[x] C4  Q y E siguen pivotando alrededor del punto que miras.
+        notas:
+
+[ ] C5  AL SALIR DEL MODO RTS, ESPACIO VUELVE A SALTAR Y C A ABRIR LA FICHA.
+        notas:
+        ES LA PRUEBA QUE IMPORTA DE ESTA SECCION. Las dos son teclas ocupadas de
+        fabrica, asi que se apuntan antes de tocarlas y se devuelven al salir --
+        la misma regla dura que los CVars de la camara. Si espacio deja de
+        saltar fuera del modo RTS, la devolucion esta mal.
+
+[x] C6  Entrar y salir tres veces: espacio y C siguen bien las tres.
+        notas:
+
+[x] C7  Salir EN COMBATE: las teclas vuelven al acabar la pelea.
+        notas:
+        Cambiar un binding esta bloqueado en combate, asi que se aplaza igual
+        que los frames protegidos de Chrome.
+
+---------------------------------------------------------------------------
+D. QUE NO SE HA ROTO
+---------------------------------------------------------------------------
+
+[x] D1  Al entrar en modo RTS no pasa NADA con la altura de camara: ni
+        escalones, ni ascensor, ni la caida al suelo con su correccion, ni
+        avisos. La camara se comporta como antes de la #14: cuelga a la altura a
+        la que se la deja.
+        notas:
+        ESCONDERLA NO ERA APAGARLA, y esta es la leccion de la ronda. Se saco de
+        la ayuda y se dejo la maquinaria "para volver a ella"; lo que no se
+        penso es que el AJUSTE QUE LA ENCIENDE ya estaba guardado en las
+        SavedVariables de este cliente por las pruebas de la #15. `SendHoldSoon`
+        lo reenviaba en cada entrada, asi que la funcion oculta se armaba sola:
+        la camara caia al suelo y el hover la levantaba despues, cada vez.
+        Una funcion escondida con su interruptor puesto no esta escondida.
+        Ahora esta borrada por los dos lados -- verbo `CAM AGL`, `SetGroundHold`,
+        el hover, el paso de correccion y `RTS.Camera.HoldRate` -- y el addon
+        BORRA la clave `camHold` al cargar, porque las SavedVariables sobreviven
+        a la version que las escribio.
+
+[x] D1b Las teclas de altura siguen enteras: ESPACIO sube y C baja, y la camara
+        se queda donde la dejes.
+        notas:
+        Es lo unico de la retencion que se queda, y es lo que se pidio. Sin el
+        hover en medio, ESPACIO/C vuelven a mover la Z de la camara directamente
+        -- que es lo que hacian antes de la #14.
+
+[x] D2  El resto de la barra igual: retrato, grupo, enemigos, la fila de
+        acciones y el minimapa.
+        notas:
+
+[x] D3  La carta de acciones (la de la seleccion) sigue con sus trece.
+        notas:
+        Comparte los cuatro verbos nuevos con el panel, pero por `Send` en vez
+        de `Broadcast`: la carta manda a lo seleccionado, el panel al grupo.
+
+[x] D4  Las rutas con shift y el click derecho siguen igual.
+        notas:
+
+[x] D5  Nada de esto imprime errores de Lua.
+        notas:
+
+---------------------------------------------------------------------------
+COMPROBADO FUERA DEL JUEGO
+---------------------------------------------------------------------------
+  - check_addon.py: 31 ficheros, limpio.
+  - worldserver compila limpio con la retencion de altura fuera.
+  - sim\bar_layout.py con la rejilla 4x4 y los dos railes: orders sale 4x4 y los
+    railes 1x6 en los cinco `grow`, sin solapes ni desbordes.
+  - addon desplegado IDENTICO al repo.

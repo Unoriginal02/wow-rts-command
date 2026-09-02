@@ -67,7 +67,68 @@ namespace rts
 
         // Point one bot at something. Used when you click an entry in that
         // list: the bot selects it, and your casts then go to it.
+        //
+        // This is the PUNCTUAL half of the right-click gesture: the bot's own
+        // selection is what an explicitly targeted CastAs overrides for one
+        // cast, so nothing here has to be undone -- the bot's next AI tick
+        // picks its own target again and the rotation carries on. "Goes back to
+        // what it was doing" is the default, not a thing we implement.
         bool Aim(Player* master, std::string const& botName, ObjectGuid targetGuid);
+
+        // === roles ==========================================================
+        //
+        // A role is a playerbots COMBAT STRATEGY, not something this module
+        // invents: `tank`, `dps`, `heal` and `cc` are registered per class in
+        // mod-playerbots' own class contexts (DruidAiObjectContext.cpp:34,
+        // PaladinAiObjectContext.cpp:93-95, and so on), and `passive` is the
+        // one the borrow-a-bot path above already uses to stand a bot down.
+        //
+        // WHICH ONES A BOT HAS IS ASKED, NOT ASSUMED. A warrior has no `heal`
+        // and a mage no `tank`, and writing that table by class in the addon
+        // would be fifty names from memory -- the mistake this project keeps
+        // paying for. `AiObjectContext::GetSupportedStrategies()` answers it
+        // for the bot in front of us, so the addon draws what exists.
+        struct Role
+        {
+            std::string name;      // the playerbots strategy name
+            bool active = false;   // on right now, in BOT_STATE_COMBAT
+        };
+
+        std::vector<Role> Roles(Player* master, std::string const& botName);
+
+        // Turn one on or off. `tank`, `dps` and `heal` are mutually exclusive --
+        // they are the class's combat stance and playerbots' own `co` command
+        // treats them the same way -- while `cc` and `passive` are independent
+        // toggles that ride on top.
+        bool SetRole(Player* master, std::string const& botName,
+                     std::string const& role, bool on);
+
+        // === persistent focus ===============================================
+        //
+        // The other half of the right-click gesture: this target is what the
+        // bot works on until told otherwise, rather than for one cast.
+        //
+        // BOTH DIRECTIONS ARE PLAYERBOTS' OWN MACHINERY, which is why this is
+        // twenty lines and not a scheduler:
+        //
+        //   hostile  -> orders::AttackBot, the bot's own `attack my target`
+        //               action. Sticky by construction: the AI keeps at it.
+        //   friendly -> the `focus heal targets` value plus the strategy of the
+        //               same name (TargetValue.h:161, StrategyContext.h:132).
+        //               That is exactly "look after this one", and it already
+        //               exists because `focus heal` is a chat command.
+        //
+        // Re-asserting SetSelection on a tick was the obvious alternative and
+        // would have fought the bot's own targeting every tick to a draw.
+        //
+        // `hostile` reports which of the two paths was taken, so the addon can
+        // say so instead of the player guessing why a healer did not charge.
+        bool SetFocus(Player* master, std::string const& botName,
+                      ObjectGuid targetGuid, bool* hostile = nullptr);
+
+        // Drop a persistent focus. Only the friendly half needs undoing: an
+        // attack order finishes by itself when the victim dies.
+        bool ClearFocus(Player* master, std::string const& botName);
 
         // Hand the bot back to its own AI. Safe to call when it never took over.
         void Release(Player* master, std::string const& botName);
