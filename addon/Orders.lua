@@ -138,7 +138,7 @@ function O:MoveToMe()
 	end
 	-- No DLL: name-matched rally, which routes through MoveNear and stops a
 	-- follow-distance short. Cannot be anchored, so they will drift home.
-	return self:Send("go " .. UnitName("player"), "Move to my position")
+	return self:Send("go " .. ns.MyName(), "Move to my position")
 end
 
 -- Move order from the command card / hotkey.
@@ -334,7 +334,7 @@ end
 function O:MoveGroupTo(names, x, y, z, quiet)
 	if not names or #names == 0 then return false end
 
-	local playerName = UnitName("player")
+	local playerName = ns.MyName()
 	local offsets = self:SpreadOffsets(#names, self:FacingTo(x, y))
 	local batch, movedSelf = {}, false
 
@@ -476,6 +476,33 @@ function O:Follow()
 	end
 
 	return self:Send("follow", "Follow")
+end
+
+-- Seguir, PARA UNA LISTA CONCRETA en vez de para la seleccion.
+--
+-- Existe porque el caso que la usa no cuadra con `O:Follow`: cuando mandas
+-- caminar a un grupo en el que vas TU, los bots seleccionados pasan a seguirte
+-- y tu no -- o sea que la orden va a un subconjunto de lo seleccionado, y
+-- `O:Follow` manda a todo lo seleccionado por definicion.
+--
+-- Lo demas es igual: se sueltan las anclas, porque `follow` apaga la estrategia
+-- de quedarse quieto y un bot con ancla puesta volveria a ella.
+function O:FollowThese(names)
+	if not names or #names == 0 then return false end
+
+	if ns.Route then ns.Route:ClearFor(names) end
+	for _, n in ipairs(names) do
+		self.holding[n] = nil
+		ns.UnitState:Note(n, "follow")
+	end
+
+	if self:HasServer() then
+		ns.SendServer("FOLLOW " .. table.concat(names, ";"))
+		return true
+	end
+
+	for _, n in ipairs(names) do self:SendTo(n, "follow") end
+	return true
 end
 
 function O:Flee()   return self:Send("flee",   "Flee")          end

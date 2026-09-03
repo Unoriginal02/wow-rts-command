@@ -1,6 +1,10 @@
 #include "RtsOrders.h"
 
+#include "RtsBotApi.h"   // la unica puerta a mod-playerbots
+#include "RtsCommandMode.h"   // ActionBarSpells, para la barra de posesion
+
 #include "CharmInfo.h"   // CHARM_TYPE_POSSESS -- Unit.h only forward-declares CharmType
+#include "SpellInfo.h"
 #include "Creature.h"
 #include "LootMgr.h"
 #include "ObjectDefines.h"   // INTERACTION_DISTANCE
@@ -14,15 +18,6 @@
 #include "SpellInfo.h"
 #include "SpellMgr.h"
 
-// AiObjectContext is only forward-declared by PlayerbotAI.h, and GetValue is a
-// template on it, so the full definition has to be here.
-#include "AiObjectContext.h"
-#include "LastMovementValue.h"
-#include "LootStrategyValue.h"
-#include "PlayerbotAI.h"
-#include "PlayerbotMgr.h"
-#include "PositionValue.h"
-
 #include <algorithm>
 #include <cmath>
 #include <iomanip>
@@ -31,43 +26,14 @@
 
 namespace
 {
-    // The bot must be someone the commanding player actually commands. Without
-    // this, any player could anchor any other player's bot by name.
+    // La resolucion del bot y la comprobacion de que esta en tu grupo viven en
+    // `RtsBotApi`. Esto es un alias local para que el resto del fichero se siga
+    // leyendo igual -- y el nombre largo se queda ahi a proposito: la
+    // comprobacion de pertenencia al grupo no es un adorno, es lo unico que
+    // impide que cualquiera mande los bots de otro sabiendo su nombre.
     Player* ResolveBot(Player* master, std::string const& name)
     {
-        if (!master || name.empty())
-            return nullptr;
-
-        Player* bot = ObjectAccessor::FindPlayerByName(name, false);
-        if (!bot || bot == master || !bot->IsInWorld())
-            return nullptr;
-
-        Group* group = master->GetGroup();
-        if (!group || !group->IsMember(bot->GetGUID()))
-            return nullptr;
-
-        return bot;
-    }
-
-    PlayerbotAI* AiFor(Player* bot)
-    {
-        return bot ? PlayerbotsMgr::instance().GetPlayerbotAI(bot) : nullptr;
-    }
-
-    void SetPosition(PlayerbotAI* ai, char const* key, float x, float y, float z, uint32 mapId)
-    {
-        PositionMap& posMap = ai->GetAiObjectContext()->GetValue<PositionMap&>("position")->Get();
-        PositionInfo pos = posMap[key];
-        pos.Set(x, y, z, mapId);
-        posMap[key] = pos;
-    }
-
-    void ResetPosition(PlayerbotAI* ai, char const* key)
-    {
-        PositionMap& posMap = ai->GetAiObjectContext()->GetValue<PositionMap&>("position")->Get();
-        PositionInfo pos = posMap[key];
-        pos.Reset();
-        posMap[key] = pos;
+        return rts::bots::Resolve(master, name);
     }
 }
 
@@ -233,8 +199,7 @@ bool rts::orders::GroundRay(Player const* who,
 bool rts::orders::MoveBot(Player* master, std::string const& botName, float x, float y, float z)
 {
     Player* bot = ResolveBot(master, botName);
-    PlayerbotAI* ai = AiFor(bot);
-    if (!ai)
+    if (!rts::bots::Driven(bot))
         return false;
 
     // The same strategy flip StayChatShortcutAction performs, minus the
@@ -244,14 +209,14 @@ bool rts::orders::MoveBot(Player* master, std::string const& botName, float x, f
     // Z mala se queda dentro y no hay donde corregirla luego.
     GroundZ(bot, x, y, z);
 
-    ai->ChangeStrategy("+stay,-passive,-move from group", BOT_STATE_NON_COMBAT);
-    ai->ChangeStrategy("+stay,-follow,-passive,-move from group", BOT_STATE_COMBAT);
+    rts::bots::Change(bot, "+stay,-passive,-move from group", rts::bots::IDLE);
+    rts::bots::Change(bot, "+stay,-follow,-passive,-move from group", rts::bots::COMBAT);
 
     // "return" is where the bot drifts back to between actions; "stay" is the
     // anchor StayStrategy walks it to. Both have to be the destination, or the
     // two pull against each other.
-    SetPosition(ai, "return", x, y, z, bot->GetMapId());
-    SetPosition(ai, "stay", x, y, z, bot->GetMapId());
+    rts::bots::SetAnchor(bot, "return", x, y, z, bot->GetMapId());
+    rts::bots::SetAnchor(bot, "stay", x, y, z, bot->GetMapId());
 
     // Let it abandon the path it is already on.
     //
@@ -262,7 +227,7 @@ bool rts::orders::MoveBot(Player* master, std::string const& botName, float x, f
     // recorded for the PREVIOUS move has elapsed -- and that delay is computed
     // from the full distance of the old trip. Clearing that record is what
     // actually lets a fresh click take effect immediately.
-    ai->GetAiObjectContext()->GetValue<LastMovement&>("last movement")->Get().clear();
+    rts::bots::ForgetLastMove(bot);
 
     bot->StopMoving();
     bot->GetMotionMaster()->Clear();
@@ -272,18 +237,13 @@ bool rts::orders::MoveBot(Player* master, std::string const& botName, float x, f
 
 bool rts::orders::IsPassive(Player* master, std::string const& botName)
 {
-    PlayerbotAI* ai = AiFor(ResolveBot(master, botName));
-    if (!ai)
-        return false;
-    return ai->HasStrategy("passive", BOT_STATE_COMBAT)
-        || ai->HasStrategy("passive", BOT_STATE_NON_COMBAT);
+    return rts::bots::Has(ResolveBot(master, botName), "passive", rts::bots::BOTH);
 }
 
 bool rts::orders::AttackBot(Player* master, std::string const& botName, ObjectGuid targetGuid)
 {
     Player* bot = ResolveBot(master, botName);
-    PlayerbotAI* ai = AiFor(bot);
-    if (!ai || !targetGuid)
+    if (!rts::bots::Driven(bot) || !targetGuid)
         return false;
 
     Unit* victim = ObjectAccessor::GetUnit(*bot, targetGuid);
@@ -292,10 +252,9 @@ bool rts::orders::AttackBot(Player* master, std::string const& botName, ObjectGu
 
     // A bot pinned to an anchor cannot close on anything, so an attack order
     // releases the hold -- which is what ordering an attack means in an RTS.
-    ai->ChangeStrategy("-stay", BOT_STATE_NON_COMBAT);
-    ai->ChangeStrategy("-stay", BOT_STATE_COMBAT);
-    ResetPosition(ai, "stay");
-    ResetPosition(ai, "return");
+    rts::bots::Change(bot, "-stay", rts::bots::BOTH);
+    rts::bots::ClearAnchor(bot, "stay");
+    rts::bots::ClearAnchor(bot, "return");
 
     // Run the bot's OWN attack action rather than reimplementing it.
     //
@@ -316,10 +275,11 @@ bool rts::orders::AttackBot(Player* master, std::string const& botName, ObjectGu
     // writes the field.
     master->SetSelection(targetGuid);
 
-    // silent = true: no TellMaster, so no turn-and-mime emote before it moves.
-    ai->DoSpecificAction("attack my target", Event(), true);
+    // `DoAction` es silenciosa -- no TellMaster, asi que no hay giro ni mimo de
+    // conversacion antes de moverse.
+    rts::bots::DoAction(bot, "attack my target");
 
-    ai->GetAiObjectContext()->GetValue<LastMovement&>("last movement")->Get().clear();
+    rts::bots::ForgetLastMove(bot);
     return true;
 }
 
@@ -332,44 +292,120 @@ bool rts::orders::AttackMoveBot(Player* master, std::string const& botName, floa
     // It is genuinely an approximation: it makes the bot pick fights near it
     // rather than along a corridor, so it can be pulled off the path -- the
     // anchor is what drags it back on afterwards.
-    if (PlayerbotAI* ai = AiFor(ResolveBot(master, botName)))
-        ai->ChangeStrategy("+grind", BOT_STATE_NON_COMBAT);
+    rts::bots::Change(ResolveBot(master, botName), "+grind", rts::bots::IDLE);
 
     return true;
+}
+
+namespace
+{
+    // QUIEN ESTA POSEIDO Y COMO ESTABA ANTES.
+    //
+    // El comentario que habia aqui decia: *"esto pone passive a ciegas y
+    // `ReleaseBot` lo quita a ciegas (...) se deja asi A PROPOSITO porque el
+    // verbo POSSESS no lo manda nadie. Si POSSESS vuelve a usarse, la version
+    // correcta esta escrita en `Suppress`"*.
+    //
+    // POSSESS tiene llamante desde hoy, asi que se hace lo que aquel comentario
+    // mandaba: capturar antes del primer cambio y devolver a lo capturado. Sin
+    // esto, tomar el mando de un bot al que le habias puesto "Esperar" a mano se
+    // lo quitaba al soltarlo, en silencio.
+    struct Possessed
+    {
+        ObjectGuid bot;
+        bool wasPassiveCombat = false;
+        bool wasPassiveIdle = false;
+    };
+
+    std::unordered_map<ObjectGuid, Possessed> g_possessed;
+
+    // Los diez huecos de la barra de posesion, rellenos con la barra de acciones
+    // DEL PROPIO BOT.
+    //
+    // POSEER A UN `Player` DA UNA BARRA VACIA, y hay que saberlo: el nucleo
+    // rellena la barra de posesion desde `m_spells` de la CRIATURA
+    // (`CharmInfo::InitPossessCreateSpells`, CharmInfo.cpp:79), y para cualquier
+    // otra cosa hace `InitEmptyActionBar()`. O sea que sin esto tomas el mando
+    // del mago y te encuentras moviendote sin un solo hechizo -- que se leeria
+    // como que la posesion esta a medias.
+    //
+    // La fuente es la misma que usa la fila de habilidades: la barra guardada
+    // del bot, que son los hechizos que TU le pusiste jugandolo.
+    void FillPossessBar(Player* master, Player* bot)
+    {
+        CharmInfo* info = bot->GetCharmInfo();
+        if (!info)
+            return;
+
+        auto const spells = rts::command::ActionBarSpells(master, bot->GetName());
+
+        uint32 slot = 0;
+        for (uint32 id : spells)
+        {
+            if (slot >= MAX_UNIT_ACTION_BAR_INDEX)
+                break;
+            if (SpellInfo const* si = sSpellMgr->GetSpellInfo(id))
+            {
+                if (info->AddSpellToActionBar(si, ACT_PASSIVE, slot))
+                    ++slot;
+            }
+        }
+
+        // Y se le manda al cliente. `SetCharmedBy` ya llamo a
+        // `PossessSpellInitialize` ANTES de que rellenaramos nada, asi que sin
+        // esta segunda llamada el jugador ve la barra vacia que se envio
+        // entonces -- los huecos estarian puestos en el servidor y no en la
+        // pantalla, que es la peor forma de estar a medias.
+        master->PossessSpellInitialize();
+    }
 }
 
 bool rts::orders::PossessBot(Player* master, std::string const& botName)
 {
     Player* bot = ResolveBot(master, botName);
-    PlayerbotAI* ai = AiFor(bot);
-    if (!ai)
+    if (!rts::bots::Driven(bot))
         return false;
 
     if (bot->GetCharmerGUID())
         return false;   // already possessed by someone
 
-    // Stand the AI down first. A bot still running its own strategies while
-    // you steer it would be fighting you for the controls every tick.
-    //
-    // ESTO PONE PASSIVE A CIEGAS Y `ReleaseBot` LO QUITA A CIEGAS, que es el
-    // fallo que `Suppress` (RtsCommandMode.cpp) ya tiene arreglado: si el
-    // jugador habia puesto el rol "Esperar" a mano, soltar el bot se lo quita
-    // sin decir nada. Aqui se deja como esta A PROPOSITO y no por descuido: el
-    // verbo POSSESS no lo manda nadie -- el primer plano se descarto en la etapa
-    // 5h -- asi que capturar y restaurar seria maquinaria para un camino sin
-    // llamante. Si POSSESS vuelve a usarse, la version correcta esta escrita en
-    // `Suppress`: capturar `HasStrategy` antes del primer cambio y devolver a lo
-    // capturado, no a "no pasivo".
-    ai->ChangeStrategy("+passive", BOT_STATE_NON_COMBAT);
-    ai->ChangeStrategy("+passive", BOT_STATE_COMBAT);
+    // Y NOSOTROS TAMPOCO PODEMOS ESTAR CHARMANDO YA. `Unit::SetCharm` avisa con
+    // un LOG_FATAL si el charmer ya tiene charm y sigue adelante pisando el
+    // anterior -- o sea que el primero se queda charmado para siempre, y el
+    // primero puede ser la CRIATURA DE LA CAMARA. La comprobacion cuesta una
+    // linea y evita quedarse con dos posesiones de las que solo una se suelta.
+    if (master->GetCharmGUID())
+        return false;
+
+    Possessed p;
+    p.bot = bot->GetGUID();
+    p.wasPassiveCombat = rts::bots::Has(bot, "passive", rts::bots::COMBAT);
+    p.wasPassiveIdle   = rts::bots::Has(bot, "passive", rts::bots::IDLE);
+
+    // La IA se sienta. Un bot corriendo sus estrategias mientras tu le llevas
+    // pelearia contigo por los mandos en cada tick.
+    rts::bots::Change(bot, "+passive", rts::bots::BOTH);
+
+    // Y SE LE SUELTA EL ANCLA. Un bot en `stay` poseido camina a donde le
+    // lleves y su estrategia lo devuelve -- exactamente el "va y vuelve" que
+    // `PRUEBAS-20` 0.3 reporto sobre el personaje del jugador. Mismo mecanismo,
+    // misma cura, y esta vez aplicada a los dos caminos a la vez.
+    rts::bots::Change(bot, "-stay", rts::bots::BOTH);
+    rts::bots::ClearAnchor(bot, "stay");
+    rts::bots::ClearAnchor(bot, "return");
+    rts::bots::ForgetLastMove(bot);
 
     if (!bot->SetCharmedBy(master, CHARM_TYPE_POSSESS))
     {
-        ai->ChangeStrategy("-passive", BOT_STATE_NON_COMBAT);
-        ai->ChangeStrategy("-passive", BOT_STATE_COMBAT);
+        if (!p.wasPassiveIdle)
+            rts::bots::Change(bot, "-passive", rts::bots::IDLE);
+        if (!p.wasPassiveCombat)
+            rts::bots::Change(bot, "-passive", rts::bots::COMBAT);
         return false;
     }
 
+    g_possessed[master->GetGUID()] = p;
+    FillPossessBar(master, bot);
     return true;
 }
 
@@ -382,11 +418,28 @@ bool rts::orders::ReleaseBot(Player* master, std::string const& botName)
     if (bot->GetCharmerGUID() == master->GetGUID())
         bot->RemoveCharmedBy(master);
 
-    if (PlayerbotAI* ai = AiFor(bot))
+    // DEVUELTO A COMO ESTABA, no a "no pasivo". Ver `g_possessed` arriba.
+    auto it = g_possessed.find(master->GetGUID());
+    if (it != g_possessed.end() && it->second.bot == bot->GetGUID())
     {
-        ai->ChangeStrategy("-passive", BOT_STATE_NON_COMBAT);
-        ai->ChangeStrategy("-passive", BOT_STATE_COMBAT);
+        if (!it->second.wasPassiveIdle)
+            rts::bots::Change(bot, "-passive", rts::bots::IDLE);
+        if (!it->second.wasPassiveCombat)
+            rts::bots::Change(bot, "-passive", rts::bots::COMBAT);
+        g_possessed.erase(it);
     }
+    else
+    {
+        // Sin nota de como estaba (reinicio del servidor a mitad, o alguien
+        // llamo por otro camino) se hace lo unico razonable: dejarlo activo. Es
+        // la suposicion que el bloque de arriba evita, y aqui es preferible a
+        // dejar un bot pasivo para siempre sin que nada lo explique.
+        rts::bots::Change(bot, "-passive", rts::bots::BOTH);
+    }
+
+    // La barra de posesion se va con el mando. Si no, el cliente se queda
+    // dibujando los diez hechizos de un bot que ya no llevas.
+    master->SendRemoveControlBar();
 
     // The viewpoint has to go the same way it does for the camera, or the
     // client is left seeing through a character it no longer drives.
@@ -394,6 +447,45 @@ bool rts::orders::ReleaseBot(Player* master, std::string const& botName)
         master->SetViewpoint(seen, false);
 
     return true;
+}
+
+bool rts::orders::ReleaseAnyPossession(Player* master)
+{
+    // EL SEGURO QUE FALTABA, Y COSTO EL SERVIDOR ENTERO.
+    //
+    // `PossessBot` hace `SetCharmedBy` a pelo, sin aura. `Player::RemoveFromWorld`
+    // llama a `StopCastingCharm`, que deshace un charm QUITANDO SUS AURAS -- y
+    // aqui no hay ninguna que quitar. Asi que el charm sigue puesto, cae en el
+    // `LOG_FATAL` de `Player.cpp:9551`, ve que el charmado tiene charmer y hace
+    // **`ABORT()`**: el worldserver se muere. Visto el 2026-09-03, con volcado.
+    //
+    // Es EL MISMO fallo que tuvo la camara y que se arreglo haciendola un
+    // Puppet (ver `kPuppetProps` en `RtsCamera.cpp`), y esa salida aqui no
+    // sirve: un Puppet es una criatura invocada y esto es un `Player` que ya
+    // existe. Lo que queda es soltar por el camino bueno -- `RemoveCharmedBy`,
+    // que es lo que `SetCharmedBy` sabe deshacer -- ANTES de que el nucleo
+    // llegue a `RemoveFromWorld`.
+    //
+    // Se mira `GetCharmGUID()` y no la lista del grupo a proposito: un bot que
+    // se fue del grupo mientras lo llevabas seguiria charmado y no aparecería
+    // en el recorrido. La pregunta correcta es "¿estoy charmando algo?", y esa
+    // solo tiene una fuente.
+    //
+    // SOLO SI ES UN `Player`. La camara tambien charma, y esa se suelta por su
+    // propio camino (`camera::Abandon`), que ademas devuelve la criatura al
+    // mapa en vez de dejarla huerfana.
+    if (!master)
+        return false;
+
+    ObjectGuid const charmed = master->GetCharmGUID();
+    if (!charmed || !charmed.IsPlayer())
+        return false;
+
+    Player* bot = ObjectAccessor::FindPlayer(charmed);
+    if (!bot)
+        return false;
+
+    return ReleaseBot(master, bot->GetName());
 }
 
 bool rts::orders::ReleaseAll(Player* master)
@@ -446,6 +538,33 @@ bool rts::orders::MoveSelf(Player* player, float x, float y, float z, std::strin
 
     if (player->HasUnitState(UNIT_STATE_ROOT))
         player->SetControlled(false, UNIT_STATE_ROOT);
+
+    // TU PERSONAJE PUEDE SER UN BOT, Y SI LO ES HAY QUE SOLTARLE EL ANCLA.
+    //
+    // Reportado en `PRUEBAS-20` 0.3: *"he puesto stay a todos los pj incluido el
+    // principal (...) el pj principal no lo puedo mandar a otra localizacion,
+    // intenta ir a donde esta el punto y se vuelve al origen donde le configure
+    // el stay"*.
+    //
+    // La causa es que el selfbot le engancha una IA de playerbots a tu propio
+    // personaje, asi que el `stay` que mandas al grupo TAMBIEN le llega: se
+    // ancla, y a partir de ahi `MovePoint` lo lleva al destino y su estrategia
+    // `stay` lo trae de vuelta al ancla. Las dos ordenes son correctas y se
+    // pelean, que es por lo que el sintoma es "va y vuelve" y no "no se mueve".
+    //
+    // `MoveBot` ya hace esto para los bots -- la diferencia era que tu personaje
+    // no pasa por `MoveBot`, porque `ResolveBot` rechaza a proposito que te
+    // ordenes a ti mismo por esa via. Es el patron de la etapa 5h una vez mas:
+    // dos caminos para la misma cosa y el arreglo aplicado solo a uno.
+    //
+    // Sin IA (sin selfbot) `Driven` es falso y aqui no pasa nada.
+    if (rts::bots::Driven(player))
+    {
+        rts::bots::Change(player, "-stay,-passive", rts::bots::BOTH);
+        rts::bots::ClearAnchor(player, "stay");
+        rts::bots::ClearAnchor(player, "return");
+        rts::bots::ForgetLastMove(player);
+    }
 
     // Al suelo tambien aqui: la Z del click vale lo mismo para tu personaje que
     // para un bot, y un MovePoint a una Z flotante te deja flotando igual.
@@ -605,16 +724,16 @@ namespace
     // actually names the NPC.
     bool BotInteract(Player* master, Player* bot, Creature* creature)
     {
-        PlayerbotAI* ai = AiFor(bot);
-        if (!ai)
+        if (!rts::bots::Driven(bot))
             return false;
 
         master->SetSelection(creature->GetGUID());
         bot->SetSelection(creature->GetGUID());
         bot->SetFacingToObject(creature);
 
-        // silent = true: no TellMaster, so no turn-and-mime before it speaks.
-        return ai->DoSpecificAction("gossip hello", Event(), true);
+        // `DoAction` es silenciosa: no TellMaster, asi que no hay giro ni mimo
+        // antes de hablar.
+        return rts::bots::DoAction(bot, "gossip hello");
     }
 
     // Park the walk so UpdatePending can finish it when the walker arrives.
@@ -631,7 +750,7 @@ namespace
 bool rts::orders::TalkBot(Player* master, std::string const& botName, ObjectGuid targetGuid)
 {
     Player* bot = ResolveBot(master, botName);
-    if (!bot || !AiFor(bot) || !targetGuid)
+    if (!rts::bots::Driven(bot) || !targetGuid)
         return false;
 
     Unit* unit = ObjectAccessor::GetUnit(*master, targetGuid);
@@ -820,7 +939,6 @@ int rts::orders::SetGroupLoot(Player* master, bool everything)
     if (!group)
         return 0;
 
-    LootStrategy* wanted = everything ? LootStrategyValue::all : LootStrategyValue::normal;
     int changed = 0;
 
     for (GroupReference* ref = group->GetFirstMember(); ref; ref = ref->next())
@@ -829,11 +947,9 @@ int rts::orders::SetGroupLoot(Player* master, bool everything)
         if (!member || member == master)
             continue;
 
-        PlayerbotAI* ai = AiFor(member);
-        if (!ai)
+        if (!rts::bots::SetLootAll(member, everything))
             continue;
 
-        ai->GetAiObjectContext()->GetValue<LootStrategy*>("loot strategy")->Set(wanted);
         ++changed;
     }
 
@@ -873,18 +989,36 @@ std::string rts::orders::GroupPositions(Player* master)
     return out.str();
 }
 
+bool rts::orders::ResetBot(Player* master, std::string const& botName)
+{
+    Player* bot = ResolveBot(master, botName);
+    if (!rts::bots::Driven(bot))
+        return false;
+
+    // El orden importa: primero se olvidan las estrategias, y DESPUES se le
+    // devuelve el seguimiento. Al reves, `ResetStrategies` se llevaria por
+    // delante el `+follow` que acabamos de poner y el bot se quedaria plantado
+    // -- que es justo el sintoma del que se viene huyendo.
+    rts::bots::Reset(bot);
+
+    rts::bots::ClearAnchor(bot, "stay");
+    rts::bots::ClearAnchor(bot, "return");
+    rts::bots::ForgetLastMove(bot);
+
+    return FollowBot(master, botName);
+}
+
 bool rts::orders::FollowBot(Player* master, std::string const& botName)
 {
     Player* bot = ResolveBot(master, botName);
-    PlayerbotAI* ai = AiFor(bot);
-    if (!ai)
+    if (!rts::bots::Driven(bot))
         return false;
 
-    ai->ChangeStrategy("+follow,-passive,-grind,-move from group", BOT_STATE_NON_COMBAT);
-    ai->ChangeStrategy("-stay,-follow,-passive,-grind,-move from group", BOT_STATE_COMBAT);
+    rts::bots::Change(bot, "+follow,-passive,-grind,-move from group", rts::bots::IDLE);
+    rts::bots::Change(bot, "-stay,-follow,-passive,-grind,-move from group", rts::bots::COMBAT);
 
-    ResetPosition(ai, "return");
-    ResetPosition(ai, "stay");
+    rts::bots::ClearAnchor(bot, "return");
+    rts::bots::ClearAnchor(bot, "stay");
 
     return true;
 }

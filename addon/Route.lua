@@ -71,7 +71,7 @@ R.cfg = {
 	maxleg  = 100,    -- yardas: mas largo que esto se parte en trozos (ver abajo)
 	stall   = 5,      -- segundos parado sin llegar antes de repetir la orden
 	retries = 3,      -- ...y cuantas veces se repite antes de rendirse y pasar
-	ring    = 2.20,   -- yardas de ancho del marcador de cada punto
+	ring    = 1.30,   -- yardas de ancho del marcador de cada punto
 	minpx   = 10,     -- pixeles minimos del marcador (de lejos no desaparece)
 	maxpx   = 200,    -- ...y maximos (de cerca no llena la pantalla)
 	num     = 15,     -- cuerpo del numero, en unidades de UIParent
@@ -142,7 +142,7 @@ local function PosOf(name)
 		local x, y, z = ns.Markers:UnitWorld(guid)
 		if x then return x, y, z end
 	end
-	if name == UnitName("player") then
+	if name == ns.MyName() then
 		local x, y, z = ns.Bridge:GetPlayerWorldPosition()
 		if x then return x, y, z end
 	end
@@ -254,7 +254,7 @@ end
 -- `mover` es la lista de las que acaban de cambiar de punto, para que las que
 -- coinciden en el mismo tick salgan en UN paquete.
 local function Issue(route, mover)
-	local playerName = UnitName("player")
+	local playerName = ns.MyName()
 	local batch = {}
 
 	for _, name in ipairs(mover) do
@@ -372,6 +372,47 @@ local function SelectedUnits()
 	return out
 end
 
+-- SI VAS TU EN EL GRUPO, LA RUTA ES TUYA Y LOS DEMAS TE SIGUEN.
+--
+-- Pedido asi, y es lo que hace un RTS con heroe: cuando el jugador va dentro de
+-- lo seleccionado, mandar a los cuatro por su cuenta al mismo sitio es peor de
+-- todas las maneras -- se abren en formacion alrededor del punto, se quedan
+-- pegados en la geometria cada uno por su lado, y el que llega primero se queda
+-- parado esperando. Siguiendote van en fila detras de ti, que es lo que se
+-- espera al ver a un heroe con su escolta.
+--
+-- LA RUTA SE QUEDA CON UNA SOLA UNIDAD: tu. Los waypoints ni se les mandan a los
+-- demas -- no es que los ignoren, es que no los reciben -- asi que no hay dos
+-- sistemas moviendo al mismo bot, que es como se llega al "va y vuelve" que ya
+-- costo una ronda con el ancla de `stay`.
+--
+-- Y A LOS NO SELECCIONADOS NO SE LES TOCA. Textual: *"el pj que no estuviera
+-- seleccionado, bueno, por algo sera"*. Un bot al que dejaste en "Esperar"
+-- guardando una puerta no se viene contigo porque hayas pinchado el suelo.
+--
+-- `announce` distingue el primer punto de una ruta (donde la orden de seguir
+-- tiene que salir) de los shift+click que vienen detras (donde ya salio, y
+-- repetirla soltaria las anclas otra vez por cada punto).
+local function RouteUnits(announce)
+	local units = SelectedUnits()
+	if #units < 2 then return units end
+
+	local me = ns.MyName()
+	local mine, others = false, {}
+	for _, n in ipairs(units) do
+		if n == me then mine = true else tinsert(others, n) end
+	end
+	if not mine or #others == 0 then return units end
+
+	if announce then
+		ns.Orders:FollowThese(others)
+		ns.Print(("Ruta: |cffffff00la marcas tu|r y te siguen %d compañero%s.")
+			:format(#others, #others == 1 and "" or "s"))
+	end
+
+	return { me }
+end
+
 -- Click derecho normal: una ruta nueva de UN punto. Se registra aunque solo
 -- tenga un destino porque es lo que permite que el siguiente shift+click
 -- encadene desde el -- sin esto, "mandarlos y luego anadir puntos mientras van"
@@ -381,7 +422,7 @@ end
 -- siempre, que ademas pasa por el servidor para que decida si era atacar o
 -- lootear. Aqui solo se anota el destino.
 function R:Set(x, y, z)
-	local units = SelectedUnits()
+	local units = RouteUnits(true)
 	if #units == 0 then return false end
 	self:ClearFor(units)
 	if not self.enabled then return false end
@@ -404,7 +445,10 @@ end
 function R:Add(x, y, z)
 	if not self.enabled then return false end
 
-	local units = SelectedUnits()
+	-- `false`: si esta ruta ya existe, la orden de seguir salio con su primer
+	-- punto. Y si no existe, la crea `R:Set` unas lineas mas abajo, que la manda
+	-- por su cuenta -- repetirla aqui la mandaria dos veces por cada shift+click.
+	local units = RouteUnits(false)
 	if #units == 0 then
 		ns.Print("Nada seleccionado: el punto no seria de nadie.")
 		return false
@@ -517,7 +561,7 @@ local function Advance()
 		-- Quien ya no esta en el grupo no puede llegar a ningun sitio.
 		for k = #route.units, 1, -1 do
 			local n = route.units[k]
-			if n ~= UnitName("player") and not ns.Selection:UnitFor(n) then
+			if n ~= ns.MyName() and not ns.Selection:UnitFor(n) then
 				byUnit[n] = nil
 				route.u[n] = nil
 				tremove(route.units, k)
@@ -750,6 +794,17 @@ local function PlaceRing(i, x, y, z, n, col)
 	return i + 1
 end
 
+-- Y UN RASTRO DE PUNTITOS ENTRE DESTINOS TAMPOCO, probado y descartado
+-- 2026-09-03. Se pidio con una referencia de otro juego, se construyo (puntos
+-- separados una distancia fija en yardas, arrancando en quien anda) y se vio en
+-- pantalla: no gusto. Es la tercera forma de unir los puntos que se descarta
+-- MIRANDOLA, despues de la fila de puntitos original y de la linea continua con
+-- `DrawRouteLine`.
+--
+-- Merece quedar escrito porque las tres veces el codigo era correcto: lo que
+-- falla no es el dibujo, es la idea de dibujar el camino. La ruta son sus
+-- destinos.
+--
 -- Los puntos que todavia tiene que pisar alguien, en el mismo orden en que se
 -- dibujan. Es lo que ve el servidor: un punto por el que ya paso el ultimo bot
 -- deja de tener marcador porque deja de ser parte del camino.

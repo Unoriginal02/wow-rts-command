@@ -500,9 +500,31 @@ C.DEFAULTS = {
 	shadow = 2,
 }
 
+-- EL ENCUADRE VIVO. Lo que `C:Frame()` aplica al entrar en modo RTS.
+--
+-- `fov` FALTABA AQUI, y por eso la camara isometrica de la etapa 5g no se
+-- aplico NUNCA -- ni antes ni despues del arreglo de la 0.50.0.
+--
+-- La 0.50.0 arreglo que `Camera:Create()` machacaba esta tabla entera con el
+-- frame de eventos, y el informe de entonces dijo que el FOV "deberia aplicarse
+-- ahora". No era verdad, y `PRUEBAS-20` E1 lo caza: aquel arreglo era necesario
+-- pero no suficiente, porque **la clave nunca estuvo en esta tabla**. Con
+-- `cfg.fov` nil, `Frame()` escribe el CVar prestado a 0 -- que significa
+-- literalmente "no toques el FOV" -- asi que el DLL lo respetaba al pie de la
+-- letra.
+--
+-- Lo que lo hizo invisible durante cuatro etapas es lo de siempre: `C:Report()`
+-- lee `tonumber(f.fov) or tonumber(d.fov)`, o sea que **caia a DEFAULTS e
+-- imprimia 60 mientras se escribia 0**. Un lector que miente en la direccion
+-- tranquilizadora, tercera vez en este mismo fichero.
+--
+-- Por eso `Frame()` ahora vuelve a LEER los CVars despues de escribirlos (ver
+-- `C:Report`): un valor que el cliente recorta o rechaza se ve, en vez de
+-- suponerse.
 C.frame = {
 	tilt = C.DEFAULTS.tilt,
 	zoom = C.DEFAULTS.zoom,
+	fov = C.DEFAULTS.fov,
 	shadow = C.DEFAULTS.shadow,
 	maxFactor = "4",     -- cameraDistanceMaxFactor: the multiplier cap
 	distanceMax = "50",  -- cameraDistanceMax: the absolute cap, in yards
@@ -572,9 +594,41 @@ function C:Report()
 	local zoom  = tonumber(f.zoom) or tonumber(d.zoom) or 0
 	local pitch = self:PitchDegrees()
 
-	ns.Print(("copy this line: |cff00ff00back=%.1f up=%.1f tilt=%.2f zoom=%.0f pitch=%s|r")
-		:format(back, up, tilt, zoom, tonumber(f.fov) or 0,
+	-- EL FORMATO LLEVABA CINCO HUECOS Y SEIS ARGUMENTOS, asi que imprimia el FOV
+	-- bajo la etiqueta `pitch` y tiraba el pitch de verdad. Cazado al perseguir
+	-- por que el FOV no se aplicaba (`PRUEBAS-20` E1) -- o sea que el unico
+	-- lector que habia de este valor tambien mentia, y por eso nadie vio en
+	-- cuatro etapas que se estaba escribiendo 0.
+	--
+	-- Es la tercera vez en este fichero: el comentario de arriba dice que un
+	-- lector que falla en silencio es peor que ninguno, y lo decia sobre si
+	-- mismo sin saberlo. `format` en Lua NO se queja de argumentos de mas.
+	local fov = tonumber(f.fov) or 0
+	ns.Print(("copy this line: |cff00ff00back=%.1f up=%.1f tilt=%.2f zoom=%.0f fov=%.0f pitch=%s|r")
+		:format(back, up, tilt, zoom, fov,
 		        pitch and ("%.1f"):format(pitch) or "no-dll"))
+
+	-- LO QUE EL CLIENTE SE QUEDO DE VERDAD, al lado de lo que le pedimos.
+	--
+	-- `SetCVar` sobre un CVar recortado o inexistente no da error en 3.3.5a, asi
+	-- que sin esta linea "el zoom no llega mas lejos" y "no hay sombras" son
+	-- sintomas sin numero detras. Si lo pedido y lo aplicado no coinciden, el
+	-- cliente lo recorto y se ve aqui en vez de en una ronda de pruebas.
+	local a = C.applied
+	if a then
+		ns.Print(("cvars aplicados: |cff00ff00fov=%s|r (pedido %d) zoomFactor=%s zoomMax=%s " ..
+		          "sombra=%s suavizado=%s")
+			:format(tostring(a.fov), math.floor(fov * 10),
+			        tostring(a.maxFactor), tostring(a.distanceMax),
+			        tostring(a.shadow), tostring(a.smooth)))
+		if RTS_Ready ~= 1 then
+			ns.Print("|cffff8800rts_core no esta inyectado|r - el FOV lo escribe el DLL, " ..
+			         "asi que ese CVar no lo lee nadie.")
+		end
+	else
+		ns.Print("|cff888888cvars: todavia sin aplicar (entra en modo RTS).|r")
+	end
+
 	ns.Print("Send that over and it becomes the built-in default - no setup per character.")
 end
 
@@ -612,6 +666,21 @@ function C:Frame()
 	-- sola al salir -- misma regla dura que el resto.
 	local sh = tonumber(cfg.shadow)
 	if sh and sh >= 0 then SetCVar("shadowLevel", tostring(math.floor(sh))) end
+
+	-- LO QUE EL CLIENTE SE QUEDO, no lo que le pedimos.
+	--
+	-- Un CVar puede recortarse (cameraDistanceMaxFactor tiene tope propio) o no
+	-- existir, y en 3.3.5a `SetCVar` sobre algo que no existe **no da error**.
+	-- Sin leerlo de vuelta, "el zoom no llega mas lejos" y "las sombras no salen"
+	-- son dos sintomas sin ningun numero detras -- que es exactamente como
+	-- llegaron de `PRUEBAS-20`. Se guarda y `/rts cam` lo imprime.
+	C.applied = {
+		fov         = GetCVar(FOV_CVAR),
+		smooth      = GetCVar("cameraSmoothStyle"),
+		maxFactor   = GetCVar("cameraDistanceMaxFactor"),
+		distanceMax = GetCVar("cameraDistanceMax"),
+		shadow      = GetCVar("shadowLevel"),
+	}
 
 	if RTSCommandDB.camPreset then
 		SetView(VIEW_SLOT)

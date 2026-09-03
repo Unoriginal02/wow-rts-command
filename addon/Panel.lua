@@ -70,8 +70,8 @@ local I = {
 	drink  = "Interface\\Icons\\INV_Drink_07",
 	hold   = "Interface\\Icons\\Ability_Warrior_DefensiveStance",
 	attack = "Interface\\Icons\\Ability_Warrior_Cleave",
-	pull   = "Interface\\Icons\\Ability_Marksmanship",
-	flee   = "Interface\\Icons\\Ability_Rogue_Feint",
+	reset  = "Interface\\Icons\\Spell_Nature_TimeStop",
+	control= "Interface\\Icons\\Spell_Shadow_Possession",
 	form   = "Interface\\Icons\\Ability_Warrior_BattleShout",
 	rally  = "Interface\\Icons\\Ability_Warrior_Charge",
 	rage   = "Interface\\Icons\\Ability_Warrior_InnerRage",
@@ -158,8 +158,57 @@ local CELLS = {
 	{ short = "Atacar",  icon = I.attack, tip = "Atacan tu objetivo.",
 	  fn = function() Dispatch("attack", "Atacan") end },
 
-	{ short = "Traer",   icon = I.pull,   tip = "Traer tu objetivo hasta el grupo.",
-	  fn = function() Dispatch("pull", "Trayendo") end },
+	-- CONTROLAR A ESE COMPAÑERO. Dos formas, y la de mas peso va en el click
+	-- normal porque es la que pediste: control NATIVO.
+	--
+	--   izquierdo -> `/rts swap`: cambias de personaje de verdad. Sales del modo
+	--     RTS y pasas a SER ese personaje: sus barras de accion reales, su
+	--     libro, sus bolsas, hablar con PNJs, vendedor, entrenador, botin. Sin
+	--     pantalla de seleccion. Solo con personajes de TU cuenta.
+	--   derecho -> `/rts play`: posesion. Instantaneo y sin carga, pero solo
+	--     cambia quien te MUEVE: hablar con PNJs sigue yendo por tu heroe.
+	--
+	-- SUSTITUYE A "TRAER" por el mismo argumento con el que "Huir" dejo su
+	-- sitio: `pull` es una variante estrecha de atacar -- el bot va, pega, y el
+	-- bicho vuelve con el al grupo igual -- asi que costaba una casilla y no
+	-- daba una capacidad distinta.
+	{ short = "Control", icon = I.control, rmb = true,
+	  tip = "Click: te CONVIERTES en ese personaje. Su equipo, sus\n" ..
+	        "hechizos, sus bolsas. El que dejas se queda de bot.\n" ..
+	        "Click derecho: le posees (al momento, pero sin hablar con PNJs).\n" ..
+	        "Hace falta tener UNO solo seleccionado.",
+	  fn = function(_, button)
+		-- Uno y solo uno. Con varios seleccionados no hay respuesta correcta, y
+		-- elegir el primero de la lista seria elegir por el jugador algo que no
+		-- se puede deshacer sin otra carga.
+		local sel = ns.Selection:Get()
+		local who
+		if #sel == 1 then
+			who = sel[1]
+		else
+			who = ns.Selection:GetPrimary()
+			if #sel > 1 then
+				ns.Print("|cffff8800control:|r hay " .. #sel ..
+				         " seleccionados; usando el primario (" .. tostring(who) .. ").")
+			end
+		end
+
+		if not who or who == ns.MyName() then
+			ns.Print("|cffff8800control:|r selecciona a un compañero primero.")
+			return
+		end
+
+		-- EL IZQUIERDO ES EL CAMBIO, como se penso desde el principio, y desde
+		-- la tarde del 2026-09-03 ya no pasa por la lista de personajes: el
+		-- servidor esconde el `SMSG_LOGOUT_COMPLETE` y el cliente se cambia de
+		-- identidad sin salir del mundo. Ver `/rts swap` en `Core.lua`.
+		if button == "RightButton" then
+			ns.Possess:Take(who)
+		else
+			if ns.RTSMode.active then ns.RTSMode:Toggle() end
+			ns.SendServer("SWAP " .. who)
+		end
+	  end },
 
 	{ short = "A saco",  icon = I.rage,   tip = "Queman cooldowns.",
 	  fn = function() Dispatch("max dps", "A saco") end },
@@ -167,8 +216,30 @@ local CELLS = {
 	{ short = "Cazar",   icon = I.grind,  tip = "Campan bichos por la zona.",
 	  fn = function() Dispatch("grind", "A cazar") end },
 
-	{ short = "Huir",    icon = I.flee,   tip = "Rompen el combate.",
-	  fn = function() Dispatch("flee", "Huyendo") end },
+	-- HUIR SE FUE Y ESTE OCUPA SU SITIO. `PRUEBAS-20` 0.2: un bot con un rol
+	-- viejo pegado deja de atacar y no hay nada en pantalla que lo explique --
+	-- las estrategias de playerbots se guardan con el bot y sobreviven al
+	-- relogueo. Sin un boton de "olvida todo", la salida era adivinar cual de
+	-- las diez estaba de mas.
+	--
+	-- `flee` era el candidato a sustituir porque romper el combate ya se
+	-- consigue con "Quieto" o alejandolos, y porque en la practica un grupo que
+	-- huye a la vez se dispersa y hay que reagruparlo -- o sea que costaba mas
+	-- de lo que arreglaba.
+	{ short = "Reset",   icon = I.reset,
+	  tip = "Les devuelve el comportamiento de fabrica y vuelven a seguirte.\n" ..
+	        "Para un compañero que se ha quedado con un rol viejo puesto.",
+	  fn = function()
+		local sel = ns.Selection:Get()
+		if #sel == 0 then ns.Print("Nadie seleccionado.") return end
+		if ns.Orders:HasServer() then
+			ns.SendServer("RESET " .. table.concat(sel, ";"))
+		else
+			-- Sin mod-rts no hay verbo que mandar, y `reset` no es un comando de
+			-- chat de playerbots. Lo mas cerca es devolverlos a seguir.
+			ns.Orders:Follow()
+		end
+	  end },
 
 	-- BOTIN: `ll all` es la estrategia de botin "all" de playerbots
 	-- (LootStrategyValue.cpp), o sea recoger TODO, grises incluidos. Es un
@@ -296,8 +367,19 @@ local function LayoutOrder(i, c)
 	local b = buttons[i]
 	if not b then
 		b = ns.W:Button(host, c.w, spec and spec.icon)
-		b:SetScript("OnClick", function(self)
-			if self.act and self.act.fn then self.act.fn(self) end
+		-- EL DERECHO SOLO CUENTA SI LA CELDA LO PIDE (`rmb = true`).
+		--
+		-- Los botones se reutilizan entre distribuciones, asi que registrar los
+		-- clicks por celda no vale: se registran los dos SIEMPRE y se descarta
+		-- el derecho en el manejador si esa orden no lo usa. Sin ese descarte,
+		-- click derecho sobre "Atacar" atacaria -- y catorce ordenes ganarian un
+		-- gesto que nadie decidio darles.
+		b:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+		b:SetScript("OnClick", function(self, button)
+			local act = self.act
+			if not act or not act.fn then return end
+			if button == "RightButton" and not act.rmb then return end
+			act.fn(self, button)
 		end)
 		buttons[i] = b
 	end

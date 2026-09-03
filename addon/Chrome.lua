@@ -63,6 +63,18 @@ local ITEMS = {
 	{ n = "PartyMemberFrame3",      s = "party",  p = true  },
 	{ n = "PartyMemberFrame4",      s = "party",  p = true  },
 	{ n = "PartyMemberBackground",  s = "party"             },
+	-- Los de banda los crea Blizzard_RaidUI cuando hace falta, asi que lo
+	-- normal es que no existan: la tabla ignora un nombre que no este, y
+	-- enumerarlos aqui es lo que hace que el conjunto `party` cumpla lo que
+	-- dice su etiqueta el dia que se vuelva a encender.
+	{ n = "RaidPulloutFrame1",      s = "party"             },
+	{ n = "RaidPulloutFrame2",      s = "party"             },
+	{ n = "RaidPulloutFrame3",      s = "party"             },
+	{ n = "RaidPulloutFrame4",      s = "party"             },
+	{ n = "RaidPulloutFrame5",      s = "party"             },
+	{ n = "RaidPulloutFrame6",      s = "party"             },
+	{ n = "RaidPulloutFrame7",      s = "party"             },
+	{ n = "RaidPulloutFrame8",      s = "party"             },
 	{ n = "CastingBarFrame",        s = "cast"              },
 	{ n = "PetCastingBarFrame",     s = "cast"              },
 	{ n = "MirrorTimer1",           s = "cast"              },
@@ -143,9 +155,20 @@ local SETS = {
 
 C.SETS = SETS
 
--- Todos escondidos por defecto: es el boceto tal cual.
+-- Escondidos por defecto SALVO el estado de las unidades -- tu marco, el del
+-- objetivo y los del grupo/banda. La sala del centro de la barra se vacio el
+-- 2026-09-02 y con ella se fue lo unico que decia tu vida, tu poder y la del
+-- grupo, asi que esconder ademas los marcos de Blizzard deja el modo RTS sin
+-- NINGUN estado en pantalla. Vuelven donde Blizzard los pone; donde acaben
+-- viviendo es una decision del rediseno de la sala, no de este fichero.
+-- Se siguen pudiendo apagar con /rts ui player|target|party.
+local SHOW_BY_DEFAULT = { player = true, target = true, party = true }
+
+-- Se sube cuando cambia lo que significa una clave guardada de `uiHide`.
+local UIHIDE_GEN = 2
+
 C.hide = {}
-for _, s in ipairs(SETS) do C.hide[s.k] = true end
+for _, s in ipairs(SETS) do C.hide[s.k] = not SHOW_BY_DEFAULT[s.k] end
 
 --- Aparcar y devolver ------------------------------------------------------
 
@@ -374,6 +397,20 @@ end
 
 function C:Create()
 	EnsureSweeper()
+
+	-- LO GUARDADO SOBREVIVE AL CAMBIO DE DEFECTO, y aqui eso seria justo el
+	-- fallo: quien haya tocado alguna vez /rts ui player|target|party tiene un
+	-- `true` guardado de cuando el defecto era esconderlo todo, asi que el
+	-- cambio de arriba no se veria y el sintoma seria "los marcos siguen sin
+	-- volver". Se tiran esas tres claves UNA vez, con sello de generacion --
+	-- comprobar el valor no basta cuando lo que cambia es lo que el valor
+	-- significaba. Misma familia que `grow = 688`, `camHold` y `railCropGen`.
+	if RTSCommandDB.uiHideGen ~= UIHIDE_GEN then
+		if type(RTSCommandDB.uiHide) == "table" then
+			for k in pairs(SHOW_BY_DEFAULT) do RTSCommandDB.uiHide[k] = nil end
+		end
+		RTSCommandDB.uiHideGen = UIHIDE_GEN
+	end
 
 	if type(RTSCommandDB.uiHide) == "table" then
 		for k, v in pairs(RTSCommandDB.uiHide) do

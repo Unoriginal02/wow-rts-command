@@ -58,6 +58,32 @@
 		RTSCommand_SelectIndex(8);
 	</Binding>
 
+	<Binding name="RTSCOMMAND_BAGS" header="RTSCOMMAND_WINDOWS">
+		RTSCommand_ToggleBags();
+	</Binding>
+	<Binding name="RTSCOMMAND_POSSESS">
+		RTSCommand_TogglePossess();
+	</Binding>
+
+	<Binding name="RTSCOMMAND_SKILL1" header="RTSCOMMAND_SKILLS">
+		RTSCommand_Skill(1);
+	</Binding>
+	<Binding name="RTSCOMMAND_SKILL2">
+		RTSCommand_Skill(2);
+	</Binding>
+	<Binding name="RTSCOMMAND_SKILL3">
+		RTSCommand_Skill(3);
+	</Binding>
+	<Binding name="RTSCOMMAND_SKILL4">
+		RTSCommand_Skill(4);
+	</Binding>
+	<Binding name="RTSCOMMAND_SKILL5">
+		RTSCommand_Skill(5);
+	</Binding>
+	<Binding name="RTSCOMMAND_SKILL6">
+		RTSCommand_Skill(6);
+	</Binding>
+
 	<Binding name="RTSCOMMAND_GROUP1" header="RTSCOMMAND_GROUPS">
 		RTSCommand_ControlGroup(1);
 	</Binding>

@@ -41,6 +41,13 @@ namespace rts
         // Release a bot back to following its master.
         bool FollowBot(Player* master, std::string const& botName);
 
+        // Todo a cero: estrategias de fabrica, sin anclajes, siguiendote.
+        //
+        // Es lo unico que arregla un bot con un rol viejo pegado, porque las
+        // estrategias sobreviven al relogueo y no se ven desde el cliente. Ver
+        // `rts::bots::Reset`.
+        bool ResetBot(Player* master, std::string const& botName);
+
         // Every bot in the master's group loots everything, greys included --
         // or back to the default "only what it can use".
         //
@@ -88,6 +95,12 @@ namespace rts
         // Player instead of an invisible creature (Unit.cpp:14610 permits it).
         bool PossessBot(Player* master, std::string const& botName);
         bool ReleaseBot(Player* master, std::string const& botName);
+
+        // Soltar lo que sea que este poseyendo, sin saber su nombre ni mirar el
+        // grupo. Para las salidas del nucleo (logout, cambio de mapa): un charm
+        // sin aura que llegue a `Player::RemoveFromWorld` MATA EL WORLDSERVER
+        // con un ABORT. El porque, entero, en el .cpp.
+        bool ReleaseAnyPossession(Player* master);
         bool ReleaseAll(Player* master);
 
         // Move the commanding player's OWN character.

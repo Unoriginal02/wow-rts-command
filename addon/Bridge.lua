@@ -85,4 +85,32 @@ function B:HasWorldCoords()
 	return self:GetPlayerWorldPosition() ~= nil
 end
 
+--- Como te llamas -----------------------------------------------------------
+--
+-- `UnitName("player")` NO ES DE FIAR desde que se puede cambiar de personaje sin
+-- pasar por la pantalla de seleccion. Visto en juego el 2026-09-03: despues del
+-- cambio el cliente sigue ensenando el nombre del personaje anterior, en su
+-- marco y en esa llamada. La identidad SI cambia -- el guid es el nuevo y el
+-- grupo es el nuevo -- pero el texto va por detras.
+--
+-- Y no es cosmetico, porque el heroe que dejas vuelve de bot Y SE LLAMA COMO TE
+-- LLAMABAS: media docena de sitios del addon comparan nombres para decidir "¿es
+-- este mi personaje?", y con el nombre viejo pegado todos contestan que si sobre
+-- el bot equivocado. Ademas el canal con el servidor se susurra a uno mismo POR
+-- NOMBRE, asi que un nombre rancio lo deja mudo entero.
+--
+-- El servidor lo dice al terminar el cambio (`SWAPPED`) y ahi se guarda, JUNTO
+-- CON EL GUID AL QUE SE REFIERE: sin eso, un cambio seguido de una reconexion
+-- dejaria el nombre de otro pegado para siempre. El guid es la unica identidad
+-- que no miente -- sale del gestor de objetos del cliente, que es el campo que
+-- escribe el `UPDATEFLAG_SELF` -- asi que la anulacion solo vale mientras siga
+-- siendo el mismo.
+function ns.MyName()
+	if ns.serverName and ns.serverNameGuid
+	   and ns.serverNameGuid == UnitGUID("player") then
+		return ns.serverName
+	end
+	return UnitName("player")
+end
+
 return B

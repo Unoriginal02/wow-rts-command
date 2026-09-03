@@ -42,7 +42,120 @@ local DEFAULTS = {
 
 --- Event plumbing ----------------------------------------------------------
 
+
+--- El nombre que el cliente tiene de si mismo -------------------------------
+--
+-- ESTA CLAVADO EN UN BUFFER QUE SOLO ESCRIBE LA PANTALLA DE SELECCION, y por eso
+-- despues de un cambio de personaje el marco de arriba sigue diciendo el nombre
+-- anterior aunque seas otro de verdad -- con su equipo, su libro y su grupo.
+--
+-- No es una teoria. `UnitName` esta en `0x0060E740` y lo primero que hace es
+-- comparar el argumento con la cadena "player" (`0x009F6F4C`):
+--
+--     0060E78B  call 0x76E780        ; strcmpi(unidad, "player")
+--     0060E792  jne  0x60E7B3        ; no es "player" -> mirar el objeto
+--     0060E794  call 0x6B1060        ; SI lo es -> devolver el nombre guardado
+--     0060E79B  call 0x84E350        ; lua_pushstring(L, ese nombre)
+--
+-- Y `0x006B1060` son cinco instrucciones: devuelve la direccion `0x00C79D18` si
+-- el primer byte no es cero. O sea que **para "player" el cliente no mira el
+-- objeto ni el guid**: lee un buffer estatico que se rellena al entrar al mundo
+-- desde la lista de personajes, que es exactamente el paso que este cambio se
+-- salta.
+--
+-- Asi que no hay evento que lo arregle ni funcion de Blizzard que lo recalcule:
+-- lo que ellos dibujan es el contenido de ese buffer. Se les repinta encima.
+--
+-- LA CURA DE RAIZ SERIA QUE `rts_core` ESCRIBIERA EL BUFFER -- es memoria
+-- normal del cliente y el DLL ya escribe cosas mas delicadas -- y entonces
+-- `UnitName("player")` diria la verdad y esto sobraria entero. Queda apuntado y
+-- no hecho: cuesta un canal nuevo para pasarle una CADENA al DLL (el que hay es
+-- un entero empaquetado) y una recompilacion, y esto son ocho lineas.
+--
+-- Se engancha `PlayerFrame_Update` porque Blizzard lo vuelve a poner en cada
+-- evento suyo; un `SetText` de una vez duraria hasta el primer cambio de vida.
+-- `hooksecurefunc` corre DESPUES de la suya, que es lo que hace que la ultima
+-- palabra sea nuestra.
+-- Lo que hay que repintar cuando cambias de personaje sin que el cliente lance
+-- `PLAYER_ENTERING_WORLD`. Cada entrada esta aqui porque se vio vieja en juego,
+-- no por si acaso: las barras de accion seguian con los hechizos del anterior y
+-- pulsar una lanzaba algo que este ya no conoce.
+--
+-- Todo entre `pcall` y comprobando que la funcion exista: son funciones de
+-- Blizzard, y una que cambie de nombre no puede llevarse por delante el resto
+-- de la lista ni el mensaje que viene detras.
+-- ¿EL CLIENTE ESTA DE ACUERDO EN QUE ERES ESE?
+--
+-- El servidor manda nombre Y guid, y esto los contrasta contra
+-- `UnitGUID("player")` -- que sale del gestor de objetos del cliente y es la
+-- unica identidad suya que no miente. Existe porque sin ella el aviso TAPABA el
+-- fallo: un `SWAPPED Bob` hacia que la interfaz dijera "Bob" aunque el cliente
+-- siguiera siendo Avy, y entonces lo unico raro eran los hechizos -- que se lee
+-- como un problema de barras y no como que el cambio no se aplico. Al recargar,
+-- que borra el nombre que dijo el servidor, volvia a salir "Avy" y ahi se veia.
+--
+-- Devuelve nil si el cliente todavia no ha contestado nada (no es un desacuerdo,
+-- es que no hay dato).
+local function ClientAgrees(guid)
+	local mine = UnitGUID("player")
+	if not mine or not guid then return nil end
+	return tonumber(mine) == tonumber(guid)
+end
+
+function ns.RefreshAfterSwap()
+	local function Try(fn, ...)
+		if type(fn) == "function" then pcall(fn, ...) end
+	end
+
+	-- Las barras de accion, que es lo que se reporto. Los botones leen
+	-- `GetActionInfo`, y esos datos SI son los nuevos -- llegan en la rafaga de
+	-- login -- asi que basta con pedirles que se vuelvan a leer.
+	local bars = { "ActionButton", "MultiBarBottomLeftButton",
+	               "MultiBarBottomRightButton", "MultiBarRightButton",
+	               "MultiBarLeftButton" }
+	for _, prefix in ipairs(bars) do
+		for i = 1, 12 do
+			local b = _G[prefix .. i]
+			if b then Try(ActionButton_Update, b) end
+		end
+	end
+
+	-- El grupo: los marcos salian con el nombre y las barras vacias, que es como
+	-- se ve un compañero del que el cliente no tiene datos todavia.
+	for i = 1, 4 do
+		local pf = _G["PartyMemberFrame" .. i]
+		if pf then Try(PartyMemberFrame_UpdateMember, pf) end
+	end
+	Try(UpdatePartyMemberBackground)
+
+	-- Tu marco y el del objetivo, por lo mismo.
+	Try(PlayerFrame_Update)
+	Try(TargetFrame_Update, _G.TargetFrame)
+
+	ns.FixPlayerName()
+end
+
+function ns.FixPlayerName()
+	local fs = _G.PlayerName or (PlayerFrame and PlayerFrame.name)
+	if not fs or not fs.SetText then return end
+
+	if not ns.nameHooked and type(PlayerFrame_Update) == "function" then
+		ns.nameHooked = true
+		hooksecurefunc("PlayerFrame_Update", function()
+			if ns.serverName then fs:SetText(ns.MyName()) end
+		end)
+	end
+
+	fs:SetText(ns.MyName())
+end
+
 local f = CreateFrame("Frame", "RTSCommandCore")
+-- CUANTAS VECES HA ENTRADO EL CLIENTE EN EL MUNDO. Es el testigo que decide
+-- si un cambio de personaje le hizo recargar el mundo: sin recarga no hay
+-- `PLAYER_ENTERING_WORLD` y el numero se queda quieto. Lo lee `/rts whoami`.
+ns.worldEntries = 0
+
+f:RegisterEvent("PLAYER_ENTERING_WORLD")
 f:RegisterEvent("VARIABLES_LOADED")
 f:RegisterEvent("PLAYER_LOGIN")
 f:RegisterEvent("PARTY_MEMBERS_CHANGED")
@@ -87,6 +200,160 @@ local function Initialise()
 	-- lista que no se puede deducir leyendo los ficheros, y por eso esta dicha.
 	ns.Link:Create()
 
+	-- QUIEN ERES, DICHO POR EL SERVIDOR.
+	--
+	-- Hacen falta las dos mitades y ninguna vale sola:
+	--
+	--   * EL AVISO. Un cambio de personaje no dispara un segundo
+	--     `PLAYER_ENTERING_WORLD` -- la recarga del mundo pasa ANTES de soltar
+	--     el heroe, asi que ese evento llega mientras todavia eres el de antes.
+	--     Sin esto el addon no se entera nunca de que ha cambiado.
+	--   * EL NOMBRE. El cliente sigue ensenando el nombre viejo en su marco, y
+	--     `UnitName("player")` con el. Eso convertia al heroe que acabas de
+	--     dejar -- que vuelve de bot y se llama como te llamabas -- en "tu" para
+	--     media docena de comprobaciones del addon.
+	--
+	-- Es autoridad, no una pista: el servidor es quien acaba de meter ese
+	-- personaje en la sesion.
+	ns.Link:On("SWAPPED", function(rest)
+		local name, guid = rest:match("^(%S+)%s+(%d+)$")
+		if not name then return end
+
+		-- SI EL CLIENTE NO ESTA DE ACUERDO, NO SE DISIMULA.
+		--
+		-- Ponerle el nombre nuevo a un cliente que no llego a cambiar es lo que
+		-- convertia un fallo entero en "los hechizos salen mal": todo lo demas
+		-- parecia correcto porque lo estabamos escribiendo nosotros.
+		if ClientAgrees(guid) == false then
+			ns.Print("|cffff4040El cambio NO se aplico en tu cliente.|r El servidor " ..
+			         "dice que eres " .. name .. " y tu cliente sigue siendo " ..
+			         tostring(UnitName("player")) .. ".")
+			ns.Print("|cff888888Es el cambio de mundo, que no llego a completarse. " ..
+			         "Vuelve a pedirlo; si se repite, dimelo con esta linea.|r")
+			return
+		end
+
+		-- EL GUID VA CON EL NOMBRE. Ver `ns.MyName` en `Bridge.lua`: la
+		-- anulacion solo vale mientras sigas siendo ese personaje, y sin el guid
+		-- una reconexion despues de un cambio dejaria el nombre de otro pegado.
+		ns.serverName = name
+		ns.serverNameGuid = UnitGUID("player")
+
+		ns.Selection:IdentityChanged()
+		ns.FixPlayerName()
+
+		-- Y AHORA SE PIDEN LAS BARRAS OTRA VEZ, que es el unico momento en que
+		-- el cliente las puede aceptar.
+		--
+		-- Su manejador de `SMSG_ACTION_BUTTONS` se salta el repaso y el
+		-- repintado si en ese instante no tiene objeto de jugador propio
+		-- (`0x006D87E2`, comprobado en el binario), y la rafaga de login llega
+		-- justo antes de que lo adopte -- el objeto propio viaja en esa misma
+		-- rafaga. Aqui ya hemos comprobado que el guid del cliente coincide con
+		-- el que dice el servidor, o sea que la identidad ESTA puesta: es el
+		-- primer momento en que pedirlas sirve de algo.
+		ns.SendServer("REBARS")
+
+		-- Y SE RECARGA LA INTERFAZ, que es lo unico que arregla lo de los
+		-- hechizos.
+		--
+		-- Los DATOS del personaje nuevo llegan bien: `SendInitialSpells` y
+		-- `SendInitialActionButtons` van dentro de la rafaga de login
+		-- (`Player.cpp:11790,11793`) y el cliente los guarda. Lo que no pasa es
+		-- que la interfaz se entere: los marcos de Blizzard se redibujan con
+		-- `PLAYER_ENTERING_WORLD`, y **el cambio no dispara ninguno** -- la
+		-- recarga del mundo ocurre ANTES de soltar el heroe, y despues de
+		-- cambiar de verdad no hay evento. Asi que las barras seguian ensenando
+		-- las del personaje anterior, y pulsar una lanzaba un hechizo que este
+		-- ya no conoce: de ahi el "se buguea".
+		--
+		-- Se podria refrescar marco por marco, y seria una lista que se queda
+		-- corta: barras, libro, talentos, reputaciones, misiones, bolsas... y la
+		-- siguiente que falte se descubre en juego. `ReloadUI` reconstruye la
+		-- interfaz ENTERA a partir de datos que ya son correctos, y no toca la
+		-- conexion -- no es un relogueo, es lo mismo que `/reload`.
+		--
+		-- Con un respiro para que el mensaje se lea, y apagable: quien prefiera
+		-- una interfaz rara a un parpadeo tiene `/rts swap ui`.
+		ns.Print(("|cff33ccffAhora eres %s.|r"):format(name))
+		if RTSCommandDB.swapReload == false then
+			ns.Print("|cff888888La interfaz NO se refresca (|cffffff00/rts swapui|r). " ..
+			         "Si las barras ensenan los hechizos del anterior, es esto.|r")
+			return
+		end
+
+		-- REFRESCAR LO QUE SE QUEDA VIEJO, EN VEZ DE RECARGAR LA INTERFAZ.
+		--
+		-- `ReloadUI()` era lo limpio y **el cliente lo prohibe**: en juego salio
+		-- *"No se ha podido realizar la accion de interfaz debido a un AddOn"*, que
+		-- es el aviso de accion prohibida. Desde codigo de addon no se puede
+		-- recargar la interfaz, y punto; teclearlo a mano si funciona porque
+		-- entonces no hay addon en la pila.
+		--
+		-- Asi que se refresca a mano lo que depende de `PLAYER_ENTERING_WORLD`, que
+		-- es el evento que un cambio de personaje NO dispara. **Es una lista y las
+		-- listas se quedan cortas**, asi que se dice en voz alta: si algo sigue
+		-- viejo, `/reload` lo arregla y ademas dice cual falta.
+		ns.RefreshAfterSwap()
+		ns.Print("|cff888888Si algo sigue con lo del personaje anterior, " ..
+		         "|cffffff00/reload|r lo arregla -- y dime que era.|r")	end)
+
+	-- LA RESPUESTA A `WHOAMI`, que no recarga nada. Ver el verbo en mod-rts: son
+	-- dos verbos y no uno para que preguntar quien eres no recargue la interfaz.
+	-- LAS DOCE PRIMERAS CASILLAS, LAS DEL SERVIDOR AL LADO DE LAS DEL CLIENTE.
+	--
+	-- "las barras no son las de ese personaje" tiene dos causas con arreglos
+	-- opuestos, y desde el cliente se ven igual: o el servidor manda otra cosa
+	-- -- y entonces el fallo esta en el cambio -- o manda justo eso, y lo que
+	-- hay guardado para ese personaje no es lo que el jugador recuerda. Puestas
+	-- una encima de otra se distingue de un vistazo.
+	ns.Link:On("MYBARS", function(rest)
+		local srv = {}
+		for tok in rest:gmatch("%S+") do srv[#srv + 1] = tok end
+
+		ns.Print("|cffffff00casilla   servidor        cliente|r")
+		for i = 1, 12 do
+			local t, id = GetActionInfo(i)
+			local cli = "-"
+			if t then
+				local nombre = (t == "spell" and id and GetSpellInfo(id)) or nil
+				cli = tostring(t) .. ":" .. tostring(id) ..
+				      (nombre and (" (" .. nombre .. ")") or "")
+			end
+
+			local sv = srv[i] or "?"
+			local sid = sv:match("^1:(%d+)$")
+			if sid then
+				local nombre = GetSpellInfo(tonumber(sid))
+				if nombre then sv = sv .. " (" .. nombre .. ")" end
+			end
+
+			ns.Print(("  %2d  %-22s %s"):format(i, sv, cli))
+		end
+		ns.Print("|cff888888Si las dos columnas coinciden, el cambio manda bien y " ..
+		         "lo guardado para ese personaje ES eso.|r")
+	end)
+
+	ns.Link:On("IAM", function(rest)
+		local name, guid = rest:match("^(%S+)%s+(%d+)$")
+		if not name then return end
+
+		-- Mismo contraste que en `SWAPPED`, y aqui es todavia mas necesario:
+		-- esto corre en CADA entrada al mundo, incluida la de despues de un
+		-- `/reload`. Si el cliente se quedo siendo otro, escribir aqui el nombre
+		-- del servidor borraria la unica pista que quedaba de que algo fallo.
+		if ClientAgrees(guid) == false then
+			ns.Print(("|cffff4040Tu cliente cree que eres %s y el servidor dice %s.|r " ..
+			          "El ultimo cambio no llego a aplicarse."):format(
+				tostring(UnitName("player")), name))
+			return
+		end
+
+		ns.serverName = name
+		ns.serverNameGuid = UnitGUID("player")
+		ns.FixPlayerName()
+	end)
+
 	ns.Markers:Create()
 	ns.SelectionRing:Create()
 	ns.Flare:Create()
@@ -96,6 +363,20 @@ local function Initialise()
 	ns.Camera:Create()
 	ns.Chrome:Create()
 	ns.HUD:Create()
+	-- Skills se crea SIEMPRE, aunque nadie dibuje todavia sus huecos: registra
+	-- verbos en el canal y se suscribe a la seleccion, y las dos cosas tienen
+	-- que estar puestas antes del primer cambio de primario. Bags y Quests no
+	-- estan aqui a proposito: se crean la primera vez que se piden, porque su
+	-- ventana no hace falta hasta entonces.
+	ns.Skills:Create()
+	ns.Chain:Create()
+	ns.Possess:Create()
+	-- Quests se crea SIEMPRE, y no solo al pinchar un PNJ en modo RTS: el
+	-- seguimiento automatico (aceptar y entregar detras de ti) tiene que estar
+	-- enganchado mientras juegas NORMAL, que es cuando hablas con los PNJ. Con
+	-- la creacion perezosa habria hecho falta entrar en modo RTS una vez para
+	-- que empezara a funcionar, y eso no se adivina.
+	ns.Quests:Create()
 	if type(RTSCommandDB.selfBotAuto) == "boolean" then
 		ns.RTSMode.selfBot.auto = RTSCommandDB.selfBotAuto
 	end
@@ -131,7 +412,88 @@ local function Initialise()
 end
 
 f:SetScript("OnEvent", function(self, event)
-	if event == "VARIABLES_LOADED" then
+	if event == "PLAYER_ENTERING_WORLD" then
+		ns.worldEntries = (ns.worldEntries or 0) + 1
+		-- Y AQUI ES DONDE SE NOTA QUE ERES OTRO. Con el cambio de personaje
+		-- este evento ya no significa "acabo de conectarme": significa que la
+		-- sesion puede tener un personaje distinto al de hace un segundo, y
+		-- todo lo que este guardado por nombre deja de referirse a quien creia.
+		if initialised then
+			-- EL MUNDO DEL CLIENTE ESTA OTRA VEZ EN PIE, Y SOLO NOSOTROS LO
+			-- SABEMOS. El cambio de personaje tira el mundo del cliente con un
+			-- `SMSG_NEW_WORLD` y tiene que esperar a que vuelva antes de mandar
+			-- la rafaga de login; el acuse que manda el cliente por su cuenta
+			-- (`MSG_MOVE_WORLDPORT_ACK`) el servidor no lo puede ver, porque el
+			-- nucleo tira esa clase de paquete mientras el jugador siga en el
+			-- mundo. Este evento es el aviso, y sin el la espera se comia doce
+			-- segundos de reloj por cada cambio.
+			--
+			-- Se manda SIEMPRE, tambien en un login normal: el servidor sabe si
+			-- habia alguien esperando y contesta que no en silencio. Preguntar
+			-- primero costaria otro viaje de ida y vuelta para ahorrar un
+			-- mensaje de veinte bytes.
+			-- VARIAS VECES, no una. De este mensaje depende que el servidor
+			-- deje de esperar y mande la rafaga de login; si se pierde, el
+			-- cambio se cae entero doce segundos despues y el cliente se queda
+			-- siendo quien era. Y perderse se pierde: el canal acababa de
+			-- sobrevivir a una recarga de mundo.
+			--
+			-- Repetirlo no cuesta nada porque `ClientPorted` es idempotente --
+			-- levanta una bandera -- y contesta que no cuando no hay ningun
+			-- cambio esperando, que es el caso de cualquier login normal.
+			ns.SendServer("PORTED")
+			local ping = CreateFrame("Frame")
+			ping.acc, ping.left = 0, 4
+			ping:SetScript("OnUpdate", function(self, e)
+				self.acc = self.acc + e
+				if self.acc < 0.5 then return end
+				self.acc, self.left = 0, self.left - 1
+				ns.SendServer("PORTED")
+				if self.left <= 0 then self:SetScript("OnUpdate", nil) end
+			end)
+
+			-- Y SE PREGUNTA COMO NOS LLAMAMOS, porque el cliente no lo sabe.
+			-- `UnitName("player")` devuelve un buffer que solo rellena la
+			-- pantalla de seleccion de personaje (ver `ns.FixPlayerName`), asi
+			-- que despues de un cambio miente -- y despues de recargar la
+			-- interfaz vuelve a mentir, porque el buffer sigue igual. Preguntar
+			-- en cada entrada al mundo lo arregla en los dos casos y no cuesta
+			-- nada en un login normal, donde la respuesta es la esperada.
+			ns.SendServer("WHOAMI")
+
+			ns.Selection:IdentityChanged()
+			-- Y SE DICE QUIEN ERES, sin que haya que preguntarlo. Despues de un
+			-- cambio de personaje "¿quien soy?" deja de ser una curiosidad: es
+			-- el dato del que depende todo lo demas del addon, y si el cliente
+			-- lo tiene mal el sintoma aparece tres modulos mas alla. Una linea
+			-- al entrar cuesta menos que acordarse de teclear `/rts whoami`.
+			ns.Print(("|cff33ccffEres %s|r |cff888888%s|r"):format(
+				tostring(UnitName("player")), tostring(UnitGUID("player"))))
+
+			-- Y SE LE PIDE A BLIZZARD QUE REPINTE SU MARCO.
+			--
+			-- Reportado como *"al loguear con otro pj me sigo llamando
+			-- Neferite"*, con el nombre viejo en el marco de arriba **y el
+			-- personaje viejo tambien en la lista del grupo** -- dos cosas que
+			-- no pueden ser ciertas a la vez, porque nadie sale en su propio
+			-- grupo. Una de las dos esta sin actualizar.
+			--
+			-- Si el que esta sin actualizar es el marco, esto lo arregla: es la
+			-- misma funcion que llama Blizzard en sus propios eventos, y no
+			-- esta protegida. Si despues de esto el nombre SIGUE siendo el
+			-- viejo, entonces lo que esta mal es el nombre que el cliente
+			-- guarda de si mismo, y eso es otro problema y otro arreglo -- pero
+			-- ya sabriamos cual de los dos es, que es lo que hoy no se sabe.
+			--
+			-- Envuelto porque no es nuestra: una funcion de Blizzard que cambie
+			-- de nombre no puede llevarse por delante la entrada al mundo.
+			if type(PlayerFrame_Update) == "function" then
+				pcall(PlayerFrame_Update)
+			end
+		end
+		return
+
+	elseif event == "VARIABLES_LOADED" then
 		RTSCommandDB = RTSCommandDB or {}
 		for k, v in pairs(DEFAULTS) do
 			if RTSCommandDB[k] == nil then RTSCommandDB[k] = v end
@@ -155,6 +517,9 @@ f:SetScript("OnEvent", function(self, event)
 			-- de fabrica.
 			ns.RTSMode:ApplyFreeLoot(true)
 			if ns.RTSMode.active then ns.RTSMode:ApplyLootAll(true) end
+			-- Un bot que entra o sale es una columna mas o una menos en la
+			-- ventana de bolsas. Solo hace algo si esta abierta.
+			ns.Bags:RosterChanged()
 		end
 	end
 end)
@@ -202,6 +567,16 @@ BINDING_NAME_RTSCOMMAND_UNIT8 = "Select unit 8 (shift: add)"
 BINDING_HEADER_RTSCOMMAND_GROUPS = "RTS Command: Control groups"
 BINDING_NAME_RTSCOMMAND_GROUP1 = "Control group 1 (alt: store)"
 BINDING_NAME_RTSCOMMAND_GROUP2 = "Control group 2 (alt: store)"
+BINDING_NAME_RTSCOMMAND_BAGS = "Bolsas del grupo"
+BINDING_NAME_RTSCOMMAND_POSSESS = "Jugar como el seleccionado (y volver)"
+BINDING_HEADER_RTSCOMMAND_SKILLS = "RTS Command - habilidades"
+BINDING_NAME_RTSCOMMAND_SKILL1 = "Habilidad 1 (alt: sobre ti)"
+BINDING_NAME_RTSCOMMAND_SKILL2 = "Habilidad 2 (alt: sobre ti)"
+BINDING_NAME_RTSCOMMAND_SKILL3 = "Habilidad 3 (alt: sobre ti)"
+BINDING_NAME_RTSCOMMAND_SKILL4 = "Habilidad 4 (alt: sobre ti)"
+BINDING_NAME_RTSCOMMAND_SKILL5 = "Habilidad 5 (alt: sobre ti)"
+BINDING_NAME_RTSCOMMAND_SKILL6 = "Habilidad 6 (alt: sobre ti)"
+BINDING_HEADER_RTSCOMMAND_WINDOWS = "RTS Command - ventanas"
 BINDING_NAME_RTSCOMMAND_GROUP3 = "Control group 3 (alt: store)"
 BINDING_NAME_RTSCOMMAND_GROUP4 = "Control group 4 (alt: store)"
 
@@ -263,6 +638,43 @@ function RTSCommand_ToggleRTSMode()
 	ns.RTSMode:Toggle()
 end
 
+-- Las bolsas de todo el grupo. La tecla natural es I, pero NO se asigna sola:
+-- asignar teclas por nuestra cuenta pisa lo que el jugador tuviera puesto, y
+-- este addon tiene la regla dura de devolver todo como estaba. Sale en
+-- Opciones > Teclas, bajo "RTS Command".
+function RTSCommand_ToggleBags()
+	ns.Bags:Toggle()
+end
+
+-- Jugar como el compañero seleccionado, y volver. Una sola tecla para los dos
+-- sentidos: es un cambio de sitio, y una tecla que solo va de ida deja al
+-- jugador buscando la de vuelta justo cuando menos le apetece.
+function RTSCommand_TogglePossess()
+	ns.Possess:Toggle()
+end
+
+-- LA TECLA DE CICLAR EL PRIMARIO SE FUE, y el CONCEPTO se queda.
+--
+-- `PRUEBAS-20` C3: *"casi funciona, puedo cambiar de heroe con tab, pero no
+-- puedo volver atras. Tampoco se si usare tab (...) porque puedo clicar a los
+-- personajes desde el tablero central de la consola. Puedes quitarlo"*.
+--
+-- El "no puedo volver atras" tenia arreglo -- en WoW, TAB y SHIFT-TAB son dos
+-- asignaciones distintas, asi que `IsShiftKeyDown()` dentro de la de TAB no se
+-- cumple nunca y habria hecho falta una segunda tecla. Pero el gesto entero
+-- sobra: pinchar el retrato en la consola hace lo mismo y es lo que se va a
+-- usar.
+--
+-- **El primario NO se va con la tecla.** Sigue siendo lo que decide de quien es
+-- la barra de habilidades, y lo pone `Selection:Set` al seleccionar a UNO. Esa
+-- es la mitad que importaba.
+
+-- Las seis habilidades rapidas del primario. Sin Alt preguntan a quien; con Alt
+-- van sobre ti.
+function RTSCommand_Skill(i)
+	ns.Skills:Use(i)
+end
+
 function RTSCommand_Calibrate()
 	ns.Markers:Calibrate()
 end
@@ -311,6 +723,14 @@ local HELP = {
 	"|cffffff00/rts native|r - rts_core.dll status + offset self-test",
 	"|cffffff00/rts ui|r - que se esconde al entrar en modo RTS, y las medidas de la HUD",
 	"|cffffff00/rts art|r - visor de texturas del cliente (para vestir la HUD sin dibujar)",
+	"|cffffff00/rts bags|r - las bolsas de todo el grupo (tambien con su tecla)",
+	"|cffffff00/rts quests|r - las misiones del PNJ apuntado; |cffffff00auto|r sigue al heroe",
+	"|cffffff00/rts skills|r - las habilidades del personaje primario (Tab lo cambia)",
+	"|cffffff00/rts chain|r - la cadena de ataque; |cffffff00/rts chain off|r la limpia",
+	"|cffffff00/rts npc|r - entrenador y vendedor, actuando como el primario",
+	"|cffffff00/rts play [nombre]|r - juegas como ese compañero; sin nombre, lo sueltas",
+	"|cffffff00/rts swap <nombre>|r - CAMBIAS a ese personaje de tu cuenta (con carga)",
+	"|cffffff00/rts win|r - las ventanas flotantes; |cffffff00/rts win reset|r las recentra",
 	"|cffffff00/rts skin|r - aspecto WC3 o plano; |cffffff00/rts skin wall <ruta>|r cambia una pieza",
 	"|cffffff00/rts bar|r - la barra de abajo: |cffffff00share|r alto, |cffffff00side|r margen, |cffffff00grow|r paneles, |cffffff00guides|r medidas",
 	"Bind keys under Key Bindings -> RTS Command.",
@@ -628,6 +1048,147 @@ SlashCmdList["RTSCOMMAND"] = function(msg)
 			end
 		else
 			ns.Bar:Report()
+		end
+
+	elseif cmd == "bars" or cmd == "barras" then
+		if not ns.Link:HasServer() then
+			ns.Print("|cffff8800barras:|r hace falta mod-rts.")
+		else
+			ns.SendServer("MYBARS")
+		end
+
+	elseif cmd == "swapui" then
+		RTSCommandDB.swapReload = (RTSCommandDB.swapReload == false)
+		ns.Print(("cambiar: refrescar la interfaz al cambiar de personaje |cffffff00%s|r."):format(
+			RTSCommandDB.swapReload and "SI" or "NO"))
+
+	elseif cmd == "swap" or cmd == "cambiar" then
+		-- CAMBIAR DE PERSONAJE, SIN PASAR POR LA LISTA DE PERSONAJES.
+		--
+		-- La version del 2026-09-03 por la manana te sacaba a esa lista y tenias
+		-- que entrar tu. Ya no: el servidor se traga el `SMSG_LOGOUT_COMPLETE`
+		-- (que es lo unico que mandaba al cliente a esa pantalla) y manda la
+		-- rafaga de login del otro personaje con el cliente todavia en el mundo.
+		--
+		-- Lo que hace que eso funcione es un paquete corriente: el cliente adopta
+		-- como suyo cualquier objeto que llegue con `UPDATEFLAG_SELF`, y ese lo
+		-- manda `Map::SendInitSelf` dentro del propio login. El detalle, con las
+		-- direcciones del cliente, esta en `RtsSwap.h` y en `CLAUDE.md`.
+		--
+		-- Tu grupo se rehace solo: el heroe que dejas entra de bot y los demas
+		-- vuelven detras.
+		local who = strtrim(rest or "")
+		if who == "" then
+			ns.Print("cambiar: |cffffff00/rts swap <nombre>|r. Tiene que ser un " ..
+			         "personaje de |cffffff00tu cuenta|r, y no vale en combate.")
+			ns.Print("|cff888888Pasas a SER ese personaje -- sus bolsas, su libro, sus " ..
+			         "barras -- y el que dejas se queda de bot en tu grupo. Para tomar " ..
+			         "el mando sin cambiar, |cffffff00/rts play|r.|r")
+		else
+			if ns.RTSMode.active then ns.RTSMode:Toggle() end
+			ns.SendServer("SWAP " .. who)
+		end
+
+	elseif cmd == "whoami" or cmd == "quiensoy" then
+		-- QUIEN CREE EL CLIENTE QUE ES, con dos testigos independientes.
+		--
+		-- Existe por el cambio de personaje: el servidor puede decir "eres Avy" y
+		-- el cliente seguir siendo Neferite, y desde fuera las dos cosas se ven
+		-- igual. Los dos testigos separan los dos fallos posibles, que tienen
+		-- arreglos distintos:
+		--
+		--   * `UnitName("player")` sale del guid activo del gestor de objetos del
+		--     cliente (`objmgr+0xC0`), que es lo que escribe un objeto recibido con
+		--     `UPDATEFLAG_SELF`. Si dice el nombre NUEVO, la identidad si cambio y
+		--     lo roto es el estado del mundo, no la identidad.
+		--   * el DLL lee ESE MISMO campo por su cuenta, sin pasar por Lua, y de ahi
+		--     saca la posicion que publica. Si Lua dice un nombre y la posicion es
+		--     la del otro, es cache de la interfaz y no del gestor de objetos.
+		--
+		-- Y las entradas al mundo dicen si hubo recarga: `SMSG_LOGIN_VERIFY_WORLD`
+		-- NO HACE NADA si el mapa que trae es el que ya tienes, asi que un cambio
+		-- entre dos personajes del mismo mapa no dispara `PLAYER_ENTERING_WORLD`.
+		-- Si el numero no sube, el cliente no recargo -- que es justo lo que hay
+		-- que saber para decidir si hace falta forzarlo.
+		ns.Print(("|cffffff00player|r %s  |cff888888%s|r"):format(
+			tostring(UnitName("player")), tostring(UnitGUID("player"))))
+		ns.Print(("|cffffff00entradas al mundo|r %d   |cffffff00companeros|r %d"):format(
+			ns.worldEntries or 0, GetNumPartyMembers() or 0))
+
+		-- EL GRUPO CON SUS GUIDS, porque el fallo que esto persigue es que un
+		-- compañero y tu parezcais el mismo. Con los guids delante se ve de un
+		-- vistazo si es una coincidencia de nombre o de identidad, que son dos
+		-- cosas distintas y solo una es un fallo del cliente.
+		for i = 1, (GetNumPartyMembers() or 0) do
+			local u = "party" .. i
+			ns.Print(("  |cff888888%s|r %s  |cff666666%s|r"):format(
+				u, tostring(UnitName(u)), tostring(UnitGUID(u))))
+		end
+
+		if RTS_Ready == 1 then
+			ns.Print(("|cffffff00DLL|r hasPos=%s  %.1f, %.1f, %.1f"):format(
+				tostring(RTS_HasPos), RTS_PX or 0, RTS_PY or 0, RTS_PZ or 0))
+		else
+			ns.Print("|cff888888DLL: no inyectado, solo vale la linea de arriba.|r")
+		end
+
+	elseif cmd == "play" or cmd == "jugar" then
+		-- Sin argumento: suelta si llevas a alguien, y si no toma al primario.
+		local who = strtrim(rest or "")
+		if who ~= "" then
+			ns.Possess:Take(who)
+		elseif ns.Possess.who then
+			ns.Possess:Release()
+		else
+			ns.Possess:Take(nil)
+		end
+
+	elseif cmd == "npc" or cmd == "personaje" then
+		-- El entrenador / vendedor, actuando como el primario. Sobre lo que
+		-- tengas apuntado, que es el camino sin raton.
+		if UnitExists("target") then
+			ns.Npc:Toggle(UnitGUID("target"), UnitName("target"))
+		else
+			ns.Print("personaje: apunta a un entrenador o vendedor primero.")
+		end
+
+	elseif cmd == "chain" or cmd == "cadena" then
+		if (rest or ""):lower():match("^off") or (rest or ""):lower():match("^clear") then
+			ns.Chain:Clear()
+		else
+			ns.Chain:Report()
+		end
+
+	elseif cmd == "skills" or cmd == "habilidades" then
+		ns.Skills:Report()
+
+	elseif cmd == "quests" or cmd == "misiones" then
+		local sub = (rest or ""):lower():match("^(%S*)") or ""
+		if sub == "auto" then
+			local on = not ns.Quests:Auto()
+			ns.Quests:Auto(on)
+			ns.Print("misiones: seguir al heroe en automatico " ..
+				(on and "|cff00ff00ON|r" or "|cffff0000OFF|r"))
+			return
+		end
+		-- Sin argumento mira lo que tengas apuntado, que es el camino sin raton.
+		if UnitExists("target") then
+			ns.Quests:Poke(UnitGUID("target"), UnitName("target"))
+		else
+			ns.Print("misiones: apunta a un personaje, o pinchale en modo RTS.")
+		end
+
+	elseif cmd == "bags" or cmd == "bolsas" then
+		ns.Bags:Toggle()
+
+	elseif cmd == "win" or cmd == "ventana" then
+		-- Las ventanas flotantes (bolsas, quests, entrenador). Aqui solo se
+		-- listan y se recolocan: abrirlas es cosa de cada una, con su tecla.
+		local sub = (rest or ""):match("^(%S*)") or ""
+		if sub:lower() == "reset" then
+			ns.Window:ResetAll()
+		else
+			ns.Window:Report()
 		end
 
 	elseif cmd == "skin" or cmd == "piel" then

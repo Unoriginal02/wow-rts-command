@@ -18,20 +18,33 @@
 
 	Mensajes de addon susurrados A UNO MISMO:
 
-	    SendAddonMessage("RTS", "CAM ON", "WHISPER", UnitName("player"))
+	    SendAddonMessage("RTS", "CAM ON", "WHISPER", ns.MyName())
 
-	Susurrarse a si mismo es lo que hace que esto funcione en solitario. PARTY
-	tambien esta enganchado en el servidor, pero el chat de grupo es donde
-	mod-playerbots lee SUS propios comandos, y un personaje no tiene por que
-	estar en un hermandad. `LANG_ADDON` solo es legal en PARTY, RAID, GUILD,
-	BATTLEGROUND y WHISPER -- un canal privado no es una opcion.
+	Susurrarse a si mismo es lo que hace que esto funcione en solitario.
+	`LANG_ADDON` solo es legal en PARTY, RAID, GUILD, BATTLEGROUND y WHISPER --
+	un canal privado no es una opcion.
+
+	CON GRUPO SE MANDA POR PARTY, desde 2026-09-03, porque el susurro depende de
+	saber como te llamas y despues de un cambio de personaje eso no es cierto
+	(ver `L:Send`). Este fichero decia que PARTY no valia porque *"el chat de
+	grupo es donde mod-playerbots lee SUS propios comandos"*, y **eso no aplica a
+	un mensaje de addon**: `PlayerbotAI.cpp:604` sale con `type == CHAT_MSG_ADDON`
+	y `:610` sale otra vez con `lang == LANG_ADDON`, cada uno con su comentario
+	diciendo justo eso. La objecion era buena para texto plano y se aplico de mas.
 
 	Y una consecuencia que decide medio fichero: **oimos nuestras propias
-	peticiones de vuelta**, porque nos las susurramos nosotros. Cuatro verbos se
-	dicen igual en los dos sentidos (`CAM`, `POS`, `WHAT`, `MARKQ`), asi que un
-	manejador tiene que validar SU PROPIO FORMATO y descartar el eco -- que es
-	justo lo que hacia la cadena de expresiones regulares de antes sin que se
-	notara. Ver `REPLY_ONLY` mas abajo, que es la otra mitad de esto.
+	peticiones de vuelta**, porque nos las susurramos nosotros. CINCO verbos se
+	dicen igual en los dos sentidos (`CAM`, `POS`, `WHAT`, `MARKQ`, `BAGS`), asi
+	que un manejador tiene que validar SU PROPIO FORMATO y descartar el eco --
+	que es justo lo que hacia la cadena de expresiones regulares de antes sin que
+	se notara. Ver `REPLY_ONLY` mas abajo, que es la otra mitad de esto.
+
+	El de `BAGS` se distingue por el NUMERO DE CAMPOS: la peticion es
+	`BAGS <nombre>` y la respuesta `BAGS <nombre> <trozo>`. El de `NPCQ`, por una
+	LETRA DE TIPO: la peticion es `NPCQ <guid>` y la respuesta
+	`NPCQ <guid> Q|S ...`. Cada verbo nuevo de doble sentido tiene que traer su
+	propio discriminante escrito, porque el generico -- "casa con un manejador"
+	-- vale para los dos sentidos por construccion.
 
 	=== EL REPARTO: POR VERBO, NO POR EXPRESION REGULAR =====================
 
@@ -86,9 +99,32 @@ local frame
 
 --- Salida ------------------------------------------------------------------
 
+-- EL SUSURRO A UNO MISMO DEPENDE DE SABER COMO TE LLAMAS, y despues de un
+-- cambio de personaje eso no es cierto.
+--
+-- Visto en juego 2026-09-03: justo despues de cambiar salieron dos
+-- *"No hay ningun jugador con el nombre Avy"* seguidos. Eran `PORTED` y
+-- `WHOAMI`, o sea **los dos mensajes de los que depende el propio cambio** --
+-- por eso el servidor decia "tu cliente no confirmo la recarga" y esperaba doce
+-- segundos, y por eso el addon no se enteraba de su nombre nuevo. Un canal que
+-- se cae precisamente en el momento que tiene que cubrir.
+--
+-- La cura es no necesitar el nombre: `LANG_ADDON` es legal en PARTY, y mod-rts
+-- lee por `OnPlayerBeforeSendChatMessage`, que ve todos los tipos por igual --
+-- el susurro no tenia nada de especial, era solo la forma de hablar estando
+-- solo. Con grupo va por PARTY y no hay nombre que acertar; sin grupo se
+-- susurra como siempre.
+--
+-- No molesta a playerbots: sus ordenes de chat son texto plano y esto es un
+-- mensaje de addon con prefijo propio, que su lector ignora.
 function L:Send(body)
 	if self.debug then ns.Print("|cff888888-> " .. body .. "|r") end
-	SendAddonMessage(PREFIX, body, "WHISPER", UnitName("player"))
+
+	if (GetNumPartyMembers() or 0) > 0 then
+		SendAddonMessage(PREFIX, body, "PARTY")
+	else
+		SendAddonMessage(PREFIX, body, "WHISPER", ns.MyName())
+	end
 end
 
 -- El nombre viejo, que usan `Orders`, `Route`, `Marks` y `RTSMode`. Se queda
@@ -185,6 +221,12 @@ local REPLY_ONLY = {
 	VER = true, DID = true, CAMPOS = true,
 	GROUNDAT = true, GROUNDNO = true,
 	MARKAT = true, MARKERR = true, MARKNO = true,
+	BAGEND = true, BAGOK = true, BAGERR = true,
+	NPCQEND = true, QDONE = true, QERR = true,
+	BARSEND = true, SWAPPED = true, IAM = true, MYBARS = true,
+	CHAINAT = true, CHAINEND = true,
+	TRAINEND = true, VENDEND = true, TRAINED = true,
+	SOLD = true, REPAIRED = true, BOUGHT = true, NPCERR = true,
 }
 
 -- El aviso sale UNA vez, no en cada mensaje.

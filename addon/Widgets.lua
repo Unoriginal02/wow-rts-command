@@ -71,6 +71,26 @@ end
 
 -- 18400 -> "18,4k". En una barra de 256 px de dibujo no cabe "18400 / 23150" a
 -- un tamano legible, y el numero exacto no es lo que se mira de un vistazo.
+-- ¿ESTA PUESTA ESTA BANDERA? Sin `bit`, y eso es deliberado.
+--
+-- `bit.band` existe en 3.3.5a. Pero no lo usaba NI UN FICHERO de este addon
+-- antes de las bolsas y las misiones, y este proyecto lleva cinco etapas
+-- pagando la misma factura -- `nameplateMaxDistance`, `gxWindowedResolution`,
+-- `SetCamera(1)`, `GetActionInfo` -- que siempre es la misma: dar por buena una
+-- llamada del cliente sin comprobarla, y que al fallar **no de error**. Aqui
+-- fallaria como banderas que nunca estan puestas: un objeto vinculado que se
+-- deja coger, una mision con eleccion cuyo boton no pregunta.
+--
+-- La aritmetica no puede fallar y es exacta para potencias de dos, que es todo
+-- lo que hay en los dos protocolos. Cuatro lineas contra una comprobacion
+-- pendiente.
+function W:Flag(value, flag)
+	value = tonumber(value) or 0
+	flag = tonumber(flag) or 0
+	if flag <= 0 then return false end
+	return math.floor(value / flag) % 2 == 1
+end
+
 function W:Short(n)
 	n = tonumber(n) or 0
 	if n >= 1000000 then return ("%.1fM"):format(n / 1000000) end

@@ -1,0 +1,97 @@
+PRUEBAS-22 -- EL CAMBIO DE PERSONAJE SIN PANTALLA DE SELECCION
+==============================================================
+
+Estado al cerrar la sesion del 2026-09-03 (noche).
+Addon 0.70.0, mod-rts 0.35.0, rts_core 0.10.0 (sin tocar hoy).
+TODO COMPILADO Y DESPLEGADO. Hay que reiniciar el servidor.
+
+Todo el detalle tecnico esta en `C:\Server\CLAUDE.md`, en las secciones del
+2026-09-03. Esto es solo el estado y lo que queda por mirar.
+
+
+DONDE ESTAMOS
+-------------
+
+Se puede cambiar de personaje **sin pasar por la pantalla de seleccion**: sales
+del heroe, entras en el compañero, y el que dejas vuelve de bot a tu grupo. Eso
+funciona. Lo que se comporta raro es lo que el CLIENTE hace despues, y hoy se
+han cerrado cuatro capas de ese problema una detras de otra:
+
+  1. el cliente reventaba (ERROR #132)            -> `SMSG_NEW_WORLD` en vez de
+                                                     dejarle ir a la pantalla
+  2. el cliente no cambiaba de identidad          -> recarga de mundo + destroy
+  3. el nombre se quedaba con el anterior         -> `ns.MyName()` + `IAM`
+  4. las barras se quedaban con las anteriores    -> `REBARS`
+
+Lo ultimo (`REBARS`) es de esta misma sesion y **no se ha visto funcionar**: el
+jugador dice *"ha mejorado algo pero se comporta raro"* y ahi lo dejamos.
+
+
+LO QUE HAY QUE PROBAR
+---------------------
+
+[ ] A1. Cambio simple. Estando en el heroe, click izquierdo en "Control" con UN
+        compañero seleccionado (o `/rts swap <nombre>`).
+        Tiene que salir: pantalla de carga, y despues en el chat
+        "RTS Ahora eres <nombre>" SIN el aviso rojo.
+        Si sale |cffff4040"El cambio NO se aplico en tu cliente"|r -> el cliente
+        no adopto la identidad. Copia esa linea entera: trae los dos nombres y
+        es la unica forma de saber en que salto se cae.
+
+[ ] A2. Las barras de accion son las de ese personaje, las doce casillas.
+        Si no: `/rts bars` y pega las dos columnas. Servidor y cliente lado a
+        lado; si coinciden el transporte esta bien y el problema es el
+        repintado, si no coinciden es al reves.
+
+[ ] A3. El grupo vuelve entero. El chat dice al empezar "Vuelven de bot: A, B,
+        C" y al acabar "tu grupo esta entero (N)".
+        Si alguno no vuelve, el chat da su NOMBRE -- pegalo. Un bot aleatorio
+        del servidor no puede volver y eso ya se avisa al empezar.
+
+[ ] A4. Encadenar: heroe -> A -> B -> C, sin recargar por el medio.
+        Es donde han salido todos los fallos de hoy. Mirar en cada salto el
+        nombre del marco de arriba Y las barras.
+
+[ ] A5. `/reload` despues de un cambio. Tiene que seguir diciendo el nombre
+        correcto (lo pregunta al servidor con `WHOAMI`) y las barras seguir
+        siendo las buenas.
+
+
+LO QUE QUEDA ABIERTO
+--------------------
+
+* **"Se comporta raro" sin concretar.** Es lo primero que hay que estrechar
+  manana: que exactamente, en que salto, y con `/rts bars` delante.
+
+* **Un dato nuevo sin explicar.** En la ultima captura el addon imprime
+  "Eres Kirinah 0x0000000000000401" -- o sea que `UnitName("player")` decia
+  Kirinah. Antes, en la misma situacion, decia el nombre del personaje con el
+  que se entro desde la lista. **El buffer `0x00C79D18` no deberia cambiar
+  nunca**, asi que o el jugador habia entrado como Kirinah desde la lista, o
+  algo mas lo escribe. Merece confirmarse antes de dar por buena la teoria del
+  buffer, que hoy explico bastantes cosas.
+
+* **Los dos anillos de seleccion.** Sin confirmar. La explicacion probable esta
+  escrita desde la etapa 5e: el dibujo nativo tiene dos ranuras (objetivo y
+  mouseover) y `Circle.cpp` deja correr el original antes de dibujar los
+  nuestros, asi que seleccionar en el mundo -- que tambien pone de objetivo --
+  se lleva dos. Si molesta: no publicar el nuestro para la unidad que ya es tu
+  objetivo, una comparacion en `Channel.lua`, sin tocar el DLL.
+
+* **La deuda de los nombres.** Todo el addon guarda cosas por nombre asumiendo
+  que el personaje de la sesion no cambia nunca. Hoy se barrieron los 18 usos
+  de `UnitName("player")`, pero `Route`, `Marks`, `Bags` y `Skills` guardan
+  ESTADO por nombre. Merece un barrido dedicado, no un parche por sintoma.
+
+* **La cura de raiz del nombre**, apuntada y no hecha: que `rts_core` escriba
+  el buffer `0x00C79D18`. Sobraria el repintado del marco y media `ns.MyName`.
+  Cuesta un canal nuevo para pasarle una CADENA al DLL (el que hay es un entero
+  empaquetado de 30 bits) mas una recompilacion.
+
+
+Y LO QUE VIENE DESPUES
+----------------------
+
+El centro de la HUD, que lleva esperando desde que se vacio la sala el
+2026-09-02. El hueco `hall` existe, mide 344 de alto por 710..2758 de ancho
+segun `grow`, y no tiene rejilla a proposito para no predecidir el rediseno.

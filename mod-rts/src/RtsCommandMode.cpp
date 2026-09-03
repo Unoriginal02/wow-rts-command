@@ -1,5 +1,6 @@
 #include "RtsCommandMode.h"
 
+#include "RtsBotApi.h"   // la unica puerta a mod-playerbots
 #include "RtsOrders.h"
 
 #include "Group.h"
@@ -10,12 +11,7 @@
 #include "SpellInfo.h"
 #include "SpellMgr.h"
 
-#include "AiObjectContext.h"
-#include "LastMovementValue.h"
 #include "MotionMaster.h"
-#include "PlayerbotAI.h"
-#include "PlayerbotMgr.h"
-#include "PlayerbotRepository.h"
 
 #include <algorithm>
 #include <list>
@@ -45,25 +41,13 @@ namespace
     // master guid -> the bot they are currently casting through.
     std::unordered_map<ObjectGuid, Borrowed> g_borrowed;
 
+    // Estaba DUPLICADA palabra por palabra con la de `RtsOrders.cpp`. Ahora las
+    // dos son un alias de `rts::bots::Resolve`, que es donde vive la unica
+    // copia -- y donde vive tambien la comprobacion de que el bot esta en tu
+    // grupo, que es lo unico que impide mandar los bots de otro.
     Player* ResolveBot(Player* master, std::string const& name)
     {
-        if (!master || name.empty())
-            return nullptr;
-
-        Player* bot = ObjectAccessor::FindPlayerByName(name, false);
-        if (!bot || bot == master || !bot->IsInWorld())
-            return nullptr;
-
-        Group* group = master->GetGroup();
-        if (!group || !group->IsMember(bot->GetGUID()))
-            return nullptr;
-
-        return bot;
-    }
-
-    PlayerbotAI* AiFor(Player* bot)
-    {
-        return bot ? PlayerbotsMgr::instance().GetPlayerbotAI(bot) : nullptr;
+        return rts::bots::Resolve(master, name);
     }
 
     // TOMAR PRESTADO UN BOT PARA LANZAR POR EL, y devolverlo COMO ESTABA.
@@ -78,24 +62,23 @@ namespace
     // Es la misma regla dura que `Camera.lua` aplica a sus CVars y `Chrome.lua`
     // a los frames de Blizzard: capturar antes del primer cambio y devolver a lo
     // capturado, nunca a un valor por defecto.
-    void Suppress(PlayerbotAI* ai, Borrowed& b, bool on)
+    void Suppress(Player* bot, Borrowed& b, bool on)
     {
-        if (!ai)
+        if (!rts::bots::Driven(bot))
             return;
 
         if (on)
         {
-            b.wasPassiveCombat = ai->HasStrategy("passive", BOT_STATE_COMBAT);
-            b.wasPassiveIdle   = ai->HasStrategy("passive", BOT_STATE_NON_COMBAT);
-            ai->ChangeStrategy("+passive", BOT_STATE_NON_COMBAT);
-            ai->ChangeStrategy("+passive", BOT_STATE_COMBAT);
+            b.wasPassiveCombat = rts::bots::Has(bot, "passive", rts::bots::COMBAT);
+            b.wasPassiveIdle   = rts::bots::Has(bot, "passive", rts::bots::IDLE);
+            rts::bots::Change(bot, "+passive", rts::bots::BOTH);
             return;
         }
 
         if (!b.wasPassiveIdle)
-            ai->ChangeStrategy("-passive", BOT_STATE_NON_COMBAT);
+            rts::bots::Change(bot, "-passive", rts::bots::IDLE);
         if (!b.wasPassiveCombat)
-            ai->ChangeStrategy("-passive", BOT_STATE_COMBAT);
+            rts::bots::Change(bot, "-passive", rts::bots::COMBAT);
     }
 }
 
@@ -141,8 +124,7 @@ bool rts::command::CastAs(Player* master, std::string const& botName, uint32 spe
     auto fail = [why](char const* reason) { if (why) *why = reason; return false; };
 
     Player* bot = ResolveBot(master, botName);
-    PlayerbotAI* ai = AiFor(bot);
-    if (!ai)
+    if (!rts::bots::Driven(bot))
         return fail("that unit is not one of yours");
 
     if (!bot->HasSpell(spellId))
@@ -179,7 +161,7 @@ bool rts::command::CastAs(Player* master, std::string const& botName, uint32 spe
     }
     if (!b.suppressed)
     {
-        Suppress(ai, b, true);
+        Suppress(bot, b, true);
         b.suppressed = true;
     }
     b.sinceLastCast = 0;
@@ -206,13 +188,12 @@ bool rts::command::CastAs(Player* master, std::string const& botName, uint32 spe
     // lo que durase el viaje anterior.
     bot->StopMoving();
     bot->GetMotionMaster()->Clear();
-    if (AiObjectContext* ctx = ai->GetAiObjectContext())
-        ctx->GetValue<LastMovement&>("last movement")->Get().clear();
+    rts::bots::ForgetLastMove(bot);
 
     // Routed through the bot's own AI rather than Unit::CastSpell, so range,
     // facing, cooldowns and the global cooldown are all respected exactly as
     // they are when the bot casts for itself.
-    if (!ai->CastSpell(spellId, target))
+    if (!rts::bots::Cast(bot, spellId, target))
         return fail("no salio (alcance, enfriamiento, linea de vision o estaba en movimiento)");
 
     return true;
@@ -335,15 +316,12 @@ std::vector<rts::command::Role> rts::command::Roles(Player* master, std::string 
     std::vector<Role> out;
 
     Player* bot = ResolveBot(master, botName);
-    PlayerbotAI* ai = AiFor(bot);
-    if (!ai)
+    if (!rts::bots::Driven(bot))
         return out;
 
-    AiObjectContext* context = ai->GetAiObjectContext();
-    if (!context)
+    std::set<std::string> const supported = rts::bots::Supported(bot);
+    if (supported.empty())
         return out;
-
-    std::set<std::string> const supported = context->GetSupportedStrategies();
 
     for (char const* name : kRoleNames)
     {
@@ -355,8 +333,9 @@ std::vector<rts::command::Role> rts::command::Roles(Player* master, std::string 
         // `passive` cuenta como puesto si lo esta en CUALQUIERA de los dos
         // estados: es lo que hace que un bot dejado pasivo por `Hold` se vea
         // encendido en la fila y se pueda apagar desde ahi.
-        r.active = ai->HasStrategy(name, BOT_STATE_COMBAT)
-                || (std::string(name) == "passive" && ai->HasStrategy(name, BOT_STATE_NON_COMBAT));
+        r.active = rts::bots::Has(bot, name, rts::bots::COMBAT)
+                || (std::string(name) == "passive"
+                    && rts::bots::Has(bot, name, rts::bots::IDLE));
         out.push_back(r);
     }
 
@@ -367,12 +346,10 @@ bool rts::command::SetRole(Player* master, std::string const& botName,
                            std::string const& role, bool on)
 {
     Player* bot = ResolveBot(master, botName);
-    PlayerbotAI* ai = AiFor(bot);
-    if (!ai || role.empty())
+    if (!rts::bots::Driven(bot) || role.empty())
         return false;
 
-    AiObjectContext* context = ai->GetAiObjectContext();
-    if (!context || !context->GetSupportedStrategies().count(role))
+    if (!rts::bots::Supported(bot).count(role))
         return false;
 
     // The stance goes first and alone: drop the other two before adding this
@@ -381,12 +358,13 @@ bool rts::command::SetRole(Player* master, std::string const& botName,
     {
         for (char const* other : kRoleNames)
         {
-            if (role != other && IsStance(other) && ai->HasStrategy(other, BOT_STATE_COMBAT))
-                ai->ChangeStrategy(std::string("-") + other, BOT_STATE_COMBAT);
+            if (role != other && IsStance(other)
+                && rts::bots::Has(bot, other, rts::bots::COMBAT))
+                rts::bots::Change(bot, std::string("-") + other, rts::bots::COMBAT);
         }
     }
 
-    ai->ChangeStrategy((on ? "+" : "-") + role, BOT_STATE_COMBAT);
+    rts::bots::Change(bot, (on ? "+" : "-") + role, rts::bots::COMBAT);
 
     // `passive` VA EN LOS DOS ESTADOS, y las demas no. Las tres posturas
     // (tank/dps/heal) solo significan algo en combate, pero "esperar" significa
@@ -408,14 +386,14 @@ bool rts::command::SetRole(Player* master, std::string const& botName,
     // Manda el `stay` de playerbots, y el camino de `stay` de este modulo
     // (`MoveBot`) hace justo lo contrario -- `-passive` en los dos estados.
     if (role == "passive")
-        ai->ChangeStrategy((on ? "+" : "-") + role, BOT_STATE_NON_COMBAT);
+        rts::bots::Change(bot, (on ? "+" : "-") + role, rts::bots::IDLE);
 
     // A role the player set by hand should survive the bot logging out with the
     // rest of its strategies. This is the same save the `co` chat command does
     // (ChangeStrategyAction.cpp:26) -- without it the setting lives only in
     // memory and comes back wrong after a restart, which reads as "the roles do
     // not stick" rather than as "they were never written down".
-    PlayerbotRepository::instance().Save(ai);
+    rts::bots::Save(bot);
     return true;
 }
 
@@ -425,8 +403,7 @@ bool rts::command::SetFocus(Player* master, std::string const& botName,
                             ObjectGuid targetGuid, bool* hostile)
 {
     Player* bot = ResolveBot(master, botName);
-    PlayerbotAI* ai = AiFor(bot);
-    if (!ai || !targetGuid)
+    if (!rts::bots::Driven(bot) || !targetGuid)
         return false;
 
     Unit* target = ObjectAccessor::GetUnit(*bot, targetGuid);
@@ -450,30 +427,22 @@ bool rts::command::SetFocus(Player* master, std::string const& botName,
     // well as whoever I picked ten minutes ago" -- a list that only ever grows
     // would quietly stop meaning anything after the third click, and there is
     // no way to see it from the client.
-    AiObjectContext* context = ai->GetAiObjectContext();
-    if (!context)
-        return false;
-
     std::list<ObjectGuid> focus;
     focus.push_back(targetGuid);
-    context->GetValue<std::list<ObjectGuid>>("focus heal targets")->Set(focus);
-    ai->ChangeStrategy("+focus heal targets", BOT_STATE_COMBAT);
+    if (!rts::bots::SetFocusHeal(bot, focus))
+        return false;
+
+    rts::bots::Change(bot, "+focus heal targets", rts::bots::COMBAT);
     return true;
 }
 
 bool rts::command::ClearFocus(Player* master, std::string const& botName)
 {
     Player* bot = ResolveBot(master, botName);
-    PlayerbotAI* ai = AiFor(bot);
-    if (!ai)
+    if (!rts::bots::SetFocusHeal(bot, std::list<ObjectGuid>()))
         return false;
 
-    AiObjectContext* context = ai->GetAiObjectContext();
-    if (!context)
-        return false;
-
-    context->GetValue<std::list<ObjectGuid>>("focus heal targets")->Set(std::list<ObjectGuid>());
-    ai->ChangeStrategy("-focus heal targets", BOT_STATE_COMBAT);
+    rts::bots::Change(bot, "-focus heal targets", rts::bots::COMBAT);
     return true;
 }
 
@@ -489,7 +458,7 @@ void rts::command::Release(Player* master, std::string const& /*botName*/)
     if (it->second.suppressed)
     {
         if (Player* bot = ObjectAccessor::FindPlayer(it->second.bot))
-            Suppress(AiFor(bot), it->second, false);
+            Suppress(bot, it->second, false);
     }
 
     g_borrowed.erase(it);
@@ -516,7 +485,7 @@ void rts::command::Update(uint32 diff)
         if (b.suppressed)
         {
             if (Player* bot = ObjectAccessor::FindPlayer(b.bot))
-                Suppress(AiFor(bot), b, false);
+                Suppress(bot, b, false);
         }
         it = g_borrowed.erase(it);
     }

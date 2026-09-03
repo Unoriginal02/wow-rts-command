@@ -1,0 +1,272 @@
+RTS COMMAND - LISTA DE PRUEBAS  #20
+Generada 2026-09-03   ·   addon 0.51.0 · mod-rts 0.19.0 · rts_core sin tocar
+
+HAY QUE REINICIAR EL SERVIDOR. mod-rts pasa de 0.15.0 a 0.19.0. El
+worldserver.exe recien compilado esta en C:\Server\build\bin\Release y
+1_Iniciar_Servidor.bat lo copia a dist el solo, asi que basta con cerrar bien
+(NO con la X) y volver a arrancar.
+
+Comprueba en el chat al entrar en modo RTS que dice mod-rts 0.19.0. Si dice
+0.15.0, el servidor viejo sigue corriendo y TODO lo de esta ronda fallara de la
+misma forma -- sin error, sin nada.
+
+QUE HAY EN ESTA RONDA
+  Las cuatro features del video del otro desarrollador, mas el cortafuegos de
+  actualizaciones que se pidio antes que nada.
+
+    0. EL CORTAFUEGOS. Todo mod-playerbots pasa ya por UN fichero.
+    A. BOLSAS COMPARTIDAS. Ves las de todos y pasas objetos sin intercambio.
+    B. QUESTEO MULTIPLE. Las misiones de un NPC y quien puede cogerlas.
+    C. CONTROL DE PERSONAJES. Tab, las seis habilidades, y el ataque encadenado.
+    D. ACTUAR COMO EL BOT. Entrenador y vendedor.
+
+  Y una cosa que cambia SOLA y hay que mirar (viene de la 0.50.0, sin probar):
+    E. EL FOV ISOMETRICO, LOS TOPES DE ZOOM Y LAS SOMBRAS.
+
+COMO LEER ESTA LISTA
+  [x] funciona   [!] falla   [?] no lo tengo claro
+  Debajo de cada bloque hay una linea `notas:`. Cada prueba dice QUE SIGNIFICA
+  que falle, para que un resultado malo estreche el problema.
+
+TECLAS NUEVAS -- HAY QUE ASIGNARLAS A MANO
+  Opciones > Teclas > "RTS Command - ventanas" y "RTS Command - habilidades".
+  NO se asignan solas a proposito: asignar teclas por nuestra cuenta pisa lo que
+  tuvieras puesto, y este addon tiene la regla dura de devolver todo como
+  estaba. Sugerencia: I para las bolsas, Tab para el siguiente personaje, 1..6
+  para las habilidades.
+
+---------------------------------------------------------------------------
+0. EL CORTAFUEGOS (no se ve, pero si falla se ve TODO)
+---------------------------------------------------------------------------
+
+Las ~83 llamadas a mod-playerbots que habia repartidas entre RtsOrders.cpp y
+RtsCommandMode.cpp viven ahora en RtsBotApi.cpp, que es el unico fichero de
+mod-rts que incluye una cabecera suya. No cambia ningun comportamiento: es
+mover codigo. Pero lo movido es TODO lo que hace que los bots obedezcan, asi
+que si algo se rompio aqui, se rompio entero.
+
+[x] 0.1 Selecciona un bot y mandale moverse con click derecho. Va y se queda.
+        Si no va -> `MoveBot`. Es el camino mas usado del modulo.
+
+[!] 0.2 Click derecho sobre un enemigo con varios seleccionados. Van y pelean.
+        Si van pero no pelean, mira si alguno esta en "Esperar": el servidor lo
+        dice en el chat. Eso NO es un fallo del cortafuegos.
+	Nota: una integrante del gurpo debe tener un rol distinto y ya no va a atacar, a lo mejor esta puesta en otra cosa. en el panel de 9x9 necesitamos algo para volverlos al estado basico.  sustituye uno que no sirva mucho para nada como el de huir
+
+[!] 0.3 Sal del modo RTS. Los bots vuelven a seguirte.
+        Si se quedan clavados -> `FollowBot` / `ClearAnchor`.
+	Nota: Si no me siguen en RTS no me siguen en Live, esto es bien. 
+	aparte: he puesto stay a todos los pj incluido el pj princial, y mientras ellos se quedan alla donde los deje (incluso despues de moverlos individualmente a otras localizacoines) El pj princiipal no lo puedo mandar a otra localizacion, intenta ir a donde esta el punto y se vuelve al origen donde le configure el stay (bug) 
+
+[X] 0.4 Mata algo y comprueba que los bots recogen el botin, grises incluidos.
+        Si no -> `SetLootAll`.
+
+notas:
+
+
+---------------------------------------------------------------------------
+A. BOLSAS COMPARTIDAS
+---------------------------------------------------------------------------
+
+Tecla asignada (sugerida: I) o `/rts bags`. Una columna por personaje, tu
+incluido, con su dinero y sus huecos libres.
+
+[X] A1. Se abre y salen TODAS las columnas: tu y cada bot del grupo.
+        Si sale solo la tuya -> el servidor no contesta `BAGS`; mira
+        `/rts version` y `/rts debug`.
+	Nota: no funcionan por "I" pero si por el comando. 
+
+[x] A2. Los iconos de los objetos son los correctos.
+        UN CUADRO DE COLOR EN VEZ DE UN ICONO NO ES UN FALLO la primera vez:
+        el cliente no conoce los objetos que no ha visto nunca y hay que
+        pedirlos. Tiene que arreglarse solo en un segundo o dos. Si se queda
+        en cuadros para siempre -> el scanner de cache no funciona.
+
+[x] A3. Pincha un objeto de un bot: se queda pegado al raton. Pincha la columna
+        de otro: se mueve al instante, sin ventana de intercambio.
+
+[x] A4. Intenta mover algo VINCULADO (un arma que lleve equipada no, esa no
+        sale; algo gris vinculado si). Sale apagado y al pinchar lo dice.
+        Si deja cogerlo y luego falla en silencio -> las banderas no llegan.
+
+[x] A5. Llena la bolsa de un bot y prueba a pasarle algo. Dice "no le queda
+        hueco" en el chat.
+        Si el objeto DESAPARECE -> para de probar y avisa: seria el fallo grave
+        de esta ronda (el objeto sale del origen y no entra en el destino).
+
+[X] A6. Click DERECHO con algo cogido: lo suelta sin moverlo.
+
+[x] A7. Cierra y vuelve a abrir. La ventana esta donde la dejaste.
+        Arrastra por la barra de titulo, no por el centro.
+
+notas: Los iconos se ven SUPER GRANDES. los necesito mas pequeños y definir mejor la zona que ocupa la bolsa de cada integrante. molaria usar un frame como el de mochila para cada integrante del grupo y que tenga scroll interno en caso de que no quepan todos los objetos de las bolsas. 
+
+
+---------------------------------------------------------------------------
+B. QUESTEO MULTIPLE
+---------------------------------------------------------------------------
+
+En modo RTS, CLICK IZQUIERDO sobre un PNJ. Si tiene misiones se abre la
+ventana; si no tiene, no pasa nada (eso es correcto: un lobo no abre nada).
+Sin raton: apunta al PNJ y `/rts quests`.
+
+[x] B1. Pincha un PNJ con misiones. Sale una fila por mision con su nivel.
+
+[x] B2. Por cada mision hay un punto de color por personaje:
+          amarillo = puede cogerla    blanco = la lleva
+          verde    = lista            verde oscuro = ya la hizo
+          gris     = no le vale
+        Comprueba que el tuyo dice la verdad (compara con tu registro).
+
+[x] B3. "Aceptar (N)". Todos los que podian la tienen. Miralo en el registro de
+        misiones de uno de los bots (`.playerbots` o entrando con el).
+
+[x] B4. VETE LEJOS DEL PNJ (30-40 metros) y vuelve a pinchar... no puedes,
+        hace falta verlo. Prueba al reves: aceptala para el grupo mientras los
+        BOTS estan lejos, quietos en otro sitio. Tiene que funcionar igual.
+        Es el "you don't have to actually be next to it" del video, y si falla
+        significa que algo del camino si comprueba distancia.
+
+[X] B5. Una mision lista para entregar: sale "Entregar (N)".
+
+[X] B6. Una mision CON ELECCION DE RECOMPENSA: salen los iconos de los objetos
+        y el boton dice "Elige premio" hasta que pinchas uno.
+        Si pulsas sin elegir, lo dice y no entrega. Eso es lo correcto: dar el
+        objeto equivocado a cuatro personajes no se deshace.
+
+[X] B7. Despues de aceptar o entregar, la lista se refresca sola y el estado
+        cambia. Si una mision desbloquea la siguiente, aparece.
+
+notas: Personajes con misiones disponibles (naranja) no me deja hacer que la cojan. no hay forma.  a lo mejor esto pasac on el resto de interaccions como completar mision. 
+Al abrrir cojer una mision con el heroe, si el resto del grupo puede cogerla, / devolvera, ya deberia hacerlo de forma automatica, sin entrar en el nuevo panel. 
+la seleccion de recompensa: si no selecciono nada el bot debe escoger la que me jor le funcione por stats / clase
+
+
+---------------------------------------------------------------------------
+C. CONTROL DE PERSONAJES
+---------------------------------------------------------------------------
+
+Hay un concepto nuevo: el PRIMARIO. Es de quien son las habilidades, y NO es lo
+mismo que la seleccion. Seleccionar a uno le hace primario; seleccionar a varios
+deja el primario como estaba. Es lo que permite tener al grupo entero cogido y
+atacando mientras hojeas las habilidades de uno.
+
+[!] C1. `/rts skills` con tu personaje: salen tus hechizos.
+        Si salen hechizos RAROS que no son tuyos -> `GetActionInfo` esta
+        devolviendo indices de libro y el contraste con el icono no los caza.
+	Nota: mi personaje dice que no tiene una barra guardada. (si deberia tenerla no? la suya la del juego normal)
+
+[X] C2. Selecciona un bot. `/rts skills` ensena LOS SUYOS (los de su barra de
+        acciones tal como lo dejaste jugandolo).
+        Si dice "pidiendo la barra..." para siempre -> el verbo `BARS` no
+        contesta.
+
+[!] C3. Tab (la tecla que le asignes) pasa al siguiente del grupo Y LA
+        SELECCION NO CAMBIA. Shift+Tab va hacia atras.
+        Comprueba que los halos de seleccion siguen donde estaban.
+	Nota: casi funciona, puedo cambiar de heroe con tab, pero no puedo volver atras. Tampoco se si usare tab, esta feature no me importa demasiado, porque puedo clicar a los personajes desde el tablero denctral de la consola. ppuedes quitarlo
+
+[!] C4. Con un bot de primario y un enemigo apuntado, pulsa la tecla de la
+        habilidad 1. La lanza contra el enemigo.
+	La consola central no esta configurada aun no veo avatares  ni barras, esto lo haremos luego. 
+
+[!] C5. SIN nada apuntado, pulsa la habilidad 1: dice "elige objetivo". El
+        siguiente click izquierdo elige. El derecho cancela.
+        Comprueba que ese click NO cambia la seleccion.
+
+[!] C6. ALT + la tecla de la habilidad: va sobre TI directamente, sin preguntar.
+        Es la convencion del video.
+
+[!] C7. ATAQUE ENCADENADO. Con varios seleccionados, SHIFT + CLICK IZQUIERDO
+        sobre tres o cuatro enemigos. Aparecen los iconos de banda 1, 2, 3, 4
+        sobre ellos y el grupo va a por el primero.
+        Si NO salen los numeros pero si van a por ellos, es que este cliente no
+        deja poner iconos de banda -- el addon lo dice en el chat. La cadena
+        funciona igual.
+
+[!] C8. Cuando muere el primero, el grupo pasa SOLO al segundo. Y al tercero.
+        `/rts chain` dice cual va con "<- ahora".
+        Si se quedan parados -> `rts::chain::Update`.
+
+[!] C9. Shift + click sobre uno que YA esta en la cadena: lo quita.
+
+[!] C10. `/rts chain off` la limpia.
+
+notas:
+
+
+---------------------------------------------------------------------------
+D. ACTUAR COMO EL BOT (entrenador y vendedor)
+---------------------------------------------------------------------------
+
+Selecciona un bot (que sea el primario), apunta a un entrenador o vendedor y
+`/rts npc`. Manda el bot al lado con click derecho primero: comprar, entrenar y
+reparar SI exigen tener el PNJ delante, y el servidor lo dice si esta lejos.
+
+[!] D1. Con un entrenador de la clase del bot: sale su lista de hechizos, con
+        precio, y los que ya sabe en gris.
+        Si sale la lista de OTRA clase o vacia -> el filtro por clase/raza.
+
+[!] D2. Pincha un hechizo disponible: lo aprende y le cobra. El chat lo dice.
+
+[!] D3. "Aprender todo lo que pueda": aprende de mas barato a mas caro hasta
+        quedarse sin oro. El chat dice cuantos y cuanto.
+
+[!] D4. Con un vendedor: sale lo que vende con precios.
+        Pincha algo: lo compra. Shift+click compra 5.
+
+[!] D5. "Vender la basura gris" con el bot al lado de un vendedor: vende todo
+        lo gris y dice cuanto saco.
+        COMPRUEBA QUE NO VENDIO NADA QUE NO FUERA GRIS. Es lo unico
+        irreversible de esta ronda.
+
+[!] D6. "Reparar" con el bot al lado de un reparador: repara y dice el coste.
+
+[!] D7. Con el bot LEJOS del PNJ, prueba los tres botones. Los tres tienen que
+        DECIR "esta demasiado lejos", no callarse.
+
+notas: esto esta todo mal. controlar al bot se refiere a poner la camara a ese bot y controlarlo como si estuvieramos en modo de juego normal. con wasd para moverlo click derecho para interactuar con cosas. etc. todo. 
+no se si es mejor hacerlo todo dentro del modo rts, o podemos salir al modo FPV pero tomando el control de ese bot en vez del heroe principal?
+
+
+---------------------------------------------------------------------------
+E. LO QUE CAMBIA SOLO (viene de la 0.50.0)
+---------------------------------------------------------------------------
+
+`Camera:Create()` machacaba la tabla de encuadre con el frame de eventos, asi
+que el FOV, los topes de zoom y las sombras llevaban cuatro etapas SIN
+aplicarse -- mientras `/rts cam` imprimia los valores correctos. Ya esta
+arreglado y esto es la primera vez que se ve.
+
+[!!!!!!] E1. Entra en modo RTS. La camara se ve mas PLANA que antes (FOV 60 en vez
+        de los 90 del cliente). Si te parece demasiado, `/rts cam fov 70`.
+        Si NO notas ninguna diferencia -> el CVar prestado no se esta
+        escribiendo. 
+	Nota: FOV DOES NOT CHANGE !!! BUG
+
+[!] E2. Aleja la camara con la rueda. Llega mas lejos que antes.
+
+[!] E3. Hay sombras bajo los personajes.
+
+[!] E4. Sal del modo RTS. TODO vuelve como estaba: FOV normal, tope de zoom
+        normal, sombras como las tuvieras.
+        Esto es la regla dura del proyecto y es lo mas importante de la E.
+
+notas: BUG
+
+
+---------------------------------------------------------------------------
+LO QUE NO ESTA EN ESTA RONDA, A PROPOSITO
+---------------------------------------------------------------------------
+
+  * EL DIBUJO de las habilidades. `Skills.lua` tiene los datos y las acciones y
+    NO pinta nada: el centro de la consola se vacio para redisenarlo y poner
+    seis botones ahi ahora seria predecidir ese rediseno. Se usa con teclas.
+
+  * El ayudante de misiones (a donde ir). Fuera por decision tuya.
+
+  * El menu de conversacion siendo el bot. Sigue abierto, con plazo de media
+    sesion, y esta escrito por que es lo unico dudoso que queda.
+
+  * Partir pilas al pasar objetos. Solo pilas enteras: partir una pila es
+    `SplitItem`, y de las dos formas de equivocarse ahi una duplica objetos.

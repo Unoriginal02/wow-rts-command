@@ -267,8 +267,25 @@ end
 -- before any capture could steal it. Falls back to projected picking only if
 -- there was none.
 function R:OnLeftClick(sx, sy, shift, alt, hover)
+	-- UNA HABILIDAD ARMADA SE COME EL CLICK, y va lo primero de todo.
+	--
+	-- Pulsar una habilidad sin Alt y sin objetivo la deja esperando a que elijas
+	-- sobre quien (la convencion del video). Mientras espera, el click siguiente
+	-- SIGNIFICA ese objetivo y nada mas -- si ademas cambiara la seleccion,
+	-- curar al tanque te dejaria con el tanque cogido y el grupo suelto.
+	--
+	-- Sobre suelo vacio se cancela, que es lo que quiere decir pinchar la nada.
+	if ns.Skills:Aiming() then
+		if hover then
+			ns.Skills:AimAt(hover.guid, hover.name)
+		else
+			ns.Skills:AimAt(nil)
+		end
+		return
+	end
+
 	local m = hover and hover.ours and { name = hover.name, guid = hover.guid,
-	                                     isPlayer = hover.name == UnitName("player") }
+	                                     isPlayer = hover.name == ns.MyName() }
 	          or self:UnitAt(sx, sy)
 
 	-- Alt-click takes command of the unit: its action bar appears and you cast
@@ -343,6 +360,22 @@ function R:OnLeftClick(sx, sy, shift, alt, hover)
 	-- Hoy un click izquierdo sobre algo que no es tuyo no hace nada nuestro: el
 	-- cliente lo apunta por su cuenta, como fuera del modo RTS.
 	if hover and not hover.ours then
+		-- SHIFT sobre un HOSTIL lo encadena (1, 2, 3...). Es el gesto que la
+		-- fila de enemigos borrada usaba para fijar bichos, y esta linea es la
+		-- que su comentario decia que era la suya. El icono se pone AQUI y no
+		-- despues porque solo se puede poner sobre `mouseover`, que es lo que
+		-- el cliente tiene ahora mismo y en un instante ya no.
+		if shift and hover.hostile then
+			ns.Chain:Add(hover.guid, hover.name, "mouseover")
+			return
+		end
+
+		-- Sin shift: preguntar sus misiones. No se comprueba antes si es un PNJ
+		-- amistoso -- el servidor contesta `NPCQEND <guid> 0` para un lobo y la
+		-- ventana no se abre. Mantener aqui una segunda clasificacion seria otra
+		-- cosa que puede discrepar de la del servidor, y esa discrepancia ya ha
+		-- costado rondas en este mismo gesto.
+		ns.Quests:Poke(hover.guid, hover.name)
 		return
 	end
 
@@ -375,6 +408,14 @@ end
 -- an enemy is an attack order, a friendly NPC is an interaction, and bare
 -- ground is a move.
 function R:OnRightClick(sx, sy, hover, shift)
+	-- El derecho cancela una habilidad armada y NO da la orden. Es la salida del
+	-- gesto, y tiene que existir: sin ella la unica forma de deshacer un "elige
+	-- objetivo" pulsado por error es lanzarlo sobre algo.
+	if ns.Skills:CancelAim() then
+		ns.Print("|cff888888habilidad cancelada.|r")
+		return
+	end
+
 	if ns.Selection:IsEmpty() then return end
 
 	local x, y, z = ns.Markers:CursorGroundPoint()
@@ -1071,7 +1112,7 @@ end
 -- SendLoot del servidor, que no sabe nada de estrategias.
 local function SelfLootStrategy(on)
     SendChatMessage(on and "nc +loot,+gather" or "nc -loot,-gather",
-                    "WHISPER", nil, UnitName("player"))
+                    "WHISPER", nil, ns.MyName())
 end
 
 function R:SelfBotSet(want, quiet)
