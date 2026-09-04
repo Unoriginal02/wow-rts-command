@@ -69,7 +69,15 @@ local ADDON, ns = ...
 local K = {}
 ns.Skills = K
 
-K.MAX_SLOTS = 6      -- el techo del brief ("4, ampliables a 6")
+-- DIEZ, que es lo que pide el boceto ("10x Spells"). El brief escrito decia
+-- "4, ampliables a 6"; el boceto que vino despues los pone en una sola fila de
+-- diez y manda el boceto, que es mas concreto y ademas cabe (lo comprueba
+-- `sim/hall_layout.py` para los cinco `grow`).
+--
+-- Es el techo de lo que se GUARDA. Cuantos se DIBUJAN lo decide `Hall`, y con
+-- varios personajes cogidos son cuatro (el 2x2) -- pero los mismos cuatro
+-- primeros de esta lista, no otra configuracion.
+K.MAX_SLOTS = 10
 
 --- Estado ------------------------------------------------------------------
 
@@ -263,7 +271,7 @@ end
 -- nada mas seleccionar a alguien se lee como que la barra no funciona.
 function K:Slots(name, n)
 	name = name or ns.Selection:GetPrimary()
-	n = n or ns.Hall.slots or 4
+	n = n or ns.Hall.slots or K.MAX_SLOTS
 
 	local cat = self:Available(name)
 	local byId = {}
@@ -578,10 +586,11 @@ end
 
 function K:Report()
 	local name = ns.Selection:GetPrimary()
-	local slots = self:Slots(name)
+	local n = ns.Hall.slots or K.MAX_SLOTS
+	local slots = self:Slots(name, n)
 	ns.Print(("habilidades de |cff33ccff%s|r: %d huecos%s"):format(
-		name, ns.Hall.slots or 4, self:Pending(name) and " (pidiendo...)" or ""))
-	for i = 1, (ns.Hall.slots or 4) do
+		name, n, self:Pending(name) and " (pidiendo...)" or ""))
+	for i = 1, n do
 		local s = slots[i]
 		if s then
 			ns.Print(("  %d. %s (%d) |cff888888%s%s|r"):format(

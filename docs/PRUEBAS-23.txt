@@ -2,7 +2,7 @@ PRUEBAS-23 -- LA SALA SE LLENA: EL PANEL DE CONTROL DE GRUPO
 ============================================================
 
 Estado al cerrar la sesion del 2026-09-04.
-Addon 0.75.0, mod-rts 0.36.0, rts_core 0.10.0 (sin tocar hoy).
+Addon 0.76.0, mod-rts 0.36.0, rts_core 0.10.0 (sin tocar hoy).
 TODO COMPILADO Y DESPLEGADO. **HAY QUE REINICIAR EL SERVIDOR** (verbo nuevo
 `CASTQ` y `BARS` cambia de formato).
 
@@ -16,16 +16,28 @@ DONDE ESTAMOS
 
 La sala estaba VACIA desde el 2 de septiembre. Ahora lleva:
 
-  +----------+----------------------------------------------+
-  | LISTA    |  ARRIBA   marcos: personaje / objetivo /     |
-  | (tu el   |           objetivo de su objetivo            |
-  |  primero |----------------------------------------------|
-  |  y los 4)|  ABAJO    huecos de hechizo                  |
-  |          |           4 botones de accion                |
-  +----------+----------------------------------------------+
+ESTADO A -- uno seleccionado (o ninguno):
 
-Con DOS O MAS seleccionados toda la zona derecha se convierte en una columna
-por personaje, con su nombre de cabecera y sus huecos debajo.
+  +--------+------------------------------------------------+
+  | LISTA  |  (o)[==]    (o)[==]   (o)[=]                   |  marcos
+  |  x5    |  ----------------------------------------      |  raya
+  |        |  [1][2][3][4][5][6][7][8][9][10]               |  hechizos
+  |        |  [ macro 1 ][ macro 2 ][ macro 3 ][ macro 4 ]  |  macros
+  +--------+------------------------------------------------+
+
+ESTADO B -- dos o mas:
+
+  +--------+-------------+-------------+-------------+------+
+  | LISTA  |    Bob      |    Avy      |   Kirinah   | ...  |
+  |  x5    |  [1]  [2]   |  [1]  [2]   |  [1]  [2]   |      |
+  |        |  [3]  [4]   |  [3]  [4]   |  [3]  [4]   |      |
+  |        | [ macro 1 ] | [ macro 1 ] | [ macro 1 ] |      |
+  |        | [ macro 2 ] | [ macro 2 ] | [ macro 2 ] |      |
+  +--------+-------------+-------------+-------------+------+
+
+LOS DIEZ HUECOS Y EL 2x2 SON LA MISMA CONFIGURACION: el 2x2 son los huecos 1..4
+de esos mismos diez, y los dos macros del estado B son los dos primeros de los
+cuatro. No hay dos sitios donde configurar lo mismo.
 
 NADA DE ESTO SE HA VISTO EN JUEGO. La geometria si esta comprobada fuera del
 juego (`sim/hall_layout.py`, que cazo dos fallos antes de compilar), asi que lo
@@ -37,13 +49,16 @@ LO PRIMERO DE TODO
 ------------------
 
 [ ] 0. Reiniciar el servidor y entrar. `/rts version` tiene que decir
-       mod-rts 0.36.0 y addon 0.75.0.
+       mod-rts 0.36.0 y addon 0.76.0.
        Si mod-rts sale 0.35.0 el worldserver viejo sigue corriendo: los huecos
        saldran sin clasificar (todo pedira objetivo o ninguno lo pedira) y no
        habra cola. No es un fallo del panel.
 
 [ ] 0b. Entrar en modo RTS. La sala tiene que estar LLENA.
         Si sigue vacia: `/rts hall`. Dira el estado, el tamano y los huecos.
+
+[ ] 0c. Una RAYA horizontal separa los marcos de arriba de los hechizos.
+        notas:
 
 
 A. LA COLUMNA DE PERSONAJES (§3 del brief)
@@ -79,7 +94,9 @@ B. LOS MARCOS DE ARRIBA (§4.1)
 
 [ ] B1. Con UN personaje seleccionado salen hasta tres marcos: el suyo, el de
         su objetivo, y el del objetivo de su objetivo.
-        Con el bot peleando tienen que salir los tres.
+        Con el bot peleando tienen que salir los tres, y **cada uno mas pequeno
+        que el anterior** (300 / 240 / 180 de ancho de dibujo). Es la jerarquia
+        dicha con el tamano, no un descuadre.
         notas:
 
 [ ] B2. El retrato se ve. Si sale en negro, `SetPortraitTexture` no esta
@@ -105,7 +122,9 @@ B. LOS MARCOS DE ARRIBA (§4.1)
 C. LOS HUECOS DE HECHIZO (§4.1, §5)
 -----------------------------------
 
-[ ] C1. Con un personaje seleccionado salen 4 huecos con sus hechizos.
+[ ] C1. Con un personaje seleccionado salen **DIEZ** huecos en una fila.
+        Los que su barra no llene salen vacios (con la ranura gris), que es
+        correcto: son huecos para configurar.
         Si salen vacios: `/rts skills` dice de quien son, cuantos hay y si se
         esta pidiendo la barra. Un bot sin barra de acciones guardada no ofrece
         nada -- hay que entrar con el una vez y ponerle hechizos.
@@ -201,12 +220,22 @@ D. LA COLA (§5, y `docs/HECHIZOS-COLA.md`)
         notas:
 
 
-E. LOS CUATRO BOTONES DE ACCION (§4.1)
---------------------------------------
+E. LOS CUATRO MACROS (§4.1 y el boceto)
+---------------------------------------
 
-[ ] E1. Debajo de los hechizos hay cuatro botones con etiqueta:
-        Focus, Quieto, Sigue, Ataca.
+Son BARRAS ANCHAS con el nombre escrito, no iconos cuadrados: un macro se lee,
+un hechizo se reconoce.
+
+[ ] E1. Debajo de los hechizos hay cuatro barras anchas con icono pequeno a la
+        izquierda y nombre: Cuidar, Quieto, Sigueme, Ataca.
+        **Los cuatro juntos tienen que medir lo mismo que la fila de hechizos
+        de arriba** -- el ancho se deriva de ella. Si no coinciden, decirlo.
         notas:
+
+[ ] E1b. El nombre NO se parte en dos lineas ni se sale de la barra. Si lo hace,
+         el anclaje a los dos lados no esta recortando (`SetWordWrap` no existe
+         en 3.3.5a, asi que esa es la unica defensa).
+         notas:
 
 [ ] E2. **Click DERECHO cambia lo que hace cada uno** (lista de once acciones).
         Persiste tras `/reload`. `/rts hall acciones` los imprime.
@@ -235,18 +264,27 @@ E. LOS CUATRO BOTONES DE ACCION (§4.1)
 F. EL ESTADO B: VARIOS SELECCIONADOS (§4.2)
 -------------------------------------------
 
-[ ] F1. Selecciona DOS. Los marcos de arriba desaparecen y salen dos columnas,
-        cada una con el nombre en su color de clase y sus huecos debajo.
+[ ] F1. Selecciona DOS. Los marcos y la fila de diez desaparecen y salen dos
+        columnas, cada una con el nombre en su color de clase, un 2x2 de huecos
+        y DOS macros anchos debajo.
         notas:
 
-[ ] F2. Con los CINCO seleccionados salen cinco columnas de cuatro huecos.
-        Segun el sim esto cabe con `grow` 4, que es lo que sale solo a pantalla
-        completa en 2560x1440.
+[ ] F2. Con los CINCO seleccionados salen cinco columnas. Segun el sim esto cabe
+        con `grow` 4, que es lo que sale solo a pantalla completa en 2560x1440.
         notas:
 
 [ ] F3. Los huecos de cada columna son los de SU personaje, no los mismos
         repetidos. Es lo que hace util el modo: repartir ordenes de una tacada.
         notas:
+
+[ ] F3b. **Y son los MISMOS que los cuatro primeros del estado A.** Configura el
+         hueco 2 de alguien con un personaje solo seleccionado, luego selecciona
+         a dos, y el hueco 2 de su columna tiene que ser el mismo hechizo.
+         Si no coinciden hay dos configuraciones donde deberia haber una.
+         notas:
+
+[ ] F3c. Los dos macros de la columna son los DOS PRIMEROS de sus cuatro.
+         notas:
 
 [ ] F4. Lanzar desde una columna funciona igual, luz circular incluida.
         notas:
@@ -254,12 +292,18 @@ F. EL ESTADO B: VARIOS SELECCIONADOS (§4.2)
 [ ] F5. **Si NO caben** (prueba `/rts bar grow 1` y selecciona a los cinco):
         las columnas no deben dibujarse recortadas ni salirse del arte.
         `/rts hall` tiene que decir que no caben y que se ensanche.
-        Volver con `/rts bar grow 4`.
         notas:
 
-[ ] F6. `/rts hall slots 6` pone seis huecos por personaje. Con `grow` 4 y
-        cinco columnas siguen cabiendo (57 px cada uno segun el sim).
-        `/rts hall slots 4` vuelve.
+[ ] F5b. **Y con `grow` 1 la fila de DIEZ tampoco cabe** (438 de ancho para 472
+         que hacen falta). Con un solo seleccionado, la fila de hechizos tiene
+         que ESCONDERSE entera -- no salir recortada ni pisando el arte -- y
+         `/rts hall` decir por que.
+         Volver con `/rts bar grow 4`.
+         notas:
+
+[ ] F6. `/rts hall slots 6` baja la fila del estado A a seis huecos; los macros
+        de abajo tienen que ENCOGER con ella, porque su ancho se deriva de la
+        fila. `/rts hall slots 10` vuelve.
         notas:
 
 

@@ -63,8 +63,14 @@ local PP_H   = 12
 local PET_H  = 8
 local GAP    = 2
 
-local FRAME_W  = 300  -- el del seleccionado
-local SMALL_W  = 240  -- objetivo y objetivo-de-objetivo
+-- LOS TRES MARCOS BAJAN DE TAMANO SEGUN SE ALEJAN DE TI, que es lo que dibuja
+-- el boceto: el circulo del tercero es visiblemente mas pequeno que el del
+-- segundo. No es decoracion -- es la jerarquia dicha con el tamano, que se lee
+-- de reojo: el tuyo importa, el enemigo importa menos, y a quien pega el
+-- enemigo es un dato de apoyo.
+local FRAME_W  = 300  -- el del personaje seleccionado
+local SMALL_W  = 240  -- su objetivo
+local TOT_W    = 180  -- el objetivo de su objetivo
 local FRAME_GAP = 14
 
 local host, marcos = nil, {}
@@ -291,7 +297,7 @@ function F:Layout()
 
 	marcos.self     = marcos.self     or Build("self", FRAME_W)
 	marcos.target   = marcos.target   or Build("target", SMALL_W)
-	marcos.totarget = marcos.totarget or Build("totarget", SMALL_W)
+	marcos.totarget = marcos.totarget or Build("totarget", TOT_W)
 
 	-- ALINEADOS A LA IZQUIERDA y en el minimo alto, que es lo que pide el
 	-- brief. Si no caben los tres, se dibujan los que quepan: `Paint` esconde

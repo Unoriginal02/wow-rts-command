@@ -1,15 +1,33 @@
 --[[
-	Cast.lua -- los huecos de hechizo y los botones de accion.
+	Cast.lua -- los huecos de hechizo y los macros.
 
 	Es el contenido de la zona derecha de la sala, y dibuja los DOS estados que
 	`Hall.lua` decide:
 
-	  A  un personaje  ->  una fila de huecos + una fila de cuatro acciones
-	  B  dos o mas     ->  una columna por personaje, con su nombre de cabecera
+	  A  un personaje  ->  una fila de DIEZ huecos + CUATRO macros anchos
+	  B  dos o mas     ->  por columna: 2x2 de huecos + DOS macros anchos
 
 	Los datos y las acciones no estan aqui: `Skills.lua` los tiene. Aqui esta el
 	DIBUJO y el GESTO. En el estado B hay hasta cinco columnas pidiendo lo mismo
 	a la vez, y con la logica dentro del panel serian cinco copias de todo.
+
+	=== HUECOS E ICONOS, MACROS Y TEXTO ====================================
+
+	Los huecos de hechizo son cuadrados con icono; los macros son barras anchas
+	con el nombre escrito. La diferencia no es de tamano, es de como se leen: un
+	icono de hechizo se RECONOCE (es el mismo dibujo que en la barra de acciones
+	de siempre), y un macro se LEE, porque es algo que el jugador ha puesto ahi
+	y puede cambiar manana.
+
+	Es la razon por la que el boceto los dibuja distintos, y por la que hay un
+	`W:Wide` en `Widgets.lua` en vez de un `W:Button` mas largo.
+
+	=== LOS CUATRO DEL ESTADO A SON LOS MISMOS QUE LOS DOS DEL B ============
+
+	Igual que los diez huecos y el 2x2: el estado B ensena los DOS PRIMEROS de
+	los cuatro macros de ese personaje. Guardar dos listas habria sido dos
+	sitios donde configurar lo mismo, y el jugador descubriendo en combate que
+	el macro 2 no dice lo mismo segun cuantos lleve cogidos.
 
 	=== EL GESTO DE §5, Y LA LUZ CIRCULAR ==================================
 
@@ -39,23 +57,22 @@
 	recorrido, asi que la luz hay que redimensionarla al hueco o las chispas dan
 	la vuelta por donde no es.
 
-	=== CONFIGURAR UN HUECO ================================================
+	=== CONFIGURAR UN HUECO O UN MACRO =====================================
 
-	CLICK DERECHO sobre el hueco abre la lista de hechizos de ESE personaje --
+	CLICK DERECHO abre la lista. En un hueco, los hechizos de ESE personaje --
 	que es su barra de acciones, no tu libro, porque tu libro no tiene la
-	Polimorfia del mago (ver `Skills.lua`). Se elige y ya.
+	Polimorfia del mago (ver `Skills.lua`). En un macro, el catalogo de
+	acciones.
 
 	"ARRASTRAR DEL LIBRO DE HECHIZOS" NO PUEDE EXISTIR PARA UN BOT y no es
 	rodeable: `PickupSpell` solo coge lo que tu conoces. Lo que el brief pide --
 	huecos vacios, configurables, por personaje -- se cumple entero; cambia el
 	gesto de arrastrar a elegir.
 
-	=== LOS CUATRO BOTONES DE ACCION =======================================
+	=== LOS MACROS APLICAN A UNO ===========================================
 
-	Mismo mecanismo: click derecho para elegir que hace cada uno, de un catalogo
-	de acciones de playerbot mas las nuestras. Aplican SOLO al personaje
-	seleccionado, que es lo que los distingue de la rejilla 4x4 -- esa va
-	siempre a todo el grupo.
+	Es lo que los distingue de la rejilla 4x4, que desde el 2026-09-04 va
+	siempre a todo el grupo. La rejilla es LO GLOBAL y la sala LO PARTICULAR.
 
 	CURAR EN FOCUS NO HABIA QUE PROGRAMARLO. Es `PFOCUS`, compilado desde
 	mod-rts 0.15.0: sobre un objetivo amistoso pone la lista
@@ -70,13 +87,12 @@ ns.Cast = C
 
 C.active = false
 
-local hosts = {}          -- key -> Frame de Hall
-local spellBtn = {}       -- i -> boton (estado A)
-local actBtn = {}         -- i -> boton (estado A)
-local colBtn = {}         -- col -> { head = FontString, [i] = boton }
+local spellBtn = {}       -- i -> boton cuadrado (estado A)
+local macroBtn = {}        -- i -> barra ancha  (estado A)
+local colBtn = {}          -- ci -> { head, spells = {}, macros = {} }
 local flyout
 
---- Las acciones -----------------------------------------------------------
+--- Las acciones que puede llevar un macro ---------------------------------
 --
 -- CADA UNA APLICA A UN SOLO PERSONAJE. Las que son comandos de chat de
 -- playerbots van por `Orders:SendTo`, que susurra a ese bot y nada mas; las que
@@ -87,7 +103,7 @@ local flyout
 -- son estrategias registradas por clase en el propio mod-playerbots.
 
 local ACTIONS = {
-	{ key = "focus", label = "Focus", icon = "Interface\\Icons\\Spell_Holy_PrayerOfHealing",
+	{ key = "focus", label = "Cuidar", icon = "Interface\\Icons\\Spell_Holy_PrayerOfHealing",
 	  aim = true,
 	  tip = "Que se dedique a CUIDAR a quien elijas.\n" ..
 	        "Sobre un amigo: le cura en exclusiva (`focus heal targets`).\n" ..
@@ -102,7 +118,7 @@ local ACTIONS = {
 	  tip = "Aguanta donde esta.",
 	  fn = function(name) ns.Orders:SendTo(name, "stay") end },
 
-	{ key = "follow", label = "Sigue", icon = "Interface\\Icons\\Ability_Rogue_Sprint",
+	{ key = "follow", label = "Sigueme", icon = "Interface\\Icons\\Ability_Rogue_Sprint",
 	  tip = "Vuelve a seguirte.",
 	  fn = function(name) ns.Orders:SendTo(name, "follow") end },
 
@@ -114,7 +130,7 @@ local ACTIONS = {
 	  tip = "Quema enfriamientos.",
 	  fn = function(name) ns.Orders:SendTo(name, "max dps") end },
 
-	{ key = "tank", label = "Tanque", icon = "Interface\\Icons\\Ability_Defend",
+	{ key = "tank", label = "Tanquea", icon = "Interface\\Icons\\Ability_Defend",
 	  tip = "Que coja tu objetivo (`tank attack`).",
 	  fn = function(name) ns.Orders:SendTo(name, "tank attack") end },
 
@@ -158,17 +174,17 @@ C.focus = {}
 
 function C:PointAt(name, guid, label)
 	if not ns.Link:HasServer() then
-		ns.Print("|cffff8800focus:|r hace falta mod-rts.")
+		ns.Print("|cffff8800cuidar:|r hace falta mod-rts.")
 		return
 	end
 	local hex = tostring(guid):gsub("^0[xX]", "")
 	ns.SendServer("PFOCUS " .. name .. " " .. hex)
-	ns.Print(("|cff33ccff%s|r -> foco en %s"):format(name, label or "eso"))
+	ns.Print(("|cff33ccff%s|r -> cuida de %s"):format(name, label or "eso"))
 end
 
 function C:ClearFocus(name)
 	if not ns.Link:HasServer() then
-		ns.Print("|cffff8800focus:|r hace falta mod-rts.")
+		ns.Print("|cffff8800cuidar:|r hace falta mod-rts.")
 		return
 	end
 	ns.SendServer("PFOCUS " .. name .. " -")
@@ -182,7 +198,7 @@ function C:Role(name, role)
 	ns.SendServer("ROLE " .. name .. " " .. role .. " 1")
 end
 
---- La configuracion de las acciones ---------------------------------------
+--- La configuracion de los macros -----------------------------------------
 
 local function ActionStore(name, create)
 	if not RTSCommandDB then return nil end
@@ -214,7 +230,7 @@ function C:SetAction(name, i, key)
 	-- borraria los otros tres -- que eran los de fabrica y no estaban guardados.
 	-- Mismo caso que `Skills:SetSlot`.
 	if not next(w.actions) then
-		for k = 1, ns.Hall.ACT_N do w.actions[k] = ACT_DEFAULT[k] end
+		for k = 1, ns.Hall.MACRO_N do w.actions[k] = ACT_DEFAULT[k] end
 	end
 	w.actions[i] = key
 	self:Layout()
@@ -295,10 +311,9 @@ local function FlyoutRow(i)
 end
 
 -- `entries` = { { icon, text, sub, fn }, ... }
-function C:ShowPicker(anchor, title, entries)
+function C:ShowPicker(anchor, entries)
 	EnsureFlyout()
 
-	local w = 340
 	local n = 0
 	for i, e in ipairs(entries) do
 		local b = FlyoutRow(i)
@@ -317,7 +332,7 @@ function C:ShowPicker(anchor, title, entries)
 	end
 	for i = n + 1, #rows do rows[i]:Hide() end
 
-	flyout:SetWidth(w)
+	flyout:SetWidth(340)
 	flyout:SetHeight(n * (ROW_H + 2) + 12)
 	flyout:ClearAllPoints()
 	flyout:SetPoint("BOTTOMLEFT", anchor, "TOPLEFT", 0, 8)
@@ -331,6 +346,13 @@ end
 -- La lista de hechizos de un personaje, para configurar un hueco.
 function C:PickSpell(anchor, name, i)
 	local cat = ns.Skills:Available(name)
+	if #cat == 0 then
+		ns.Print(("|cffff8800%s|r no tiene hechizos que ofrecer%s."):format(name,
+			ns.Skills:Pending(name) and " todavia (pidiendolos...)" or
+			": entra con el una vez y ponle hechizos en la barra"))
+		return
+	end
+
 	local entries = {
 		{ icon = "Interface\\Icons\\INV_Misc_QuestionMark", text = "|cff888888(vaciar el hueco)|r",
 		  fn = function() ns.Skills:SetSlot(name, i, nil) end },
@@ -343,14 +365,7 @@ function C:PickSpell(anchor, name, i)
 		})
 	end
 
-	if #cat == 0 then
-		ns.Print(("|cffff8800%s|r no tiene hechizos que ofrecer%s."):format(name,
-			ns.Skills:Pending(name) and " todavia (pidiendolos...)" or
-			": entra con el una vez y ponle hechizos en la barra"))
-		return
-	end
-
-	self:ShowPicker(anchor, name, entries)
+	self:ShowPicker(anchor, entries)
 end
 
 function C:PickAction(anchor, name, i)
@@ -361,10 +376,10 @@ function C:PickAction(anchor, name, i)
 			fn = function() C:SetAction(name, i, a.key) end,
 		})
 	end
-	self:ShowPicker(anchor, name, entries)
+	self:ShowPicker(anchor, entries)
 end
 
---- Los botones ------------------------------------------------------------
+--- Los botones de hechizo -------------------------------------------------
 
 local function SpellButton(store, i, parent, size)
 	local b = store[i]
@@ -392,6 +407,15 @@ local function SpellButton(store, i, parent, size)
 	return b
 end
 
+local function PlaceSquare(b, parent, c)
+	b:SetParent(parent)
+	b:SetWidth(c.w)
+	b:SetHeight(c.h)
+	b:ClearAllPoints()
+	b:SetPoint("TOPLEFT", parent, "TOPLEFT", c.x, -c.y)
+	b:Show()
+end
+
 local function PaintSpell(b, owner, i, s, aiming)
 	b.owner, b.index, b.spell = owner, i, s and s.spellId or nil
 
@@ -401,7 +425,8 @@ local function PaintSpell(b, owner, i, s, aiming)
 		b.icon:SetVertexColor(0.35, 0.35, 0.4)
 		b.icon:SetAlpha(0.8)
 		b.label:SetText("")
-		ns.W:Tip(b, "Hueco vacio", "Click derecho para elegir un hechizo de " .. owner .. ".")
+		ns.W:Tip(b, "Hueco " .. i .. " vacio",
+			"Click derecho para elegir un hechizo de " .. owner .. ".")
 		SetArmed(b, false)
 		return
 	end
@@ -432,10 +457,12 @@ local function PaintSpell(b, owner, i, s, aiming)
 	SetArmed(b, aiming and aiming.owner == owner and aiming.slot == i)
 end
 
-local function ActionButton(i, parent, size)
-	local b = actBtn[i]
+--- Los macros -------------------------------------------------------------
+
+local function MacroButton(store, i, parent, w, h)
+	local b = store[i]
 	if not b then
-		b = ns.W:Button(parent, size)
+		b = ns.W:Wide(parent, w, h)
 		b:RegisterForClicks("LeftButtonUp", "RightButtonUp")
 		b:SetScript("OnClick", function(self, button)
 			if not self.owner then return end
@@ -459,18 +486,58 @@ local function ActionButton(i, parent, size)
 			end
 			if a.fn then a.fn(self.owner) end
 		end)
-		actBtn[i] = b
+		store[i] = b
 	end
 	return b
 end
 
+local function PlaceWide(b, parent, c)
+	b:SetParent(parent)
+	ns.W:WideSize(b, c.w, c.h)
+	b:ClearAllPoints()
+	b:SetPoint("TOPLEFT", parent, "TOPLEFT", c.x, -c.y)
+	b:Show()
+end
+
+local function PaintMacro(b, owner, i)
+	local a = C:ActionFor(owner, i)
+	b.owner, b.index, b.act = owner, i, a
+
+	if not a then
+		b.icon:SetTexture("Interface\\Buttons\\UI-Quickslot")
+		b.label:SetText("|cff666666(vacio)|r")
+		ns.W:Tip(b, "Macro " .. i, "Click derecho para elegir que hace.")
+		SetArmed(b, false)
+		return
+	end
+
+	b.icon:SetTexture(a.icon)
+	b.label:SetText(a.label)
+
+	-- El foco encendido se dibuja, y lo dice el SERVIDOR: un boton que se
+	-- enciende con su propia peticion esconde el caso en que la peticion no
+	-- salio.
+	local lit = (a.key == "focus" and C.focus[owner]) and true or false
+	if lit then
+		b.label:SetTextColor(1, 0.82, 0.2)
+	else
+		b.label:SetTextColor(1, 1, 1)
+	end
+
+	ns.W:Tip(b, a.label, ("%s\n|cff888888-> %s. Click derecho: cambiar.|r"):format(
+		a.tip, owner))
+	SetArmed(b, a.aim and C.pendingFocus == owner)
+end
+
 --- Distribucion -----------------------------------------------------------
+
+local function HideAll(list)
+	for _, b in ipairs(list) do b:Hide() end
+end
 
 function C:Layout()
 	if not self.active then return end
-
-	local st = ns.Hall:State()
-	if st == "A" then
+	if ns.Hall:State() == "A" then
 		self:LayoutA()
 	else
 		self:LayoutB()
@@ -481,102 +548,86 @@ end
 function C:LayoutA()
 	for _, col in pairs(colBtn) do
 		if col.head then col.head:Hide() end
-		for i, b in ipairs(col) do b:Hide() end
+		HideAll(col.spells)
+		HideAll(col.macros)
 	end
 
 	local sHost = ns.Hall:Host("spells")
-	local aHost = ns.Hall:Host("actions")
-	hosts.spells, hosts.actions = sHost, aHost
+	local mHost = ns.Hall:Host("macros")
 
 	local cells = ns.Hall:SpellCells()
-	for i = 1, ns.Hall.slots do
+	for i = 1, ns.Hall.MAX_SPELLS do
 		local c = cells[i]
-		local b = spellBtn[i]
 		if c then
-			b = SpellButton(spellBtn, i, sHost, c.w)
-			b:SetParent(sHost)
-			b:SetWidth(c.w)
-			b:SetHeight(c.h)
-			b:ClearAllPoints()
-			b:SetPoint("TOPLEFT", sHost, "TOPLEFT", c.x, -c.y)
-			b:Show()
-		elseif b then
-			b:Hide()
+			PlaceSquare(SpellButton(spellBtn, i, sHost, c.w), sHost, c)
+		elseif spellBtn[i] then
+			spellBtn[i]:Hide()
 		end
 	end
-	for i = ns.Hall.slots + 1, #spellBtn do spellBtn[i]:Hide() end
 
-	local acells = ns.Hall:ActionCells()
-	for i = 1, ns.Hall.ACT_N do
-		local c = acells[i]
-		local b = actBtn[i]
+	local mcells = ns.Hall:MacroCells()
+	for i = 1, ns.Hall.MACRO_N do
+		local c = mcells[i]
 		if c then
-			b = ActionButton(i, aHost, c.w)
-			b:SetParent(aHost)
-			b:SetWidth(c.w)
-			b:SetHeight(c.h)
-			b:ClearAllPoints()
-			b:SetPoint("TOPLEFT", aHost, "TOPLEFT", c.x, -c.y)
-			b:Show()
-		elseif b then
-			b:Hide()
+			PlaceWide(MacroButton(macroBtn, i, mHost, c.w, c.h), mHost, c)
+		elseif macroBtn[i] then
+			macroBtn[i]:Hide()
 		end
 	end
 end
 
 function C:LayoutB()
-	for i, b in ipairs(spellBtn) do b:Hide() end
-	for i, b in ipairs(actBtn) do b:Hide() end
+	HideAll(spellBtn)
+	HideAll(macroBtn)
 
 	local cols = ns.Hall:Columns()
-	local cells = ns.Hall:ColumnCells()
+	local scells = ns.Hall:ColumnSpellCells()
+	local mcells = ns.Hall:ColumnMacroCells()
 
 	for ci = 1, #cols do
-		local host = ns.Hall:Host("col" .. ci)
+		local h = ns.Hall:Host("col" .. ci)
 		local col = colBtn[ci]
 		if not col then
-			col = {}
-			col.head = ns.W:Text(host, ns.W.FONT.normal)
+			col = { spells = {}, macros = {} }
+			col.head = ns.W:Text(h, ns.W.FONT.normal)
 			col.head:SetJustifyH("CENTER")
 			colBtn[ci] = col
 		end
-		col.head:SetParent(host)
+
+		col.head:SetParent(h)
 		col.head:ClearAllPoints()
-		col.head:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0)
+		col.head:SetPoint("TOPLEFT", h, "TOPLEFT", 0, 0)
 		col.head:SetWidth(ns.Hall.colW or 100)
 		col.head:SetHeight(ns.Hall:HeadHeight())
 		col.head:Show()
 
-		for i = 1, ns.Hall.slots do
-			local c = cells[i]
-			local b = col[i]
+		for i = 1, ns.Hall.B_SLOTS do
+			local c = scells[i]
 			if c then
-				if not b then
-					b = SpellButton(col, i, host, c.w)
-				end
-				b:SetParent(host)
-				b:SetWidth(c.w)
-				b:SetHeight(c.h)
-				b:ClearAllPoints()
-				b:SetPoint("TOPLEFT", host, "TOPLEFT", c.x, -c.y)
-				b:Show()
-			elseif b then
-				b:Hide()
+				PlaceSquare(SpellButton(col.spells, i, h, c.w), h, c)
+			elseif col.spells[i] then
+				col.spells[i]:Hide()
 			end
 		end
-		for i = ns.Hall.slots + 1, #col do
-			if col[i] then col[i]:Hide() end
+
+		for i = 1, ns.Hall.B_MACRO_N do
+			local c = mcells[i]
+			if c then
+				PlaceWide(MacroButton(col.macros, i, h, c.w, c.h), h, c)
+			elseif col.macros[i] then
+				col.macros[i]:Hide()
+			end
 		end
 	end
 
-	-- Las columnas que sobran de un reparto anterior.
 	-- Las columnas que sobran de un reparto anterior. `#colBtn` no vale como
-	-- tope: `colBtn` se llena por indice y una bajada de cinco a dos deja
-	-- agujeros que `#` puede cortar antes de tiempo. Se recorre con `pairs`.
+	-- tope: se llena por indice y una bajada de cinco a dos puede dejar agujeros
+	-- que `#` corta antes de tiempo. Se recorre con `pairs`.
 	for ci, col in pairs(colBtn) do
 		if ci > #cols then
 			if col.head then col.head:Hide() end
-			for _, b in ipairs(col) do b:Hide() end
+			HideAll(col.spells)
+			HideAll(col.macros)
 		end
 	end
 end
@@ -589,40 +640,14 @@ function C:Refresh()
 
 	if ns.Hall:State() == "A" then
 		local owner = ns.Hall:Subject()
-		local slots = ns.Skills:Slots(owner)
+		local slots = ns.Skills:Slots(owner, ns.Hall.slots)
 		for i = 1, ns.Hall.slots do
 			local b = spellBtn[i]
 			if b and b:IsShown() then PaintSpell(b, owner, i, slots[i], aiming) end
 		end
-
-		for i = 1, ns.Hall.ACT_N do
-			local b = actBtn[i]
-			if b and b:IsShown() then
-				local a = self:ActionFor(owner, i)
-				b.owner, b.index, b.act = owner, i, a
-				if a then
-					b.icon:SetTexture(a.icon)
-					b.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
-					b.label:SetText(a.label)
-					ns.W:Tip(b, a.label, ("%s\n|cff888888-> %s. Click derecho: cambiar.|r"):format(
-						a.tip, owner))
-					-- El foco encendido se dibuja, y lo dice el SERVIDOR: un
-					-- boton que se enciende con su propia peticion esconde el
-					-- caso en que la peticion no salio.
-					local lit = (a.key == "focus" and self.focus[owner]) and true or false
-					ns.W:Enable(b, true)
-					if lit then
-						b.label:SetTextColor(1, 0.82, 0.2)
-					else
-						b.label:SetTextColor(1, 1, 1)
-					end
-					SetArmed(b, a.aim and self.pendingFocus == owner)
-				else
-					b.icon:SetTexture("Interface\\Buttons\\UI-Quickslot")
-					b.label:SetText("")
-					SetArmed(b, false)
-				end
-			end
+		for i = 1, ns.Hall.MACRO_N do
+			local b = macroBtn[i]
+			if b and b:IsShown() then PaintMacro(b, owner, i) end
 		end
 		return
 	end
@@ -634,16 +659,24 @@ function C:Refresh()
 			local c = ns.W:ClassColor(m.unit)
 			col.head:SetText(m.name)
 			col.head:SetTextColor(c.r, c.g, c.b)
-			local slots = ns.Skills:Slots(m.name)
-			for i = 1, ns.Hall.slots do
-				local b = col[i]
+
+			-- LOS CUATRO PRIMEROS DE SUS DIEZ, no una lista aparte. Ver la
+			-- cabecera de `Hall.lua`: dos configuraciones para lo mismo serian
+			-- dos sitios donde el hueco 2 puede decir cosas distintas.
+			local slots = ns.Skills:Slots(m.name, ns.Hall.B_SLOTS)
+			for i = 1, ns.Hall.B_SLOTS do
+				local b = col.spells[i]
 				if b and b:IsShown() then PaintSpell(b, m.name, i, slots[i], aiming) end
+			end
+			for i = 1, ns.Hall.B_MACRO_N do
+				local b = col.macros[i]
+				if b and b:IsShown() then PaintMacro(b, m.name, i) end
 			end
 		end
 	end
 end
 
---- El segundo click de una accion que apunta ------------------------------
+--- El segundo click de un macro que apunta --------------------------------
 
 -- Llamada desde `RTSMode`, `Party` y `Frames` cuando hay un foco pendiente.
 -- Devuelve true si se ha comido el click.
@@ -653,7 +686,7 @@ function C:AimAt(guid, label)
 	self.pendingFocus = nil
 
 	if not guid then
-		ns.Print("|cff888888foco: cancelado.|r")
+		ns.Print("|cff888888cuidar: cancelado.|r")
 		self:Refresh()
 		return true
 	end
@@ -701,22 +734,24 @@ function C:Leave()
 	self.active = false
 	self.pendingFocus = nil
 	self:HidePicker()
-	for _, b in ipairs(spellBtn) do b:Hide() end
-	for _, b in ipairs(actBtn) do b:Hide() end
+	HideAll(spellBtn)
+	HideAll(macroBtn)
 	for _, col in pairs(colBtn) do
 		if col.head then col.head:Hide() end
-		for _, b in ipairs(col) do b:Hide() end
+		HideAll(col.spells)
+		HideAll(col.macros)
 	end
 end
 
 function C:Report()
 	local owner = ns.Hall:Subject()
-	ns.Print(("|cffffff00acciones de|r |cff33ccff%s|r"):format(tostring(owner)))
-	for i = 1, ns.Hall.ACT_N do
+	ns.Print(("|cffffff00macros de|r |cff33ccff%s|r"):format(tostring(owner)))
+	for i = 1, ns.Hall.MACRO_N do
 		local a = self:ActionFor(owner, i)
-		ns.Print(("  %d. %s"):format(i, a and a.label or "|cff666666vacio|r"))
+		ns.Print(("  %d. %s%s"):format(i, a and a.label or "|cff666666vacio|r",
+			(i <= ns.Hall.B_MACRO_N) and " |cff888888(sale tambien con varios cogidos)|r" or ""))
 	end
-	ns.Print(("foco: %s"):format(self.focus[owner] or "|cff888888ninguno|r"))
+	ns.Print(("cuida de: %s"):format(self.focus[owner] or "|cff888888nadie|r"))
 end
 
 ns.Hall:Register(C)

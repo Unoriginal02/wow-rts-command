@@ -177,6 +177,61 @@ function W:Button(parent, size, icon)
 	return b
 end
 
+-- UNA BARRA ANCHA CON SU NOMBRE ESCRITO -- un MACRO.
+--
+-- Es la otra forma de boton de esta consola, y la diferencia con `W:Button` no
+-- es de tamano sino de que se lee: un icono se RECONOCE y un macro se LEE. La
+-- rejilla 4x4 lleva quince ordenes fijas que acabas conociendo por el dibujo;
+-- un macro es algo que el jugador ha puesto ahi y puede cambiar manana, asi que
+-- su nombre tiene que estar delante.
+--
+-- El icono va a la izquierda y pequeno, como pista, no como contenido. Sin el,
+-- cuatro barras de texto iguales se leen como una lista y no como botones.
+function W:Wide(parent, w, h, icon)
+	local b = CreateFrame("Button", nil, parent)
+	b:SetWidth(w)
+	b:SetHeight(h)
+
+	b.bg = b:CreateTexture(nil, "BACKGROUND")
+	b.bg:SetAllPoints()
+	b.bg:SetTexture(0, 0, 0, 0.55)
+
+	local pad = 3
+	local side = h - pad * 2
+	b.icon = b:CreateTexture(nil, "ARTWORK")
+	b.icon:SetWidth(side)
+	b.icon:SetHeight(side)
+	b.icon:SetPoint("LEFT", b, "LEFT", pad, 0)
+	b.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+	if icon then b.icon:SetTexture(icon) end
+
+	-- EL TEXTO SE ANCLA A LOS DOS LADOS, no se le da un ancho. Un FontString de
+	-- ancho fijo en 3.3.5a NO recorta: parte en dos lineas y deja la segunda a
+	-- medias contra el borde (`SetWordWrap` no existe). Anclado izquierda y
+	-- derecha dentro de un alto de una linea, lo que sobra se recorta solo.
+	b.label = self:Text(b, W.FONT.small)
+	b.label:SetPoint("LEFT", b.icon, "RIGHT", 6, 0)
+	b.label:SetPoint("RIGHT", b, "RIGHT", -6, 0)
+	b.label:SetJustifyH("LEFT")
+	b.label:SetHeight(h - pad * 2)
+
+	b:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
+	b:SetPushedTexture("Interface\\Buttons\\UI-Quickslot-Depress")
+
+	return b
+end
+
+-- Recolocar una barra ancha sin recrearla. El icono es cuadrado y su lado sale
+-- del alto, asi que cambiar de tamano no puede dejarlo estirado.
+function W:WideSize(b, w, h)
+	local pad = 3
+	b:SetWidth(w)
+	b:SetHeight(h)
+	b.icon:SetWidth(h - pad * 2)
+	b.icon:SetHeight(h - pad * 2)
+	b.label:SetHeight(h - pad * 2)
+end
+
 -- Encender y apagar un boton dejandolo VISIBLE pero apagado, que es distinto de
 -- esconderlo: una casilla vacia significa "no hay orden aqui" y una apagada
 -- "esta orden necesita algo que no tienes".

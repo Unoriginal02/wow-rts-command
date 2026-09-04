@@ -801,14 +801,27 @@ no visto todavía. El encargo es `Downloads/brief-barra-control-grupo.md`.
 La sala llevaba vacía desde el 2 de septiembre, a propósito, para no predecidir
 lo que iba dentro. Esto es lo que va dentro.
 
+**Estado A** — uno seleccionado (o ninguno):
+
 ```
-┌──────────┬──────────────────────────────────────────────┐
-│ LISTA    │  ARRIBA   marcos: personaje / objetivo /     │
-│ (héroe   │           objetivo de su objetivo            │
-│  primero,├──────────────────────────────────────────────┤
-│  x5)     │  ABAJO    huecos de hechizo                  │
-│          │           4 botones de acción                │
-└──────────┴──────────────────────────────────────────────┘
+┌────────┬────────────────────────────────────────────────┐
+│ LISTA  │  (o)[==]    (o)[==]   (o)[=]                   │ marcos
+│  x5    │  ────────────────────────────────────────────  │ raya
+│        │  [1][2][3][4][5][6][7][8][9][10]               │ hechizos
+│        │  [ macro 1 ][ macro 2 ][ macro 3 ][ macro 4 ]  │ macros
+└────────┴────────────────────────────────────────────────┘
+```
+
+**Estado B** — dos o más:
+
+```
+┌────────┬─────────────┬─────────────┬─────────────┬──────┐
+│ LISTA  │    Bob      │    Avy      │   Kirinah   │ ...  │
+│  x5    │  [1]  [2]   │  [1]  [2]   │  [1]  [2]   │      │
+│        │  [3]  [4]   │  [3]  [4]   │  [3]  [4]   │      │
+│        │ [ macro 1 ] │ [ macro 1 ] │ [ macro 1 ] │      │
+│        │ [ macro 2 ] │ [ macro 2 ] │ [ macro 2 ] │      │
+└────────┴─────────────┴─────────────┴─────────────┴──────┘
 ```
 
 Cinco ficheros nuevos: `Hall.lua` (el reparto y el estado), `Party.lua` (la
@@ -858,8 +871,12 @@ comprobación falla.
 | fila de personaje | 65 de alto | 344 / 5 con 4 de separación |
 | dentro de la fila | 24 nombre + 31 vida + 6 recurso | el nombre **encima**, no dentro (§3 del brief) |
 | banda de marcos | 96 de alto | "el mínimo espacio vertical posible" (§2) |
+| marcos, de ancho | 300 / 240 / 180 | bajan de tamaño según se alejan de ti: es la jerarquía dicha con el tamaño |
 | hueco de hechizo | hasta 112 | tope: más grande se ve como un cartel |
-| botón de acción | hasta 96 | algo menor a propósito: es la fila secundaria |
+| fila de hechizos | **10** en estado A | del boceto ("10x Spells") |
+| macro | ancho derivado × 56 | los cuatro se **alinean con la fila de hechizos**, no se les escribe el ancho |
+| estado B, hueco | 103 | lo limita el ALTO, no el ancho: la columna da 188 y la sala sólo 103 |
+| estado B, macros | columna entera × 42 | ver 14.11 |
 | suelo de cualquiera | 40 | por debajo no se distingue el icono, y **no se dibuja** |
 
 **La línea de recurso son 6 de dibujo = 3,4 de pantalla**, dentro del "2-4 px"
@@ -869,18 +886,23 @@ que pide el brief. Lo comprueba el sim, no el ojo.
 
 *"Confirmar que el ancho disponible permite 5 columnas × 4 slots."*
 
-| `grow` | sala | columna | hueco de 4 | de 6 |
+| `grow` | sala | columna | hueco del 2×2 | fila de 10 (estado A) |
 |---|---|---|---|---|
-| 1 | 710 | 78 | **no cabe** | no cabe |
-| 2 | 1222 | 180 | **no cabe** | no cabe |
-| 3 | 1734 | 282 | 64 | 40 |
-| **4** | **2246** | **385** | **90** | **57** |
-| 5 | 2758 | 487 | 112 | 74 |
+| 1 | 710 | 78 | **no cabe** | **no cabe** (438 de ancho para 472 que hacen falta) |
+| 2 | 1222 | 180 | 86 | 87 |
+| 3 | 1734 | 282 | 103 | 112 |
+| **4** | **2246** | **385** | **103** | **112** |
+| 5 | 2758 | 487 | 103 | 112 |
 
 `grow` 4 es el que sale solo en 2560x1440 a pantalla completa, así que **sí,
-holgado**. Por debajo de 3 no caben, y ahí **el panel lo dice y dice qué hacer**
-(`/rts bar grow` o `/rts hall slots`) en vez de esconderlas: media consola vacía
-sin motivo visible es peor que un mensaje.
+holgado** — y con margen de sobra, porque el 2×2 lo limita el ALTO de la sala
+(103) y no el ancho de la columna (que daría 188).
+
+**Con `grow` 1 no cabe ni la fila de diez ni las cinco columnas.** No se recorta:
+se esconde, y `/rts hall` dice por qué y qué hacer (`/rts bar grow`, o bajar el
+número con `/rts hall slots <n>`). Media consola vacía sin motivo visible es peor
+que un mensaje — y meter una celda a la fuerza deja un botón flotando sobre el
+arte, que es la lección que `SlotGrid` dejó escrita en `Bar.lua`.
 
 ### 14.5 LA LUZ CIRCULAR ES DEL CLIENTE, Y SALE GRATIS
 
@@ -945,7 +967,7 @@ dos marcas ponen un icono en tu objetivo.
 | fila de la lista | seleccionar (doble = todos, shift = sumar) | **hacer primario** sin seleccionar |
 | retrato del marco | seleccionar | — |
 | hueco de hechizo | lanzar (o armar si pide objetivo) | **elegir qué hechizo va ahí** |
-| botón de acción | ejecutar | **elegir qué acción va ahí** |
+| macro | ejecutar (o armar, si pide objetivo) | **elegir qué hace** |
 | con algo armado | ese es el objetivo | cancelar |
 
 El derecho sobre una fila recupera el gesto del vídeo — *"the command bar for the
@@ -988,3 +1010,53 @@ Nada de esto se ha visto. Lo que más probablemente falle, en orden:
 3. **El reparto con `grow` bajo**, que es donde el sim dice que las columnas se
    rechazan. Hay que ver que el mensaje sale y que no queda nada flotando.
 4. **`GetComboPoints`**, que tiene dos firmas y se prueban las dos.
+
+### 14.11 El boceto, y las cuatro cosas que cambió
+
+El brief escrito pedía "4 slots, ampliables a 6" y "4 botones de acción". El
+boceto a mano que llegó después es más concreto y manda él, porque describe la
+**forma** y no sólo la cuenta:
+
+- **Diez huecos de hechizo en el estado A**, en una sola fila ("10x Spells").
+- **Los botones de acción son MACROS**: barras anchas con el nombre escrito, no
+  iconos cuadrados.
+- **En el estado B, 2×2 de hechizos y 2 macros** por columna, no una fila.
+- Una **raya divisoria** bajo los marcos, y el tercer marco más pequeño.
+
+#### Iconos y texto no son lo mismo, y por eso hay dos widgets
+
+Un hueco de hechizo se **reconoce** — es el mismo dibujo que en la barra de
+acciones de siempre. Un macro se **lee**, porque es algo que el jugador ha puesto
+ahí y puede cambiar mañana. Por eso `W:Wide` existe en vez de un `W:Button` más
+largo: el icono va pequeño a la izquierda como pista, y el nombre delante.
+
+`W:Wide` ancla el texto **a los dos lados** en vez de darle un ancho. Un
+`FontString` de ancho fijo en 3.3.5a **no recorta: parte en dos líneas** y deja la
+segunda a medias contra el borde (`SetWordWrap` no existe). Anclado a izquierda y
+derecha dentro de un alto de una línea, lo que sobra se recorta solo.
+
+#### Los diez y el 2×2 son la MISMA configuración
+
+El 2×2 son los huecos **1 a 4 de esos mismos diez**, y los dos macros del estado
+B son los **dos primeros de los cuatro**. Con cuatro personajes cogidos no caben
+diez de cada uno — serían cuarenta botones — así que se enseñan los primeros, que
+son los que el jugador puso primero.
+
+Guardar dos listas por personaje habría sido peor de la forma típica: dos sitios
+donde configurar lo mismo, y el jugador descubriendo en combate que el hueco 2 no
+dice lo mismo según cuántos lleve cogidos.
+
+#### La única desviación del boceto, dicha a propósito
+
+En el papel los macros del estado B tienen el ancho del bloque 2×2. Las
+proporciones reales no son las del papel: con `grow` 4 y cinco columnas el bloque
+mide 214 dentro de una columna de 385, o sea **171 px de hueco muerto por
+columna**. Un macro es una barra de texto — cuanto más ancha, mejor se lee — así
+que ocupan la columna entera y el 2×2 se centra encima.
+
+#### Y el sim volvió a cazar algo antes de compilar
+
+Al pasar de cuatro huecos a diez, **la fila deja de caber con `grow` 1**: la zona
+de contenido mide 438 y diez huecos al mínimo necesitan 472. Se esconde y se
+dice, que es lo mismo que se hace con las columnas. Sin el guion eso se habría
+visto en juego como "los hechizos han desaparecido".
