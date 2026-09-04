@@ -1,7 +1,8 @@
 --[[
 	Panel.lua -- la rejilla de ordenes, a la derecha de la sala.
 
-	Rejilla 4x4: quince ordenes y, en la casilla doce, salir del modo RTS.
+	Rejilla 4x4: quince ordenes AL GRUPO ENTERO y, en la casilla doce, salir
+	del modo RTS.
 	Celda 105, paso 113.
 
 	LA CUARTA FILA HA SIDO DOS COSAS Y AHORA ES LA BUENA. Durante una ronda
@@ -22,24 +23,29 @@
 	y en el panel tienen MAS sentido que en la carta, porque `rti` es del grupo
 	por naturaleza: la marca dice a quien va todo el mundo.
 
-	SELECCION O GRUPO, DESDE 2026-08-24, y antes eran dos rejillas. La fila de
-	ordenes que habia bajo el divisor decia lo mismo que esta con `Send` en vez
-	de `Broadcast`, y su banda hacia falta para los huecos de habilidad. Asi que
-	las dos se juntan aqui: con algo seleccionado la orden va a lo seleccionado,
-	sin nada seleccionado va al grupo entero.
+	SIEMPRE AL GRUPO ENTERO, DESDE 2026-09-04, Y ESO DESHACE UNA DECISION.
 
-	UN MISMO BOTON CON DOS ALCANCES ES AMBIGUO, Y POR ESO EL ALCANCE SE VE. Es
-	el riesgo conocido de haberlas juntado, y se paga en pantalla y no en una
-	ronda de pruebas: cuando hay seleccion las ordenes que la respetan salen con
-	la etiqueta en AZUL y su tooltip dice a cuantos van. En blanco significa
-	grupo entero. Sin esa senal, "por que solo se ha movido uno" seria una
-	pregunta sin nada que mirar.
+	Del 24 de agosto al 4 de septiembre esta rejilla tuvo DOS ALCANCES: con algo
+	seleccionado la orden iba a lo seleccionado, sin nada al grupo. Estaba
+	pensado y estaba senalizado -- las ordenes que respetaban la seleccion
+	sacaban su etiqueta en azul y decian a cuantos iban en el tooltip.
 
-	Y SIETE DE LAS DIECISEIS NO CAMBIAN NUNCA. Reunir, Botin, Revivir, Formar,
-	Salir y las dos marcas son globales por naturaleza -- una formacion de dos
-	de los cuatro no es una formacion, y una marca que solo obedece a parte del
-	grupo no es una marca. Van marcadas con `global` en la tabla y se quedan
-	siempre en blanco, que es lo que hace legible la regla del resto.
+	El brief de la barra de control lo cierra en el otro sentido (§6 y §8):
+	*"la rejilla afecta siempre a todo el grupo, con independencia de que
+	personajes esten seleccionados"*. Y tiene sentido con la consola nueva
+	delante, que es lo que ha cambiado: **ahora hay un sitio donde mandar a UNO**
+	-- los cuatro botones de accion de la sala, que aplican solo al personaje
+	seleccionado. Antes no lo habia, y por eso esta rejilla hacia las dos cosas.
+
+	Un boton que hace dos cosas segun un estado que esta en otra parte de la
+	pantalla es ambiguo aunque se senalice; que la rejilla sea LO GLOBAL y la
+	sala LO PARTICULAR es una regla que se dice en una frase y no hay que leer
+	en un color.
+
+	CINCO CASILLAS NO SON ORDENES Y SE QUEDAN COMO ESTAN. Formar abre una lista,
+	Salir sale del modo, Control cambia o posee a UN personaje -- por definicion
+	uno -- y las dos marcas ponen un icono en TU objetivo. Ninguna manda una
+	orden al grupo, asi que "siempre al grupo" no les dice nada.
 
 	SALIR ES UN BOTON Y NO UNA TECLA MAS porque el modo RTS esconde la interfaz
 	de Blizzard: si algo va mal, "donde estaba la tecla" es justo lo que no se
@@ -118,21 +124,13 @@ end
 
 --- El alcance --------------------------------------------------------------
 --
--- UNA orden, DOS destinos, y la decision en un solo sitio. Con unidades cogidas
--- la orden es suya; sin nada cogido es del grupo. Se decide al PULSAR y no al
--- dibujar porque la seleccion puede cambiar entre una cosa y la otra -- y lo que
--- vale es la que habia cuando se dio la orden.
-
--- Cuantas unidades recibirian una orden con alcance de seleccion ahora mismo, o
--- 0 si iria al grupo entero.
-local function Scoped()
-	return ns.Selection:Count()
-end
-
+-- UNA orden, UN destino: el grupo entero. Ver la cabecera -- el alcance doble
+-- se fue el 2026-09-04 porque la sala ya tiene los botones que mandan a uno.
+--
+-- Se queda como funcion de una linea y no se llama a `Broadcast` directamente
+-- desde las quince casillas: si algun dia vuelve a haber matices de alcance, el
+-- sitio donde ponerlos es este y no quince.
 local function Dispatch(command, label)
-	if Scoped() > 0 then
-		return ns.Orders:Send(command, label)
-	end
 	return ns.Orders:Broadcast(command, label)
 end
 
@@ -230,14 +228,20 @@ local CELLS = {
 	  tip = "Les devuelve el comportamiento de fabrica y vuelven a seguirte.\n" ..
 	        "Para un compañero que se ha quedado con un rol viejo puesto.",
 	  fn = function()
-		local sel = ns.Selection:Get()
-		if #sel == 0 then ns.Print("Nadie seleccionado.") return end
+		-- AL GRUPO ENTERO, como todo lo de esta rejilla. Tomaba la seleccion y se
+		-- plantaba con "Nadie seleccionado", que con la regla nueva la dejaria
+		-- como la unica casilla que pide algo que las otras catorce no piden.
+		local names = {}
+		for _, m in ipairs(ns.Selection:GetRoster()) do
+			table.insert(names, m.name)
+		end
+		if #names == 0 then ns.Print("No hay grupo.") return end
 		if ns.Orders:HasServer() then
-			ns.SendServer("RESET " .. table.concat(sel, ";"))
+			ns.SendServer("RESET " .. table.concat(names, ";"))
 		else
 			-- Sin mod-rts no hay verbo que mandar, y `reset` no es un comando de
 			-- chat de playerbots. Lo mas cerca es devolverlos a seguir.
-			ns.Orders:Follow()
+			ns.Orders:Broadcast("follow", "Vuelven a seguirte")
 		end
 	  end },
 
@@ -429,17 +433,14 @@ function Paint(b, spec)
 	end
 
 	b.icon:SetVertexColor(1, 1, 1)
+	b.label:SetTextColor(1, 1, 1)
 
-	local n = (not spec.global) and Scoped() or 0
-	if n > 0 then
-		b.label:SetTextColor(0.45, 0.8, 1)
-		ns.W:Tip(b, spec.short,
-			("%s\n|cff77ccff-> %d seleccionada(s)|r"):format(spec.tip, n))
-	else
-		b.label:SetTextColor(1, 1, 1)
-		ns.W:Tip(b, spec.short, spec.tip ..
-			(spec.global and "" or "\n|cff999999-> todo el grupo|r"))
-	end
+	-- Y EL TOOLTIP LO SIGUE DICIENDO, aunque ya no haya dos colores. "Todo el
+	-- grupo" escrito es lo que hace que no haya que acordarse de la regla, y lo
+	-- que separa esta rejilla de los cuatro botones de accion de la sala, que
+	-- dicen "-> Kirinah" en el suyo.
+	ns.W:Tip(b, spec.short, spec.tip ..
+		(spec.global and "" or "\n|cff999999-> todo el grupo|r"))
 end
 
 function P:Layout()

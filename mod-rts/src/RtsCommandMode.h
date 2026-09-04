@@ -8,6 +8,7 @@
 #include <vector>
 
 class Player;
+class SpellInfo;
 
 namespace rts
 {
@@ -32,15 +33,50 @@ namespace rts
     // using it, and let go by not.
     namespace command
     {
-        // Spell ids off the bot's action bars, in bar order, duplicates removed.
-        // Only ids -- the client turns them into names and icons itself with
-        // GetSpellInfo, so nothing but numbers has to cross the wire.
-        std::vector<uint32> ActionBarSpells(Player* master, std::string const& botName);
+        // Un hechizo de la barra de un bot, con su TIPO.
+        //
+        // El tipo es una letra y la decide el servidor, no el addon, y ese es el
+        // punto entero: el cliente NO PUEDE clasificar un hechizo ajeno.
+        // `IsHarmfulSpell` y compania toman un nombre o un indice de TU libro, y
+        // el bot conoce hechizos que tu no -- la Polimorfia del mago no esta en
+        // tu libro. Lo unico que el cliente sabe de un id ajeno es lo que
+        // `GetSpellInfo` saca del DBC (nombre, icono, rango), que no incluye si
+        // necesita objetivo ni si es amistoso.
+        //
+        // La tabla completa, con el predicado de `SpellInfo` que decide cada
+        // letra, esta en `docs/HECHIZOS-COLA.md` §2.
+        struct BarSpell
+        {
+            uint32 id = 0;
+            char type = 'N';
+        };
+
+        // Que letra le toca a este hechizo. El ORDEN de las comprobaciones es
+        // parte de la respuesta: un Renovar es a la vez positivo y con objetivo,
+        // y para la cola manda lo segundo.
+        char ClassifySpell(SpellInfo const* info);
+
+        // Los hechizos de la barra de un bot, en orden de barra, sin repetidos.
+        //
+        // FILTRA LOS DE LA MASCOTA, y eso no es cosmetico:
+        // `PlayerbotAI::CastSpell` empieza con
+        // `if (pet && pet->HasSpell(spellId))`, y en ese caso **alterna el
+        // autocast de la mascota y devuelve true** -- sin lanzar nada. Ofrecer
+        // uno daria un boton que no lanza, que reporta exito, y que ademas
+        // alterna: en pantalla es "ese boton no hace nada, a veces".
+        std::vector<BarSpell> ActionBarSpells(Player* master, std::string const& botName);
 
         // Cast one of the bot's spells. `targetGuid` may be empty, in which case
         // the bot's own current target is used.
+        //
+        // `retryable` dice si merece la pena volver a intentarlo, que es lo que
+        // la cola necesita saber. Ojo con lo que NO puede distinguir: cuando
+        // `PlayerbotAI::CastSpell` devuelve false solo devuelve un bool, asi que
+        // ahi se dice "reintentable" y es el PLAZO quien acaba descartando lo
+        // que nunca iba a salir. Ver `docs/HECHIZOS-COLA.md` §10.
         bool CastAs(Player* master, std::string const& botName, uint32 spellId,
-                    ObjectGuid targetGuid, std::string* why = nullptr);
+                    ObjectGuid targetGuid, std::string* why = nullptr,
+                    bool* retryable = nullptr);
 
         // Who the commanded bot currently has selected -- what it is hitting or
         // healing. Empty when it has nobody.

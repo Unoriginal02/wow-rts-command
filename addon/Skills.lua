@@ -1,23 +1,21 @@
 --[[
-	Skills.lua -- las habilidades del personaje primario, y lanzarlas.
+	Skills.lua -- los hechizos de cada personaje, los huecos configurables y
+	lanzarlos.
 
-	=== ESTE FICHERO NO DIBUJA NADA, Y ESO ES LA DECISION ===================
+	=== SIGUE SIN DIBUJAR NADA, Y AHORA POR OTRA RAZON ======================
 
-	El centro de la consola (la "sala") se vacio el 2026-09-02 para redisenarlo,
-	y ese rediseno no esta hecho. Escribir aqui una fila de botones seria
-	predecidirlo -- la sala nueva naceria con seis huecos de habilidad de tal
-	tamano porque estaban puestos, no porque se hubieran elegido. Es exactamente
-	lo que se evito al borrar `HERO_W`, `PARTY_W` y compania de `Bar.lua`.
+	Antes era porque la sala estaba vacia y poner botones aqui la habria
+	predecidido. Ahora la sala existe (`Hall.lua`) y quien dibuja es `Cast.lua`.
+	La separacion se queda porque es la buena: aqui viven los DATOS, las
+	ACCIONES y la PERSISTENCIA, y `Cast` solo pinta lo que le den. En el estado
+	B hay cinco columnas pidiendo lo mismo a la vez, y con la logica dentro del
+	panel serian cinco copias.
 
-	Asi que aqui viven los DATOS y las ACCIONES, y quien los pinte los pintara
-	cuando la sala se decida:
-
-	    ns.Skills:Slots()        -> { {spellId, name, texture}, ... }
-	    ns.Skills:Use(i)         -> lanzar el hueco i
-	    ns.Skills:Subscribe(fn)  -> aviso de que la lista cambio
-
-	Mientras tanto ya es utilizable: las teclas 1..6 llaman a `Use`, que es como
-	se usa de verdad en el video.
+	    ns.Skills:Available(name)   -> todo lo que ese personaje puede ofrecer
+	    ns.Skills:Slots(name)       -> los huecos configurados, 1..6, con agujeros
+	    ns.Skills:SetSlot(name,i,id)-> configurar uno (nil lo vacia)
+	    ns.Skills:Use(name, i)      -> lanzar el hueco i de ese personaje
+	    ns.Skills:Subscribe(fn)     -> aviso de que algo cambio
 
 	=== DE DONDE SALEN LOS HECHIZOS DE UN BOT ==============================
 
@@ -25,24 +23,43 @@
 	la Polimorfia del mago no esta ahi porque no la conoces -- asi que
 	"arrastrar del libro de hechizos" es imposible para un bot y no es rodeable.
 	La barra del bot ademas es la lista BUENA: son los hechizos que tu pusiste
-	ahi jugandolo.
+	ahi jugandolo. Lo contesta el servidor con el verbo `BARS`.
 
-	Lo contesta el servidor con el verbo `BARS`, que existe desde la etapa 5n y
-	sigue compilado.
+	=== LOS HUECOS SON DEL JUGADOR, NO DEL ORDEN DE LA BARRA ================
+
+	Antes `Slots()` devolvia los seis primeros de la barra del bot. Eso no es
+	configurable: es un recorte. El brief pide *"cada slot es clicable para
+	asignarle un hechizo del personaje seleccionado"*, asi que ahora los huecos
+	se guardan por personaje y la lista de la barra pasa a ser el CATALOGO del
+	que se elige.
+
+	SIN CONFIGURAR, LOS PRIMEROS. Un hueco vacio nada mas seleccionar a alguien
+	se leeria como que la barra no funciona; los primeros de su barra son una
+	respuesta razonable y ademas es lo que habia antes.
+
+	=== EL TIPO DE HECHIZO LO DICE EL SERVIDOR =============================
+
+	`BARS` devuelve `id:tipo` por hechizo, y el tipo es una letra
+	(`docs/HECHIZOS-COLA.md` §2). El addon NO clasifica: `IsHarmfulSpell` y
+	compania toman un nombre o un indice de TU libro, y el bot conoce hechizos
+	que tu no. Lo unico que el cliente sabe de un id ajeno es lo que
+	`GetSpellInfo` saca del DBC -- nombre, icono, rango -- que no incluye si
+	necesita objetivo ni si es amistoso.
+
+	Es la regla de `/rts portrait api` llevada al final: en vez de comprobar una
+	constante, no tener constante.
 
 	=== DOS TRAMPAS DEL CLIENTE, LAS DOS YA PAGADAS ========================
 
 	1. `HasServer()` ES FALSO DURANTE EL PRIMER SEGUNDO, aunque mod-rts este
-	   delante: se pone a cierto con la PRIMERA respuesta. Pedir la barra en ese
-	   instante encontraba el canal cerrado y no se reintentaba nunca -- un
-	   desplegable eternamente en "pidiendo su barra". Se usa
+	   delante: se pone a cierto con la PRIMERA respuesta. Se usa
 	   `Link:WhenServer`, que es ese bucle escrito una sola vez.
 
 	2. `GetActionInfo` NO GARANTIZA DEVOLVER UN ID DE HECHIZO. Puede devolver el
 	   INDICE DEL LIBRO, y pasarle un indice a `GetSpellInfo` **no da error**:
 	   devuelve otro hechizo cualquiera, con nombre e icono. De ahi los
-	   "hechizos raros" de la etapa 5o. Aqui solo afecta a TU propia barra (la
-	   del bot viene del servidor y son ids de verdad), y se contrasta contra
+	   "hechizos raros" de la etapa 5o. Solo afecta a TU propia barra (la del
+	   bot viene del servidor y son ids de verdad), y se contrasta contra
 	   `GetActionTexture`, que es la unica fuente que no puede mentir porque es
 	   literalmente el dibujo que hay en pantalla.
 ]]
@@ -52,14 +69,49 @@ local ADDON, ns = ...
 local K = {}
 ns.Skills = K
 
-local MAX_SLOTS = 6      -- los "six quick items" del video
+K.MAX_SLOTS = 6      -- el techo del brief ("4, ampliables a 6")
 
 --- Estado ------------------------------------------------------------------
 
--- name -> { ids = {spellId,...}, at = GetTime(), pending = bool }
+-- name -> { list = { {id=, t=}, ... }, at = GetTime(), pending = bool }
 local bars = {}
 local listeners = {}
-local aiming = nil       -- { slot } mientras se espera a que elijas objetivo
+local aiming = nil       -- ver "apuntar", abajo
+
+--- Los tipos ---------------------------------------------------------------
+--
+-- Las letras vienen del servidor. `docs/HECHIZOS-COLA.md` §2 tiene la tabla
+-- completa con el predicado de `SpellInfo` que decide cada una.
+
+local TYPE = {
+	S = { ask = false, label = "sobre si mismo" },
+	N = { ask = false, label = "sin objetivo" },
+	T = { ask = false, label = "totem" },
+	A = { ask = true,  friendly = true,  label = "sobre un amigo" },
+	H = { ask = true,  friendly = false, label = "sobre un enemigo" },
+	G = { ask = true,  ground = true,    label = "en un sitio" },
+	D = { ask = true,  dead = true,      label = "sobre un muerto" },
+}
+
+-- Sin servidor no hay letra. `N` es el valor seguro: se manda y el servidor
+-- decide -- `CastAs` con guid vacio usa el objetivo que el bot ya tenga y, si
+-- no tiene, se lo lanza a si mismo. Suponer `H` en cambio pediria un segundo
+-- click para un grito de guerra.
+local DEFAULT_TYPE = "N"
+
+function K:TypeOf(spellId, owner)
+	local b = bars[owner or ""]
+	if b and b.list then
+		for _, e in ipairs(b.list) do
+			if e.id == spellId then return e.t or DEFAULT_TYPE end
+		end
+	end
+	return DEFAULT_TYPE
+end
+
+function K:TypeInfo(letter)
+	return TYPE[letter or DEFAULT_TYPE] or TYPE[DEFAULT_TYPE]
+end
 
 --- Aviso -------------------------------------------------------------------
 
@@ -82,8 +134,12 @@ end
 -- decir "spell" y el segundo valor ser un indice del libro, y `GetSpellInfo`
 -- sobre un indice devuelve OTRO hechizo sin quejarse. Si el icono del hechizo
 -- que sale no es el que la casilla esta dibujando, el numero no era un id.
+--
+-- SOLO `"spell"`. Una casilla con un OBJETO se salta: un objeto no es un
+-- hechizo, se gasta, y `GetActionInfo` lo devuelve como `"item"`. Ver
+-- `docs/HECHIZOS-COLA.md` §8 para por que no entran hoy.
 local function MyBar()
-	local ids, seen = {}, {}
+	local out, seen = {}, {}
 
 	for slot = 1, 120 do
 		local kind, id = GetActionInfo(slot)
@@ -92,22 +148,24 @@ local function MyBar()
 			local shown = GetActionTexture(slot)
 			if name and icon and shown and icon == shown then
 				seen[id] = true
-				table.insert(ids, id)
-				if #ids >= MAX_SLOTS * 4 then break end
+				-- SIN LETRA: tus hechizos no pasan por `BARS`, asi que el
+				-- servidor no los ha clasificado. `SELFCAST` con guid vacio se
+				-- comporta igual que `CAST`, o sea que el valor seguro vale.
+				table.insert(out, { id = id, t = DEFAULT_TYPE })
 			end
 		end
 	end
 
-	return ids
+	return out
 end
 
---- Pedir la del primario ---------------------------------------------------
+--- Pedir la de un personaje ------------------------------------------------
 
 function K:Request(name)
 	if not name or name == "" then return end
 
 	if name == ns.MyName() then
-		bars[name] = { ids = MyBar(), at = GetTime() }
+		bars[name] = { list = MyBar(), at = GetTime() }
 		Notify()
 		return
 	end
@@ -120,100 +178,272 @@ function K:Request(name)
 	ns.Link:WhenServer(function(ok)
 		if not ok then
 			b.pending = false
-			b.ids = {}
+			b.list = {}
 			Notify()
 			return
 		end
-		b.ids = nil
+		b.list = nil
 		b.staging = {}
 		ns.SendServer("BARS " .. name)
 	end)
+end
+
+-- Pedir la de todos los que hagan falta ahora mismo. En el estado B hay hasta
+-- cinco columnas y cada una necesita la suya; pedirlas al dibujar seria pedir
+-- cinco veces por segundo.
+function K:RequestFor(names)
+	for _, n in ipairs(names or {}) do
+		local b = bars[n]
+		if not b or (not b.list and not b.pending) then
+			self:Request(n)
+		end
+	end
 end
 
 function K:Refresh()
 	self:Request(ns.Selection:GetPrimary())
 end
 
---- Lo que hay --------------------------------------------------------------
+--- El catalogo -------------------------------------------------------------
 
--- `{ { spellId, name, texture }, ... }`, como mucho `MAX_SLOTS`. La lista vacia
--- es una respuesta valida: un bot sin barra guardada no tiene nada que ofrecer.
-function K:Slots()
-	local name = ns.Selection:GetPrimary()
-	local b = bars[name]
-	if not b or not b.ids then return {} end
+-- Todo lo que ese personaje puede ofrecer, para elegir en el desplegable.
+-- `{ { spellId, name, texture, type }, ... }`
+function K:Available(name)
+	local b = bars[name or ""]
+	if not b or not b.list then return {} end
 
 	local out = {}
-	for _, id in ipairs(b.ids) do
-		local sname, _, icon = GetSpellInfo(id)
+	for _, e in ipairs(b.list) do
+		local sname, _, icon = GetSpellInfo(e.id)
 		if sname then
-			table.insert(out, { spellId = id, name = sname, texture = icon })
-			if #out >= MAX_SLOTS then break end
+			table.insert(out, { spellId = e.id, name = sname,
+			                    texture = icon, type = e.t or DEFAULT_TYPE })
 		end
 	end
 	return out
 end
 
-function K:Owner()
-	return ns.Selection:GetPrimary()
+function K:Pending(name)
+	local b = bars[name or ns.Selection:GetPrimary()]
+	return b and b.pending or false
 end
 
-function K:Pending()
-	local b = bars[ns.Selection:GetPrimary()]
-	return b and b.pending or false
+--- Los huecos configurados -------------------------------------------------
+--
+-- EL FORMATO Y POR QUE (§9.4 del brief, y `docs/HECHIZOS-COLA.md` §12):
+--
+--   RTSCommandDB.hall.who[nombre] = { spells = {id,...}, actions = {clave,...} }
+--
+-- Por NOMBRE y no por guid porque es la clave que el jugador reconoce y la que
+-- usan `BARS` y `CAST`. Los AGUJEROS SE CONSERVAN: un hueco 3 vacio entre el 2
+-- y el 4 es una decision, no un error de compactado -- por eso se guarda con
+-- indices y no con `table.insert`.
+
+local function Store(name, create)
+	if not RTSCommandDB then return nil end
+	local hall = RTSCommandDB.hall
+	if not hall then
+		if not create then return nil end
+		hall = {}
+		RTSCommandDB.hall = hall
+	end
+	hall.who = hall.who or {}
+	local w = hall.who[name]
+	if not w and create then
+		w = { spells = {}, actions = {} }
+		hall.who[name] = w
+	end
+	return w
+end
+
+-- Los huecos de un personaje, ya resueltos a hechizo. Devuelve una lista de
+-- `n` posiciones donde cada una es una tabla o nil.
+--
+-- SIN CONFIGURAR, LOS PRIMEROS DE SU BARRA. Ver la cabecera: un hueco vacio
+-- nada mas seleccionar a alguien se lee como que la barra no funciona.
+function K:Slots(name, n)
+	name = name or ns.Selection:GetPrimary()
+	n = n or ns.Hall.slots or 4
+
+	local cat = self:Available(name)
+	local byId = {}
+	for _, s in ipairs(cat) do byId[s.spellId] = s end
+
+	local w = Store(name, false)
+	local cfg = w and w.spells
+
+	local out = {}
+	if cfg and next(cfg) then
+		for i = 1, n do
+			local id = tonumber(cfg[i])
+			-- UN ID QUE YA NO ESTA EN SU BARRA SE DIBUJA IGUAL, en gris. Lo que
+			-- no se puede hacer es tirarlo: el bot puede estar desconectado o la
+			-- respuesta puede no haber llegado todavia, y borrar la
+			-- configuracion del jugador por eso seria perderla sin avisar.
+			if id then
+				out[i] = byId[id] or self:Describe(id, true)
+			end
+		end
+		return out
+	end
+
+	for i = 1, n do out[i] = cat[i] end
+	return out
+end
+
+-- Un hechizo del que solo se tiene el id. `stale` marca los que ya no estan en
+-- la barra del bot, para que `Cast` los pinte apagados.
+function K:Describe(id, stale)
+	local sname, _, icon = GetSpellInfo(id)
+	if not sname then return nil end
+	return { spellId = id, name = sname, texture = icon,
+	         type = DEFAULT_TYPE, stale = stale or nil }
+end
+
+function K:SetSlot(name, i, spellId)
+	if not name or not i then return end
+	local w = Store(name, true)
+	if not w then return end
+
+	-- La primera vez que se toca un hueco hay que CONGELAR lo que se estaba
+	-- ensenando, o cambiar el hueco 3 borraria el 1, el 2 y el 4 -- que eran
+	-- los primeros de la barra y no estaban guardados. Es el fallo clasico de
+	-- pasar de un valor derivado a uno guardado.
+	if not next(w.spells) then
+		local shown = self:Slots(name, self.MAX_SLOTS)
+		for k = 1, self.MAX_SLOTS do
+			if shown[k] then w.spells[k] = shown[k].spellId end
+		end
+	end
+
+	w.spells[i] = spellId and tonumber(spellId) or nil
+	Notify()
+end
+
+function K:ClearSlots(name)
+	local w = Store(name, false)
+	if not w then return end
+	w.spells = {}
+	Notify()
+	ns.Print(("huecos de |cff33ccff%s|r a los de fabrica."):format(name))
+end
+
+-- Se acota AL LEER, que es la cuarta vez que hace falta en este addon. Un id
+-- que `GetSpellInfo` no resuelve es basura de una version anterior o de otro
+-- servidor, y dejarlo puesto es un hueco que no dibuja nada sin decir por que.
+function K:Load()
+	local hall = RTSCommandDB and RTSCommandDB.hall
+	if type(hall) ~= "table" or type(hall.who) ~= "table" then return end
+
+	local malos = 0
+	for name, w in pairs(hall.who) do
+		if type(w) ~= "table" then
+			hall.who[name] = nil
+		else
+			w.spells = type(w.spells) == "table" and w.spells or {}
+			w.actions = type(w.actions) == "table" and w.actions or {}
+			for i, id in pairs(w.spells) do
+				local n = tonumber(i)
+				if not n or n < 1 or n > self.MAX_SLOTS or
+				   not tonumber(id) or not GetSpellInfo(tonumber(id)) then
+					w.spells[i] = nil
+					malos = malos + 1
+				end
+			end
+		end
+	end
+	if malos > 0 then
+		ns.Print(("|cff888888sala: descartados %d huecos guardados que ya no valen.|r"):format(malos))
+	end
 end
 
 --- Lanzar ------------------------------------------------------------------
 
 -- `CastSpellByName` esta PROTEGIDA en 3.3.5a, y un boton seguro tampoco vale:
--- su contenido cambia con el primario y cambiar los atributos de un boton
+-- su contenido cambia con la seleccion y cambiar los atributos de un boton
 -- seguro esta bloqueado EN COMBATE, que es justo cuando se usa. Los dos caminos
 -- van por el servidor -- `CAST` para un bot, `SELFCAST` para ti -- que ademas
 -- los hace de la misma forma en vez de tener dos mecanismos.
-local function Fire(spellId, guid)
-	local owner = ns.Selection:GetPrimary()
+--
+-- `CASTQ` ES EL MISMO CAMINO CON COLA. El brief pide que un hechizo pulsado
+-- mientras el personaje esta ocupado *espere* en vez de fallar, y eso no se
+-- puede hacer desde el cliente: el que sabe si el hueco esta libre es el
+-- servidor. Sin mod-rts al dia se cae a `CAST`, que es lo de siempre.
+local function Fire(owner, spellId, guid)
 	local hex = guid and (tostring(guid):gsub("^0[xX]", "")) or nil
 
 	if owner == ns.MyName() then
 		ns.SendServer("SELFCAST " .. spellId .. (hex and (" " .. hex) or ""))
-	else
-		ns.SendServer("CAST " .. owner .. " " .. spellId .. (hex and (" " .. hex) or ""))
+		return
 	end
+
+	-- 0.36.0 es donde entra `CASTQ`. Con un servidor anterior se manda `CAST`,
+	-- que es lo de siempre: sin cola, pero funcionando. Un verbo que el servidor
+	-- no conoce **no da error, no contesta**, o sea un boton que no hace nada.
+	local verb = ns.Link:ServerAtLeast(36) and "CASTQ" or "CAST"
+	ns.SendServer(verb .. " " .. owner .. " " .. spellId .. (hex and (" " .. hex) or ""))
 end
 
--- Pulsar una habilidad PREGUNTA a quien; con Alt va sobre ti directamente.
+--- Apuntar -----------------------------------------------------------------
 --
--- Es la convencion del video (*"if I hit two, it's going to ask me who I want
--- to cast this on. If instead I hold alt and hit two, you would see it autocast
--- onto me"*) y es la de siempre en WoW, asi que se entiende sola.
+-- EL GESTO DE §5 DEL BRIEF. Pulsar un hechizo que necesita objetivo no lo
+-- manda: lo deja ARMADO, con la luz circular de las mascotas recorriendo el
+-- icono, y el siguiente click elige sobre quien -- en la lista de personajes o
+-- en el mundo 3D, indistintamente.
 --
--- SIN Alt no se manda nada todavia: queda ARMADA, y el siguiente click en el
--- mundo o en la consola elige el objetivo. Con un objetivo ya apuntado se manda
--- ya, porque preguntar cuando la respuesta esta delante es una pulsacion de mas.
-function K:Use(i)
-	local slots = self:Slots()
-	local s = slots[i]
+-- Con Alt va sobre el propio personaje sin preguntar, que es la convencion de
+-- siempre en WoW y la del video. Con un objetivo ya apuntado se manda ya,
+-- porque preguntar cuando la respuesta esta delante es una pulsacion de mas.
+
+function K:Use(name, i)
+	name = name or ns.Selection:GetPrimary()
+	local s = self:Slots(name)[i]
 	if not s then
-		if self:Pending() then
-			ns.Print("|cff888888habilidades:|r pidiendo la barra de " .. self:Owner() .. "...")
+		if self:Pending(name) then
+			ns.Print("|cff888888habilidades:|r pidiendo la barra de " .. name .. "...")
 		end
 		return
 	end
 
-	if IsAltKeyDown() then
-		Fire(s.spellId, UnitGUID("player"))
-		ns.Print(("|cff33ccff%s|r -> %s (sobre ti)"):format(self:Owner(), s.name))
+	local letter = s.type or self:TypeOf(s.spellId, name)
+	local info = self:TypeInfo(letter)
+
+	if IsAltKeyDown() or not info.ask then
+		local guid = IsAltKeyDown() and UnitGUID(ns.Selection:UnitFor(name) or "player") or nil
+		Fire(name, s.spellId, guid)
+		ns.Print(("|cff33ccff%s|r -> %s%s"):format(name, s.name,
+			guid and " (sobre si)" or ""))
 		return
 	end
 
+	-- Con algo ya apuntado no se pregunta... salvo que sea del bando
+	-- equivocado. AVISA Y NO BLOQUEA: `IsPositive()` se apoya en atributos que
+	-- el nucleo corrige a mano y no es infalible, asi que negarse en redondo
+	-- podria dejar un hechizo inservible por una clasificacion mala.
 	if UnitExists("target") then
-		Fire(s.spellId, UnitGUID("target"))
-		ns.Print(("|cff33ccff%s|r -> %s sobre %s"):format(self:Owner(), s.name, UnitName("target")))
+		local hostil = UnitCanAttack("player", "target")
+		if info.friendly ~= nil and info.friendly == hostil then
+			ns.Print(("|cffff8800%s|r es %s y tu objetivo no lo parece. " ..
+			          "Elige otro, o pulsa otra vez para mandarlo igual."):format(
+				s.name, info.label))
+			if self.warned ~= s.spellId then
+				self.warned = s.spellId
+				aiming = { owner = name, slot = i, spellId = s.spellId,
+				           name = s.name, type = letter, at = GetTime() }
+				Notify()
+				return
+			end
+		end
+		self.warned = nil
+		Fire(name, s.spellId, UnitGUID("target"))
+		ns.Print(("|cff33ccff%s|r -> %s sobre %s"):format(name, s.name, UnitName("target")))
 		return
 	end
 
-	aiming = { slot = i, spellId = s.spellId, name = s.name, at = GetTime() }
-	ns.Print(("|cffffd100%s:|r elige objetivo con el click izquierdo; el derecho cancela."):format(s.name))
+	aiming = { owner = name, slot = i, spellId = s.spellId, name = s.name,
+	           type = letter, at = GetTime() }
+	ns.Print(("|cffffd100%s|r (%s): elige objetivo con el click izquierdo; " ..
+	          "el derecho cancela."):format(s.name, info.label))
 	Notify()
 end
 
@@ -224,16 +454,19 @@ end
 function K:CancelAim()
 	if not aiming then return false end
 	aiming = nil
+	self.warned = nil
 	Notify()
 	return true
 end
 
--- Llamada desde `RTSMode` cuando hay una habilidad armada y pinchas algo. Un
--- guid vacio la cancela: pinchar el suelo con algo armado significa "olvida".
+-- Llamada desde `RTSMode` (mundo) y desde `Party` (la lista) cuando hay una
+-- habilidad armada y pinchas algo. Un guid vacio la cancela: pinchar el suelo
+-- con algo armado significa "olvida".
 function K:AimAt(guid, label)
 	if not aiming then return false end
 	local a = aiming
 	aiming = nil
+	self.warned = nil
 
 	if not guid then
 		ns.Print("|cff888888" .. a.name .. ": cancelada.|r")
@@ -241,8 +474,8 @@ function K:AimAt(guid, label)
 		return true
 	end
 
-	Fire(a.spellId, guid)
-	ns.Print(("|cff33ccff%s|r -> %s sobre %s"):format(self:Owner(), a.name, label or "eso"))
+	Fire(a.owner, a.spellId, guid)
+	ns.Print(("|cff33ccff%s|r -> %s sobre %s"):format(a.owner, a.name, label or "eso"))
 	Notify()
 	return true
 end
@@ -255,7 +488,8 @@ function K:Create()
 
 	ns.Link:On("BARS", function(rest)
 		-- DOS SENTIDOS: mandamos "BARS <nombre>" y nos lo oimos de vuelta. La
-		-- respuesta trae un segundo campo con la lista (o "-" si esta vacia).
+		-- respuesta trae un segundo campo con la lista (o "-" si esta vacia),
+		-- que es lo que la distingue de la peticion.
 		local name, payload = rest:match("^(%S+)%s+(%S.*)$")
 		if not name then return end
 
@@ -264,8 +498,15 @@ function K:Create()
 		b.staging = b.staging or {}
 		if payload == "-" then return end
 
-		for id in payload:gmatch("%d+") do
-			table.insert(b.staging, tonumber(id))
+		-- `id:letra`, y sin letra vale igual: un mod-rts anterior manda solo el
+		-- numero y entonces todo es del tipo seguro. Que una version vieja del
+		-- servidor deje la consola muda seria peor que perder la clasificacion.
+		for piece in payload:gmatch("[^%s,]+") do
+			local id, t = piece:match("^(%d+):?(%a?)$")
+			if id then
+				table.insert(b.staging, { id = tonumber(id),
+				                          t = (t ~= "" and t) or DEFAULT_TYPE })
+			end
 		end
 	end)
 
@@ -274,11 +515,34 @@ function K:Create()
 		if not name then return end
 		local b = bars[name]
 		if not b then return end
-		b.ids = b.staging or {}
+		b.list = b.staging or {}
 		b.staging = nil
 		b.pending = false
 		b.at = GetTime()
 		Notify()
+	end)
+
+	-- LO QUE LA COLA CONTESTA. Un hechizo que se queda esperando y luego no sale
+	-- tiene que decirlo: una orden que desaparece sin mensaje es indistinguible
+	-- de una que nunca se dio, que es el modo de fallo que este proyecto
+	-- persigue desde la etapa 5i.
+	ns.Link:On("CASTQ", function(rest)
+		local who, id, state, why = rest:match("^(%S+)%s+(%d+)%s+(%S+)%s*(.*)$")
+		if not who then return end
+		local sname = GetSpellInfo(tonumber(id)) or ("hechizo " .. id)
+
+		if state == "ok" then
+			K.queued[who] = nil
+			Notify()
+		elseif state == "wait" then
+			K.queued[who] = { id = tonumber(id), at = GetTime() }
+			Notify()
+		else
+			K.queued[who] = nil
+			ns.Print(("|cffff8800%s|r no pudo lanzar %s: %s"):format(
+				who, sname, (why ~= "" and why) or "sin motivo"))
+			Notify()
+		end
 	end)
 
 	-- Cambiar de primario cambia la barra.
@@ -288,32 +552,49 @@ function K:Create()
 			K.lastOwner = who
 			K:Request(who)
 		end
+		-- Y EN EL ESTADO B HACEN FALTA VARIAS. Sin esto, seleccionar a cuatro
+		-- dejaria tres columnas en blanco hasta que cada uno pasara por
+		-- primario, que es un orden que el jugador no tiene por que recorrer.
+		local names = {}
+		for _, n in ipairs(ns.Selection:Get()) do table.insert(names, n) end
+		K:RequestFor(names)
 	end)
 
-	-- Y LA PRIMERA VEZ, QUE NO ES UN CAMBIO.
-	--
-	-- Esto faltaba y es el fallo de `PRUEBAS-20` C1: sin ninguna seleccion
-	-- todavia, `GetPrimary()` cae a tu personaje -- correctamente -- pero nadie
-	-- habia pedido su barra, asi que `Slots()` devolvia vacio y `/rts skills`
-	-- decia *"nada. Un bot sin barra de accion guardada no ofrece hechizos"*.
-	--
-	-- El mensaje era el equivocado y esa es la parte que vale: hablaba de un BOT
-	-- cuando el primario era el jugador, y de "barra guardada" cuando el
-	-- problema era que no se habia leido ninguna. Un diagnostico que nombra la
-	-- causa que no es cuesta mas que uno que calla.
+	-- Y LA PRIMERA VEZ, QUE NO ES UN CAMBIO. Sin ninguna seleccion todavia,
+	-- `GetPrimary()` cae a tu personaje -- correctamente -- pero nadie habia
+	-- pedido su barra, asi que `Slots()` devolvia vacio y el diagnostico
+	-- hablaba de "un bot sin barra guardada" con el jugador de primario. Un
+	-- mensaje que nombra la causa que no es cuesta mas que uno que calla.
 	K.lastOwner = ns.Selection:GetPrimary()
 	K:Request(K.lastOwner)
 end
 
+-- name -> { id, at } mientras el servidor lo tiene en cola. Lo dibuja `Cast`.
+K.queued = {}
+
+function K:QueuedFor(name)
+	return self.queued[name or ""]
+end
+
 function K:Report()
-	local slots = self:Slots()
-	ns.Print(("habilidades de |cff33ccff%s|r: %d%s"):format(
-		self:Owner(), #slots, self:Pending() and " (pidiendo...)" or ""))
-	for i, s in ipairs(slots) do
-		ns.Print(("  %d. %s (%d)"):format(i, s.name, s.spellId))
+	local name = ns.Selection:GetPrimary()
+	local slots = self:Slots(name)
+	ns.Print(("habilidades de |cff33ccff%s|r: %d huecos%s"):format(
+		name, ns.Hall.slots or 4, self:Pending(name) and " (pidiendo...)" or ""))
+	for i = 1, (ns.Hall.slots or 4) do
+		local s = slots[i]
+		if s then
+			ns.Print(("  %d. %s (%d) |cff888888%s%s|r"):format(
+				i, s.name, s.spellId, s.type or "?", s.stale and " -- ya no en su barra" or ""))
+		else
+			ns.Print(("  %d. |cff666666vacio|r"):format(i))
+		end
 	end
-	if #slots == 0 and not self:Pending() then
-		if self:Owner() == ns.MyName() then
+
+	local cat = self:Available(name)
+	ns.Print(("  catalogo: %d hechizos"):format(#cat))
+	if #cat == 0 and not self:Pending(name) then
+		if name == ns.MyName() then
 			ns.Print("  |cff888888nada en tus casillas de accion. Pon hechizos en la barra " ..
 			         "y vuelve a mirar.|r")
 		else

@@ -12,6 +12,7 @@
 #include "SpellMgr.h"
 
 #include "MotionMaster.h"
+#include "Pet.h"
 
 #include <algorithm>
 #include <list>
@@ -82,13 +83,74 @@ namespace
     }
 }
 
-std::vector<uint32> rts::command::ActionBarSpells(Player* master, std::string const& botName)
+// QUE LETRA LE TOCA A ESTE HECHIZO.
+//
+// EL ORDEN ES PARTE DE LA RESPUESTA y no es alfabetico: la primera que da
+// cierto gana. Un Renovar es a la vez "positivo" y "necesita objetivo", y para
+// la cola manda lo segundo; un totem tiene su categoria Y no pide objetivo, y
+// manda que sea totem porque eso decide donde cae.
+//
+// Todo esto lo contesta `SpellInfo`, que el nucleo ya tiene cargado. Ni una
+// sola lista de ids -- que es lo que este proyecto lleva seis etapas evitando,
+// desde `nameplateMaxDistance`.
+char rts::command::ClassifySpell(SpellInfo const* info)
 {
-    std::vector<uint32> out;
+    if (!info)
+        return 'N';
+
+    // P -- pasivo. No se ofrece siquiera; queda aqui por si algun camino lo
+    // pregunta antes de filtrarlo.
+    if (info->IsPassive())
+        return 'P';
+
+    // T -- totem u objeto colocado. Playerbots lo pone donde esta el bot.
+    if (info->Totem[0] || info->Totem[1] || info->TotemCategory[0] || info->TotemCategory[1])
+        return 'T';
+
+    // D -- sobre un muerto. Resucitar. Va antes que A/H porque tambien pide
+    // objetivo explicito y su segundo click es distinto (uno muerto).
+    if (info->IsRequiringDeadTarget())
+        return 'D';
+
+    // G -- suelo o area con destino. NO NECESITA UN CLICK EN EL TERRENO:
+    // `PlayerbotAI::CastSpell` hace `targets.SetDst(*target)` para estos, o sea
+    // que apuntando a una unidad el hechizo cae DONDE ESTA esa unidad. Lluvia
+    // de fuego sobre el lobo es "apunta al lobo". Ver `docs/HECHIZOS-COLA.md`.
+    if (info->Targets & TARGET_FLAG_DEST_LOCATION)
+        return 'G';
+
+    // S -- solo sobre uno mismo. Se trata como "sin objetivo", que es lo que
+    // el brief proponia.
+    if (info->IsSelfCast())
+        return 'S';
+
+    // A / H -- con objetivo, amigo o enemigo.
+    if (info->NeedsExplicitUnitTarget())
+        return info->IsPositive() ? 'A' : 'H';
+
+    // N -- lo demas: gritos, auras, posturas. Se manda y ya.
+    return 'N';
+}
+
+std::vector<rts::command::BarSpell> rts::command::ActionBarSpells(Player* master,
+                                                                  std::string const& botName)
+{
+    std::vector<BarSpell> out;
 
     Player* bot = ResolveBot(master, botName);
     if (!bot)
         return out;
+
+    // LA MASCOTA, QUE ES LA TRAMPA CARA. `PlayerbotAI::CastSpell` empieza con
+    // `Pet* pet = bot->GetPet(); if (pet && pet->HasSpell(spellId))`, y en ese
+    // caso alterna el autocast de la mascota, susurra al maestro y **devuelve
+    // true** -- sin lanzar nada. Un hueco con uno de esos seria un boton que no
+    // hace nada, que reporta exito, y que ademas alterna entre dos estados
+    // invisibles: en pantalla, "ese boton funciona a veces".
+    //
+    // Se filtra AQUI y no en el addon porque aqui es donde se sabe que mascota
+    // tiene el bot ahora mismo.
+    Pet* pet = bot->GetPet();
 
     std::unordered_set<uint32> seen;
 
@@ -107,28 +169,37 @@ std::vector<uint32> rts::command::ActionBarSpells(Player* master, std::string co
         if (!bot->HasSpell(spellId))
             continue;
 
+        if (pet && pet->HasSpell(spellId))
+            continue;
+
         SpellInfo const* info = sSpellMgr->GetSpellInfo(spellId);
         if (!info || info->IsPassive())
             continue;
 
         seen.insert(spellId);
-        out.push_back(spellId);
+        out.push_back(BarSpell{ spellId, ClassifySpell(info) });
     }
 
     return out;
 }
 
 bool rts::command::CastAs(Player* master, std::string const& botName, uint32 spellId,
-                          ObjectGuid targetGuid, std::string* why)
+                          ObjectGuid targetGuid, std::string* why, bool* retryable)
 {
+    // Por defecto NO se reintenta. Lo que se marca expresamente es lo que puede
+    // salir bien mas tarde, que es lo prudente: una cola que reintenta lo que
+    // nunca va a salir es ocho segundos de silencio en vez de un mensaje.
+    if (retryable)
+        *retryable = false;
+
     auto fail = [why](char const* reason) { if (why) *why = reason; return false; };
 
     Player* bot = ResolveBot(master, botName);
     if (!rts::bots::Driven(bot))
-        return fail("that unit is not one of yours");
+        return fail("ese no es uno de los tuyos");
 
     if (!bot->HasSpell(spellId))
-        return fail("it does not know that spell");
+        return fail("no conoce ese hechizo");
 
     // Named target, or whatever the bot already has. Casting a heal at nothing
     // should not silently become a self-cast, so an explicit target that cannot
@@ -138,7 +209,7 @@ bool rts::command::CastAs(Player* master, std::string const& botName, uint32 spe
     {
         target = ObjectAccessor::GetUnit(*bot, targetGuid);
         if (!target)
-            return fail("cannot see that target");
+            return fail("no ve ese objetivo");
     }
     else if (ObjectGuid const own = bot->GetTarget())
     {
@@ -194,7 +265,21 @@ bool rts::command::CastAs(Player* master, std::string const& botName, uint32 spe
     // facing, cooldowns and the global cooldown are all respected exactly as
     // they are when the bot casts for itself.
     if (!rts::bots::Cast(bot, spellId, target))
+    {
+        // AQUI ES DONDE SE ACABA LO QUE SE PUEDE SABER. `PlayerbotAI::CastSpell`
+        // devuelve un bool y nada mas, asi que desde fuera no hay forma de
+        // separar "el enfriamiento global, vuelve en un segundo" de "le faltan
+        // reagentes y no van a aparecer".
+        //
+        // Se dice reintentable y **es el PLAZO quien descarta** lo que nunca iba
+        // a salir. La alternativa -- reimplementar `Spell::CheckCast` aqui para
+        // sacar el codigo de error -- seria escribir una segunda version de una
+        // regla del juego que ya existe, que es como se acaba con dos respuestas
+        // distintas a la misma pregunta.
+        if (retryable)
+            *retryable = true;
         return fail("no salio (alcance, enfriamiento, linea de vision o estaba en movimiento)");
+    }
 
     return true;
 }

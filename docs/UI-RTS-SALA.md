@@ -790,3 +790,201 @@ salida aplazada en combate (§ `LeaveChrome`), el consuelo de *"te quedas con la
 consola, que lleva tu vida y tu poder"* **ya no es cierto**. Está anotado en
 `RTSMode.lua`. Es un argumento a favor de que la sala nueva vuelva a llevar el
 estado del héroe.
+
+---
+
+## 14. La sala se llena otra vez: el panel de control de grupo, 2026-09-04
+
+Addon **0.75.0**, mod-rts **0.36.0** (hay que reiniciar el servidor). Construido,
+no visto todavía. El encargo es `Downloads/brief-barra-control-grupo.md`.
+
+La sala llevaba vacía desde el 2 de septiembre, a propósito, para no predecidir
+lo que iba dentro. Esto es lo que va dentro.
+
+```
+┌──────────┬──────────────────────────────────────────────┐
+│ LISTA    │  ARRIBA   marcos: personaje / objetivo /     │
+│ (héroe   │           objetivo de su objetivo            │
+│  primero,├──────────────────────────────────────────────┤
+│  x5)     │  ABAJO    huecos de hechizo                  │
+│          │           4 botones de acción                │
+└──────────┴──────────────────────────────────────────────┘
+```
+
+Cinco ficheros nuevos: `Hall.lua` (el reparto y el estado), `Party.lua` (la
+columna), `Frames.lua` (los marcos), `Cast.lua` (los huecos y las acciones), y
+`sim/hall_layout.py`. `Skills.lua` se reescribe.
+
+### 14.1 LA MITAD DEL BRIEF YA ESTABA CONSTRUIDA, Y ESO SE MIRÓ ANTES
+
+Es la lección de la etapa 5n aplicada a propósito esta vez — *antes de construir
+lo que pide un brief, buscar si ya está puesto en otro sitio con otro nombre*.
+Cuatro de las nueve cosas que pedía no había que escribirlas:
+
+| lo que pedía el brief | lo que ya había |
+|---|---|
+| §7 *"analizar el asset, identificar el tramo central repetible y generar una versión recortada que tilee"* | **`middle.tga` ES esa pieza**, y `/rts bar grow <n>` la repite desde el 19 de agosto. Cero trabajo |
+| §9.1 *"¿curar en focus existe o hay que programarlo?"* | **`PFOCUS`, compilado desde mod-rts 0.15.0.** Sobre un amigo pone `focus heal targets` y su estrategia, que es IA de playerbots. Faltaba el botón |
+| §5 el segundo click sobre el mundo 3D | `Skills:Aiming()` / `AimAt` y el gancho de `RTSMode:OnLeftClick`, desde la etapa 5n |
+| §4.1 *"ya existe una versión previa que se puede reaprovechar"* | `Skills.lua` entero, y `Roster.lua` en git para la columna |
+
+### 14.2 EL SIM CAZÓ EL FALLO QUE DECIDIÓ LA FORMA
+
+`sim/hall_layout.py` corrió **antes de escribir una línea de Lua**, y encontró
+dos cosas. La cara:
+
+**Las cuatro acciones no cabían al lado de la fila de hechizos.** Puestas a su
+derecha competían por el ANCHO, y con la barra estrecha (`grow` 1) el reparto
+daba **cero botones** — justo los cuatro que el brief llama caso de uso
+prioritario. Con `grow` 2 salían a 73 contra 96 de los hechizos, o sea encogidas
+por una razón que no tiene nada que ver con lo que son.
+
+Van **apiladas debajo**. Compiten por el alto, que es fijo (238) y sobra, y
+además se leen mejor: una fila de hechizos y una fila de acciones son dos cosas
+distintas y en la misma línea parecían la misma.
+
+La otra era mía y del propio guion: la comprobación del borde derecho sumaba los
+huecos de botones que no existían, así que decía "se sale" de una fila vacía.
+
+**La prueba tiene dientes**, comprobado: con `FIT_GUARD = False` las cinco
+columnas con `grow` 1 salen a 17 px de dibujo en vez de rechazarse, y la
+comprobación falla.
+
+### 14.3 Las medidas, y de dónde salen
+
+| pieza | medida (dibujo) | por qué |
+|---|---|---|
+| columna izquierda | 260 de ancho | el 12% de la sala con `grow` 4. Cabe un nombre a fuente 22 |
+| fila de personaje | 65 de alto | 344 / 5 con 4 de separación |
+| dentro de la fila | 24 nombre + 31 vida + 6 recurso | el nombre **encima**, no dentro (§3 del brief) |
+| banda de marcos | 96 de alto | "el mínimo espacio vertical posible" (§2) |
+| hueco de hechizo | hasta 112 | tope: más grande se ve como un cartel |
+| botón de acción | hasta 96 | algo menor a propósito: es la fila secundaria |
+| suelo de cualquiera | 40 | por debajo no se distingue el icono, y **no se dibuja** |
+
+**La línea de recurso son 6 de dibujo = 3,4 de pantalla**, dentro del "2-4 px"
+que pide el brief. Lo comprueba el sim, no el ojo.
+
+### 14.4 §9.2 contestado con números
+
+*"Confirmar que el ancho disponible permite 5 columnas × 4 slots."*
+
+| `grow` | sala | columna | hueco de 4 | de 6 |
+|---|---|---|---|---|
+| 1 | 710 | 78 | **no cabe** | no cabe |
+| 2 | 1222 | 180 | **no cabe** | no cabe |
+| 3 | 1734 | 282 | 64 | 40 |
+| **4** | **2246** | **385** | **90** | **57** |
+| 5 | 2758 | 487 | 112 | 74 |
+
+`grow` 4 es el que sale solo en 2560x1440 a pantalla completa, así que **sí,
+holgado**. Por debajo de 3 no caben, y ahí **el panel lo dice y dice qué hacer**
+(`/rts bar grow` o `/rts hall slots`) en vez de esconderlas: media consola vacía
+sin motivo visible es peor que un mensaje.
+
+### 14.5 LA LUZ CIRCULAR ES DEL CLIENTE, Y SALE GRATIS
+
+El brief pide *"el efecto de luz circular recorriendo el borde, idéntico al
+autocast de las mascotas de cazador"*. No hay que dibujarlo. Sacado leyendo el
+FrameXML del cliente, no de memoria:
+
+- `AutoCastShineTemplate` (`UIPanelTemplates.xml:699`) son 16 texturas de chispa
+  con su `OnLoad`. Es una plantilla **virtual corriente**, no protegida: se
+  hereda con `CreateFrame(..., "AutoCastShineTemplate")`.
+- `AutoCastShine_AutoCastStart(frame, r, g, b)` la enciende
+  (`UIParent.lua:3477`).
+- **La animación la mueve `UIParent` en su propio `OnUpdate`**
+  (`UIParent.xml:27` → `AutoCastShine_OnUpdate(nil, elapsed)`), recorriendo todas
+  las encendidas. No hay que llevar ningún temporizador.
+
+Dos trampas, las dos silenciosas:
+
+- **EL FRAME TIENE QUE TENER NOMBRE.** `AutoCastShine_OnLoad` busca sus chispas
+  con `_G[name..i]`. Sin nombre no da error: `self.sparkles` sale con 16 nil
+  dentro y no se ve nada.
+- **Hay que redimensionarla al botón.** El recorrido de la animación es
+  `self:GetWidth()`, así que una luz de 28 sobre un hueco de 90 da la vuelta por
+  donde no es.
+
+### 14.6 Lo que NO se puede enseñar, dicho por delante
+
+El brief pide *"avatar, barra de vida, energía/recurso, pet, runas… lo que
+corresponda a esa clase"*.
+
+- **El objetivo de un bot y el objetivo de su objetivo SÍ**, y sin servidor:
+  `party1target` y `party1targettarget` son unidades válidas en 3.3.5a.
+- **La mascota SÍ**: `party1pet`.
+- **LAS RUNAS NO.** `GetRuneCooldown(i)` y `GetRuneType(i)` de 3.3.5a **no toman
+  unidad** — son siempre las tuyas. No hay forma client-side de leer las runas de
+  un caballero de la muerte del grupo.
+
+  Dibujar seis rombos con TUS runas bajo el marco de OTRO sería un dato falso con
+  pinta de bueno, que es el modo de fallo que este proyecto persigue desde la
+  etapa 5i. Si se quieren de verdad es un verbo de mod-rts, y se hace el día que
+  haya un caballero de la muerte en el grupo.
+
+### 14.7 La rejilla 4x4 pierde su doble alcance, y eso deshace una decisión
+
+Del 24 de agosto al 4 de septiembre la rejilla tuvo dos alcances: con algo
+seleccionado la orden iba a lo seleccionado, sin nada al grupo. Estaba pensado y
+señalizado — etiqueta azul y "→ N seleccionada(s)" en el tooltip.
+
+§6 y §8 del brief lo cierran en el otro sentido: **siempre a todo el grupo**. Y
+tiene sentido con la consola nueva delante, que es lo que ha cambiado: **ahora
+hay un sitio donde mandar a UNO** — los cuatro botones de acción de la sala.
+Antes no lo había, y por eso la rejilla hacía las dos cosas.
+
+Cinco casillas no son órdenes y se quedan como están: Formar abre una lista,
+Salir sale del modo, Control cambia o posee a UN personaje por definición, y las
+dos marcas ponen un icono en tu objetivo.
+
+### 14.8 Los gestos, todos en una tabla
+
+| dónde | izquierdo | derecho |
+|---|---|---|
+| fila de la lista | seleccionar (doble = todos, shift = sumar) | **hacer primario** sin seleccionar |
+| retrato del marco | seleccionar | — |
+| hueco de hechizo | lanzar (o armar si pide objetivo) | **elegir qué hechizo va ahí** |
+| botón de acción | ejecutar | **elegir qué acción va ahí** |
+| con algo armado | ese es el objetivo | cancelar |
+
+El derecho sobre una fila recupera el gesto del vídeo — *"the command bar for the
+next person WITHOUT deselecting"* — que vivía en Tab hasta que se pidió quitarlo
+(0.52.0). El **concepto** de primario se quedó entonces y el gesto se fue, así
+que hasta hoy la única forma de ver los hechizos de alguien era seleccionarlo a
+él solo, o sea soltar al grupo.
+
+### 14.9 Lo guardado
+
+```lua
+RTSCommandDB.hall = {
+    slots = 4,
+    who = { ["Kirinah"] = { spells = {2050, nil, 596, 6}, actions = {"focus", ...} } },
+}
+```
+
+Por **nombre** porque es la clave que el jugador reconoce y la que usan `BARS` y
+`CAST`. **Los agujeros se conservan**: un hueco 3 vacío entre el 2 y el 4 es una
+decisión, no un error de compactado.
+
+Y **se acota al LEER**, que es la cuarta vez que hace falta en este addon después
+del `grow = 688`, el `camHold` y el `railCropGen`. Un id que `GetSpellInfo` no
+resuelve se descarta al cargar y se imprime cuántos.
+
+**La clave vieja `RTSCommandDB.skills` se sigue tirando**, y que el nombre nuevo
+sea distinto es lo que deja hacerlo sin pensarlo: reutilizarla habría hecho que
+el primer arranque tras actualizar leyera huecos de un formato que ya no es.
+
+### 14.10 Lo que queda por ver en juego
+
+Nada de esto se ha visto. Lo que más probablemente falle, en orden:
+
+1. **La luz circular.** Es la pieza con más supuestos del cliente, y sus dos
+   modos de fallo son silenciosos (sin nombre no dibuja; mal dimensionada gira
+   por fuera).
+2. **`SetStatusBarTexture(r,g,b)`** para la barra plana. Se usa igual que
+   `W:Bar` usa `SetTexture` para su fondo, pero sobre un `StatusBar` y no sobre
+   una textura.
+3. **El reparto con `grow` bajo**, que es donde el sim dice que las columnas se
+   rechazan. Hay que ver que el mensaje sale y que no queda nada flotando.
+4. **`GetComboPoints`**, que tiene dos firmas y se prueban las dos.

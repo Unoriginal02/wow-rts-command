@@ -339,12 +339,15 @@ namespace
 
         auto const spells = rts::command::ActionBarSpells(master, bot->GetName());
 
+        // `ActionBarSpells` devuelve id + LETRA DE TIPO desde 0.36.0. Aqui solo
+        // hace falta el id: una barra de posesion no pregunta a quien apuntar,
+        // la maneja el jugador con el raton como cualquier otra.
         uint32 slot = 0;
-        for (uint32 id : spells)
+        for (auto const& sp : spells)
         {
             if (slot >= MAX_UNIT_ACTION_BAR_INDEX)
                 break;
-            if (SpellInfo const* si = sSpellMgr->GetSpellInfo(id))
+            if (SpellInfo const* si = sSpellMgr->GetSpellInfo(sp.id))
             {
                 if (info->AddSpellToActionBar(si, ACT_PASSIVE, slot))
                     ++slot;

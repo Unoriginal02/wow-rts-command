@@ -30,6 +30,7 @@
 #include "RBAC.h"
 #include "RtsBags.h"
 #include "RtsQuests.h"
+#include "RtsQueue.h"
 #include "RtsSwap.h"
 #include "RtsCamera.h"
 #include "RtsChain.h"
@@ -61,7 +62,7 @@ namespace
     // pieces in this project -- the DLL, this module, and the addon -- and only
     // the DLL had a version you could see, which made a server-side fix look
     // like nothing had happened. All three now report.
-    constexpr char const* kModVersion = "0.35.0";
+    constexpr char const* kModVersion = "0.36.0";
 
     std::string Upper(std::string s)
     {
@@ -645,10 +646,21 @@ namespace
 
             // Chunked: an addon message caps at 255 characters and a full bar
             // of six-digit ids does not fit in one.
+            //
+            // CADA HECHIZO VA COMO `id:letra`. La letra es el TIPO, y la decide
+            // este lado porque el cliente no puede: `IsHarmfulSpell` toma un
+            // nombre o un indice de TU libro, y el bot conoce hechizos que tu
+            // no. Ver `docs/HECHIZOS-COLA.md` §1.
+            //
+            // Un addon anterior lee `id:letra` con su `tonumber` y se queda con
+            // el numero, asi que anadir la letra no rompe a nadie; y un mod-rts
+            // anterior manda solo el numero, que el addon nuevo trata como el
+            // tipo seguro. Las dos direcciones degradan a lo de antes en vez de
+            // quedarse mudas.
             std::string chunk;
-            for (uint32 id : spells)
+            for (auto const& sp : spells)
             {
-                std::string const piece = std::to_string(id);
+                std::string const piece = std::to_string(sp.id) + ':' + sp.type;
                 if (chunk.size() + piece.size() + 2 > 200)
                 {
                     SendAddon(player, "BARS " + rest + " " + chunk);
@@ -686,6 +698,34 @@ namespace
             std::string why;
             if (!rts::command::CastAs(player, bot, spellId, target, &why))
                 Reply(player, "RTS: " + why + ".");
+            return true;
+        }
+
+        // "CASTQ <bot> <spellid> [targetGuidHex]" -- como CAST, pero si el hueco
+        // esta ocupado ESPERA en vez de fallar.
+        //
+        // Es el mismo mensaje que `CAST` con una letra mas, a proposito: el
+        // addon elige uno u otro segun la version del servidor que tenga
+        // delante, y sin cola sigue funcionando todo como antes.
+        if (verb == "CASTQ")
+        {
+            std::istringstream in(rest);
+            std::string bot, guidHex;
+            uint32 spellId = 0;
+            if (!(in >> bot >> spellId))
+                return false;
+
+            ObjectGuid target;
+            if (in >> guidHex)
+            {
+                uint64 raw = 0;
+                std::istringstream hx(guidHex);
+                hx >> std::hex >> raw;
+                if (raw)
+                    target = ObjectGuid(raw);
+            }
+
+            rts::queue::Push(player, bot, spellId, target);
             return true;
         }
 
@@ -1777,6 +1817,11 @@ public:
 
         rts::orders::ForgetPlayer(player);
         rts::command::ReleaseAll(player);
+        // Y LA COLA. Un hechizo esperando su hueco guarda el guid del maestro;
+        // sin esto seguiria reintentando ocho segundos sobre alguien que ya no
+        // esta -- `Update` lo resolveria a nulo y lo tiraria, pero decirlo aqui
+        // es lo que hace que el caso no dependa de que el otro lado se acuerde.
+        rts::queue::Drop(player);
         // The dynobjects are already gone by now (the core drops every one when
         // the player leaves the map); this only clears our slot bookkeeping so
         // the next login does not start with a table of dead guids.
@@ -1896,6 +1941,7 @@ public:
     void OnUpdate(uint32 diff) override
     {
         rts::command::Update(diff);
+        rts::queue::Update(diff);
         rts::chain::Update(diff);
         // EL CANAL DEL ADDON SIGUE VIVIENDO SOLO AQUI. `rts::swap` no sabe hablar
         // con el cliente y no hace falta que aprenda: devuelve a quien acaba de
@@ -1913,6 +1959,15 @@ public:
 
 void AddSC_mod_rts()
 {
+    // EL SUMIDERO DE LA COLA. Habla en su propio tick, asi que no puede esperar
+    // a que alguien le pregunte; y el transporte es de este fichero y solo de
+    // este, que es la separacion que este modulo si tiene bien hecha. Se le pasa
+    // la funcion una vez, al cargar.
+    rts::queue::SetSink([](Player* player, std::string const& body)
+    {
+        SendAddon(player, body);
+    });
+
     new RtsPacketScript();
     new RtsChannelScript();
     new RtsCommandScript();

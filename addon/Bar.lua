@@ -246,16 +246,20 @@ local SLOTS = {
 	  cell = { w = 452, h = 452 }, cols = 1, rows = 1,
 	  host = true },
 
-	-- LA SALA, ENTERA Y VACIA. Un solo rectangulo, sin rejilla y sin anfitrion:
-	-- es el area que hay para repartir cuando se decida que va dentro, y hasta
-	-- entonces lo unico que hace es salir en `/rts bar guides` con su medida.
+	-- LA SALA. Un solo rectangulo y SIN REJILLA, que es lo que la deja libre:
+	-- el reparto de dentro lo hace `Hall.lua`, porque no es una rejilla sino
+	-- dos zonas con dos estados. Aqui solo esta el area que el arte deja.
+	--
+	-- Estuvo VACIA del 2026-09-02 al 2026-09-04, sin anfitrion, mientras se
+	-- redisenaba. Ahora tiene `host` y nada mas: este fichero sigue sin nombrar
+	-- a ningun modulo de contenido, y `Hall` se apunta solo con `B:Register`.
 	--
 	-- `toPiece`/`toDx` porque abarca varias piezas y el numero de copias del
 	-- panel central cambia con `grow`. Es el motivo de que exista esa forma de
 	-- declarar un hueco, y el motivo de que siga aqui.
-	{ key = "hall", piece = "ramp-left", label = "sala (vacia)",
+	{ key = "hall", piece = "ramp-left", label = "sala",
 	  dx = HALL_X, dy = HALL_Y0, h = HALL_Y1 - HALL_Y0,
-	  toPiece = "ramp-right", toDx = HALL_END },
+	  toPiece = "ramp-right", toDx = HALL_END, host = true },
 
 	-- IZQUIERDA: los del MAPA, que es el lado donde esta el minimapa -- los
 	-- botones del mapa al lado del mapa.

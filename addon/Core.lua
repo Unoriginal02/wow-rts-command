@@ -426,13 +426,24 @@ local function Initialise()
 
 	ns.Rails:Load()
 
-	-- LO QUE LA SALA DEJO GUARDADO, TIRADO AL CARGAR. El encuadre del retrato,
-	-- los huecos de habilidad por personaje y el interruptor de la lista de
-	-- objetivos vivian en las SavedVariables, y un fichero de SavedVariables no
-	-- olvida ninguna clave: sobrevive a la version del addon que la escribio.
-	-- Sin esto, el dia que la sala se vuelva a llenar se encontraria con
-	-- ajustes de un diseno que ya no existe -- que es exactamente lo que costo
-	-- el `grow = 688` y el `camHold` de una funcion borrada.
+	-- LA SALA Y SUS HUECOS. Las dos acotan al LEER y no solo al escribir, que
+	-- es la cuarta vez que hace falta en este addon: un fichero de
+	-- SavedVariables no olvida ninguna clave y sobrevive a la version que la
+	-- escribio, y los `Set*` solo corren cuando el jugador teclea.
+	ns.Hall:Load()
+	ns.Skills:Load()
+
+	-- LO QUE LA SALA VIEJA DEJO GUARDADO, TIRADO AL CARGAR, Y SIGUE HACIENDO
+	-- FALTA. La sala se volvio a llenar el 2026-09-04, pero **con otras
+	-- claves**: los huecos de habilidad viven ahora en `RTSCommandDB.hall.who`
+	-- y no en `RTSCommandDB.skills`, que era una lista plana de otro diseno.
+	--
+	-- Que el nombre nuevo sea distinto es lo que deja tirar el viejo sin
+	-- pensarlo: si se hubiera reutilizado la clave, el primer arranque tras la
+	-- actualizacion habria leido huecos de un formato que ya no es -- que es
+	-- exactamente lo que costo el `grow = 688`, el `camHold` de una funcion
+	-- borrada y el `railCropGen` cuyo indice seguia siendo valido pero
+	-- significaba otra cosa.
 	RTSCommandDB.skills    = nil   -- huecos de habilidad por personaje
 	RTSCommandDB.portrait  = nil   -- encuadre del modelo 3D del heroe
 	RTSCommandDB.targets   = nil   -- sitio del panel flotante de objetivos
@@ -930,7 +941,8 @@ end
 -- Las seis habilidades rapidas del primario. Sin Alt preguntan a quien; con Alt
 -- van sobre ti.
 function RTSCommand_Skill(i)
-	ns.Skills:Use(i)
+	-- Sin dueno explicito: el primario, que es de quien es la fila de la sala.
+	ns.Skills:Use(nil, i)
 end
 
 function RTSCommand_Calibrate()
@@ -1440,7 +1452,27 @@ SlashCmdList["RTSCOMMAND"] = function(msg)
 		end
 
 	elseif cmd == "skills" or cmd == "habilidades" then
-		ns.Skills:Report()
+		local sub, arg = (rest or ""):match("^(%S*)%s*(.*)$")
+		sub = (sub or ""):lower()
+		if sub == "reset" or sub == "limpiar" then
+			-- El dueno es el de la sala, que con nada seleccionado es el
+			-- primario. Se dice el nombre al limpiar: borrar la configuracion
+			-- de quien no era es de las cosas que no se pueden deshacer.
+			ns.Skills:ClearSlots(arg ~= "" and arg or ns.Hall:Subject())
+		else
+			ns.Skills:Report()
+		end
+
+	elseif cmd == "hall" or cmd == "sala" then
+		local sub, arg = (rest or ""):match("^(%S*)%s*(.*)$")
+		sub = (sub or ""):lower()
+		if sub == "slots" or sub == "huecos" then
+			ns.Hall:SetSlots(arg)
+		elseif sub == "acciones" or sub == "actions" then
+			ns.Cast:Report()
+		else
+			ns.Hall:Report()
+		end
 
 	elseif cmd == "quests" or cmd == "misiones" then
 		local sub = (rest or ""):lower():match("^(%S*)") or ""

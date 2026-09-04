@@ -75,6 +75,27 @@ function S:GetRosterWithPlayer()
 	return roster
 end
 
+-- LA MISMA LISTA CON EL HEROE EL PRIMERO, que es lo que pide §3/§6 del brief:
+-- *"el heroe activo es siempre el primer item de la lista"*.
+--
+-- No sustituye a `GetRosterWithPlayer`, que deja al jugador el ULTIMO a
+-- proposito -- ahi el orden lo fijan las teclas de control de grupo que los
+-- dedos ya tienen aprendidas, y cambiarlo movería los bots un sitio. Esta es
+-- para DIBUJAR, donde lo que manda es que el heroe se lea primero.
+--
+-- Y "el heroe" es quien seas AHORA, no con quien entraste: despues de un cambio
+-- de personaje el primero de la lista es el nuevo. `ns.MyName()` es el unico
+-- sitio que contesta eso bien -- `UnitName("player")` sale de un buffer que
+-- solo rellena la pantalla de seleccion y se queda con el nombre de la sesion
+-- para siempre.
+function S:GetRosterHeroFirst()
+	local out = { { name = ns.MyName(), unit = "player", isPlayer = true } }
+	for _, m in ipairs(self:GetRoster()) do
+		tinsert(out, m)
+	end
+	return out
+end
+
 -- name -> unit token, or nil if they left the group.
 -- In RTS mode your own character is selectable, so the player matches too.
 --

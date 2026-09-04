@@ -224,10 +224,30 @@ local REPLY_ONLY = {
 	BAGEND = true, BAGOK = true, BAGERR = true,
 	NPCQEND = true, QDONE = true, QERR = true,
 	BARSEND = true, SWAPPED = true, IAM = true, MYBARS = true,
+	CASTQ = true,
 	CHAINAT = true, CHAINEND = true,
 	TRAINEND = true, VENDEND = true, TRAINED = true,
 	SOLD = true, REPAIRED = true, BOUGHT = true, NPCERR = true,
 }
+
+--- Que sabe hacer el servidor que hay puesto -------------------------------
+--
+-- `¿ES AL MENOS 0.<minor>.0?`. Existe porque un verbo nuevo contra un mod-rts
+-- viejo **no da error: no contesta**, y eso se ve como un boton que no hace
+-- nada. Con esto el addon puede caer al verbo antiguo en vez de quedarse mudo,
+-- que es lo que separa "el servidor esta desactualizado" de "esto esta roto".
+--
+-- Sin respuesta todavia devuelve `false`, que es lo prudente: el respaldo
+-- siempre existe, el verbo nuevo no siempre.
+function L:ServerAtLeast(minor)
+	local v = self.serverVersion
+	if not v then return false end
+	local a, b = v:match("^(%d+)%.(%d+)")
+	if not a then return false end
+	a, b = tonumber(a), tonumber(b)
+	if a > 0 then return true end
+	return b >= (tonumber(minor) or 0)
+end
 
 -- El aviso sale UNA vez, no en cada mensaje.
 local function NoteServer(verb)

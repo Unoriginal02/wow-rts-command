@@ -284,6 +284,13 @@ function R:OnLeftClick(sx, sy, shift, alt, hover)
 		return
 	end
 
+	-- Y UN FOCO PENDIENTE, IGUAL. El boton de "Focus" de la consola usa el mismo
+	-- armado que un hechizo -- el jugador ya sabe que un icono dando vueltas
+	-- significa "elige a quien", y dos gestos para lo mismo seria peor que uno.
+	if ns.Cast:AimAt(hover and hover.guid, hover and hover.name) then
+		return
+	end
+
 	local m = hover and hover.ours and { name = hover.name, guid = hover.guid,
 	                                     isPlayer = hover.name == ns.MyName() }
 	          or self:UnitAt(sx, sy)
@@ -413,6 +420,10 @@ function R:OnRightClick(sx, sy, hover, shift)
 	-- objetivo" pulsado por error es lanzarlo sobre algo.
 	if ns.Skills:CancelAim() then
 		ns.Print("|cff888888habilidad cancelada.|r")
+		return
+	end
+	if ns.Cast:CancelAim() then
+		ns.Print("|cff888888foco cancelado.|r")
 		return
 	end
 
