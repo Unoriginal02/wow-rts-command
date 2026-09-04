@@ -120,6 +120,44 @@ function ns.RefreshAfterSwap()
 		end
 	end
 
+	-- LA BARRA DE POSTURA, QUE ES OTRO MARCO Y NO OTRA PAGINA.
+	--
+	-- Cazado comparando capturas de los cinco personajes, login natural contra
+	-- cambio: cuatro salian identicos y el guerrero no. La suya salia con dos
+	-- huecos vacios y un hechizo distinto en medio -- y lo que se veia era
+	-- literalmente OTRA FILA de las que tiene guardadas:
+	--
+	--     login natural ensena   6603, 78, 58984, 6673   -> casillas 73..76
+	--     tras un cambio ensena  -, 78, 2764, -          -> casillas  1..12
+	--
+	-- Solo se ve en el guerrero porque es el unico de los cinco con BARRA DE
+	-- POSTURA. Druida, pica y caballero de la muerte tienen la misma; mago,
+	-- sacerdote, cazador y paladin dibujan siempre las 1..12, asi que quedarse
+	-- ahi no se nota.
+	--
+	-- EL PRIMER ARREGLO APUNTO AL WIDGET EQUIVOCADO y merece quedar escrito.
+	-- Di por hecho el esquema moderno -- un `ActionBarController` seguro que le
+	-- cambia el atributo `actionpage` a los mismos botones -- y di un golpecito a
+	-- la pagina para que se reevaluara. No hizo nada, y `/rts bars page` dijo por
+	-- que en una linea: **`ActionBarController` NO EXISTE en este cliente**. Aqui
+	-- manda el esquema viejo: un marco aparte, `BonusActionBarFrame`, con sus
+	-- propios `BonusActionButton1..12`, que se DESLIZA por encima de la barra
+	-- normal. Su estado es un `state` que vale "top" o "bottom", y el volcado lo
+	-- enseño crudo:
+	--
+	--     login  ->  BonusActionBarFrame  VISIBLE  state=top
+	--     cambio ->  BonusActionBarFrame  oculto   state=bottom
+	--
+	-- Es la regla de siempre de este proyecto -- comprobar contra el cliente y no
+	-- contra lo que uno recuerda -- saltada por asumir la version moderna de una
+	-- API. `ActionButton1` lee la casilla 1 en los DOS casos, y eso es correcto:
+	-- no es el que se equivoca, es que esta tapado.
+	--
+	-- Quien decide mostrarlo es el manejador de Blizzard al recibir
+	-- `UPDATE_BONUS_ACTIONBAR`, y un cambio de personaje no lo dispara. Asi que
+	-- se le pide a el que lo mire.
+	ns.SyncBonusBar()
+
 	-- El grupo: los marcos salian con el nombre y las barras vacias, que es como
 	-- se ve un compañero del que el cliente no tiene datos todavia.
 	for i = 1, 4 do
@@ -147,6 +185,213 @@ function ns.FixPlayerName()
 	end
 
 	fs:SetText(ns.MyName())
+end
+
+-- PONER LA BARRA DE POSTURA COMO TOCA, QUE ES LO QUE UN CAMBIO DE PERSONAJE
+-- NO HACE SOLO.
+--
+-- ESCRITO CONTRA EL CODIGO DE VERDAD, no contra lo que yo recordaba de la API.
+-- El FrameXML del cliente se saca de `Data\esES\patch-esES.MPQ` en dos minutos
+-- (ver `CLAUDE.md`), y lo de abajo es lo que dicen `BonusActionBarFrame.lua` y
+-- `MainMenuBar.lua` de ESTE cliente. Dos vueltas de adivinar costaron mas que
+-- eso.
+--
+-- Lo que hay que saber, y ninguna de las dos cosas se deduce:
+--
+--   * QUIEN LO ARREGLA EN UN /reload. `MainMenuBar_OnEvent` con
+--     `PLAYER_ENTERING_WORLD` llama a `MainMenuBar_ToPlayerArt()`, y ahi dentro:
+--     `if GetBonusBarOffset() > 0 then ShowBonusActionBar(true) else
+--     HideBonusActionBar(true) end`. **Con `override = true`.** Un cambio de
+--     personaje no dispara ese evento, y por eso el `/reload` lo arregla y el
+--     cambio no.
+--
+--   * EL `override` NO ES DECORATIVO. Sin el, las dos funciones empiezan con
+--     `if ((not MainMenuBar.busy) and (not UnitHasVehicleUI("player"))) or
+--     override`, asi que un `MainMenuBar.busy` que se quedo puesto las deja
+--     mudas. Blizzard pasa `true` en todos los sitios donde de verdad quiere que
+--     ocurra, y esto es uno de ellos.
+--
+--   * Y `state` NO SIRVE COMO TESTIGO INMEDIATO. Solo lo escribe
+--     `BonusActionBar_OnUpdate` al ACABAR el deslizamiento, 0,15 s despues. La
+--     version anterior lo miraba en la misma linea y por eso las tres puertas
+--     que probo dijeron "no ha abierto" -- incluida la que si abria. **Segundo
+--     testigo equivocado seguido en este mismo fallo**: primero
+--     `ActionButton1.action`, que nunca cambia, y luego `state`, que cambia
+--     tarde. Ahora se comprueba `IsShown()` medio segundo despues.
+--
+--   * `mode` SE ATASCA. El deslizamiento vive en el `OnUpdate` del marco, y un
+--     marco escondido no recibe `OnUpdate` -- y `Chrome.lua` esconde este marco
+--     al entrar en modo RTS. Si se queda a medias con `mode = "show"`, la
+--     guarda interna (`mode ~= "show" and state ~= "top"`) deja a
+--     `ShowBonusActionBar` sin hacer nada PARA SIEMPRE. Por eso se desatasca
+--     antes de pedir nada.
+--
+-- Los dos sentidos importan y no es simetria por gusto: entrar en el guerrero
+-- deja la barra abajo enseñando casillas que no son suyas, y salir de el la
+-- deja arriba enseñando las 73..84 de un mago, que estan vacias.
+--
+-- Y se toca SOLO la barra de postura, no `MainMenuBar_ToPlayerArt` entera, que
+-- seria lo que hace el /reload: esa esconde y ensena `MultiBarLeft` y compania,
+-- que SI son marcos seguros. `BonusActionBarFrame` es un `Frame` normal -- sus
+-- botones son seguros, el no -- asi que ensenarlo no puede bloquear una casilla.
+function ns.SyncBonusBar(verbose)
+	local fr = _G.BonusActionBarFrame
+	if not fr then
+		if verbose then ns.Print("|cff888888barra de postura: este cliente no la tiene.|r") end
+		return
+	end
+
+	local off = 0
+	if type(GetBonusBarOffset) == "function" then
+		local ok, v = pcall(GetBonusBarOffset)
+		if ok then off = tonumber(v) or 0 end
+	end
+	local quiere = (off > 0)
+
+	local function Visible()
+		if type(fr.IsShown) ~= "function" then return nil end
+		local ok, r = pcall(fr.IsShown, fr)
+		if ok then return r and true or false end
+		return nil
+	end
+
+	-- DESATASCAR ANTES DE PEDIR. Ver la cabecera: un `mode` a medias deja a las
+	-- dos funciones mudas, y un `state` que dice "top" con el marco escondido es
+	-- la misma mentira por el otro lado.
+	fr.mode = "none"
+	fr.completed = 1
+	if fr.state == "top" and Visible() == false then fr.state = "bottom" end
+
+	local fn = quiere and _G.ShowBonusActionBar or _G.HideBonusActionBar
+	if type(fn) ~= "function" then
+		ns.Print("|cffff8800barra de postura:|r este cliente no tiene " ..
+		         (quiere and "ShowBonusActionBar" or "HideBonusActionBar") .. ".")
+		return
+	end
+	pcall(fn, true)
+
+	if verbose then
+		ns.Print(("barra de postura: postura %d, pedido %s (el resultado tarda 0,15 s)"):format(
+			off, quiere and "arriba" or "abajo"))
+	end
+
+	-- Y SE COMPRUEBA DESPUES, que es la unica forma de comprobarlo. Medio segundo
+	-- es tres veces el deslizamiento. Solo habla si salio mal, o si se le pidio.
+	ns.bonusCheck = ns.bonusCheck or CreateFrame("Frame")
+	ns.bonusCheck.acc = 0
+	ns.bonusCheck.quiere = quiere
+	ns.bonusCheck.off = off
+	ns.bonusCheck.verbose = verbose and true or false
+	ns.bonusCheck:SetScript("OnUpdate", function(self, e)
+		self.acc = self.acc + e
+		if self.acc < 0.5 then return end
+		self:SetScript("OnUpdate", nil)
+
+		local vis = Visible()
+		if vis == self.quiere then
+			if self.verbose then
+				ns.Print(("|cff33ccffbarra de postura OK|r (%s, state=%s)"):format(
+					vis and "arriba" or "abajo", tostring(fr.state)))
+			end
+			return
+		end
+		ns.Print(("|cffff8800barra de postura:|r postura %d, la queria %s y esta %s " ..
+		          "(state=%s, mode=%s). Dimelo con esta linea."):format(
+			self.off, self.quiere and "arriba" or "abajo",
+			vis and "arriba" or "abajo", tostring(fr.state), tostring(fr.mode)))
+	end)
+end
+
+-- QUE FILA DE LAS 120 ESTA DIBUJANDO LA BARRA, Y QUIEN LA DIBUJA.
+--
+-- Existe porque el 2026-09-04 el arreglo obvio no funciono y la razon es que
+-- **no se sabe con que mecanismo dibuja este cliente la barra de postura**. Las
+-- capturas dicen que despues de un cambio de personaje `GetBonusBarOffset()`
+-- vale 1 -- o sea que el dato ESTA -- y aun asi se dibujan las casillas 0-11 en
+-- vez de las 72-83. Con el dato bueno y el dibujo malo, lo que falta es saber
+-- QUE widget decide, y eso no se razona: se le pregunta.
+--
+-- Es la regla de `/rts portrait api` y `/rts skills status` otra vez: en vez de
+-- comprobar una constante escrita de memoria, no tener constante. Y ademas
+-- PRUEBA los candidatos y dice cual mueve la aguja, que es la tabla de los siete
+-- encuadres del retrato aplicada aqui -- el bueno se reconoce en cuanto sale.
+function ns.DumpBarPage()
+	local function T(v) return tostring(v) end
+	local function Q(fn, ...)
+		if type(fn) ~= "function" then return "(no existe)" end
+		local ok, a = pcall(fn, ...)
+		return ok and T(a) or "(error)"
+	end
+
+	-- Que casilla ABSOLUTA (1..120) esta leyendo el primer boton. Es EL dato:
+	-- si dice 1 estamos en la pagina 1 y si dice 73 en la barra de postura.
+	local function Slot1()
+		local b = _G.ActionButton1
+		if not b then return "(sin ActionButton1)" end
+		local a = b.action
+		if a == nil and type(ActionButton_CalculateAction) == "function" then
+			local ok, r = pcall(ActionButton_CalculateAction, b)
+			if ok then a = r end
+		end
+		return T(a)
+	end
+
+	ns.Print("|cffffff00--- barra: quien dibuja ---|r")
+	ns.Print(("pagina %s   postura %s   forma %s"):format(
+		Q(GetActionBarPage), Q(GetBonusBarOffset), Q(GetShapeshiftForm)))
+	ns.Print(("ActionButton1 lee la casilla |cffffff00%s|r"):format(Slot1()))
+
+	-- LOS MARCOS QUE PODRIAN SER EL MECANISMO. No se da por hecho que exista
+	-- ninguno: en 3.3.5 conviven el esquema viejo (un marco aparte,
+	-- `BonusActionBarFrame`) y el nuevo (un controlador seguro que le cambia el
+	-- atributo `actionpage` a los mismos botones), y cual de los dos manda en
+	-- ESTE cliente es justo lo que no se sabe.
+	for _, n in ipairs({ "BonusActionBarFrame", "ActionBarController",
+	                     "MainMenuBarArtFrame", "BonusActionButton1",
+	                     "VehicleMenuBar", "PetActionBarFrame" }) do
+		local fr = _G[n]
+		if not fr then
+			ns.Print(("|cff888888%-22s no existe|r"):format(n))
+		else
+			local vis = "?"
+			if type(fr.IsShown) == "function" then
+				local ok, r = pcall(fr.IsShown, fr)
+				if ok then vis = r and "VISIBLE" or "oculto" end
+			end
+			local st = ""
+			if fr.state ~= nil then st = "  state=" .. T(fr.state) end
+			if type(fr.GetAttribute) == "function" then
+				local ok, r = pcall(fr.GetAttribute, fr, "state")
+				if ok and r ~= nil then st = st .. "  attr=" .. T(r) end
+			end
+			ns.Print(("%-22s %s%s"):format(n, vis, st))
+		end
+	end
+
+	-- LAS DOS FILAS, UNA AL LADO DE LA OTRA. `GetActionInfo` toma la casilla
+	-- absoluta, asi que aqui se ve de un vistazo que las dos existen y cual es
+	-- la que sale en pantalla. Sin esto "la barra esta mal" no distingue entre
+	-- "falta el dato" y "se dibuja la otra fila", que tienen arreglos opuestos.
+	local function Row(from)
+		local out = {}
+		for i = from, from + 11 do
+			local t, id = GetActionInfo(i)
+			out[#out + 1] = t and (T(id)) or "-"
+		end
+		return table.concat(out, " ")
+	end
+	ns.Print(("|cffffff00  1..12|r %s"):format(Row(1)))
+	ns.Print(("|cffffff00 73..84|r %s"):format(Row(73)))
+
+	-- Y AHORA SE INTENTA ARREGLAR DE VERDAD, con el testigo bueno.
+	--
+	-- La primera version de este volcado miraba `ActionButton1.action` esperando
+	-- que saltara de 1 a 73, y eso no podia pasar nunca: ese boton siempre lee la
+	-- casilla 1: lo que cambia es si esta TAPADO por la barra de postura. Mirar el
+	-- witness equivocado hizo que las cuatro pruebas salieran "no cambia nada"
+	-- cuando una de ellas si estaba haciendo algo.
+	ns.Print("|cffffff00--- arreglando ---|r")
+	ns.SyncBonusBar(true)
 end
 
 local f = CreateFrame("Frame", "RTSCommandCore")
@@ -352,6 +597,13 @@ local function Initialise()
 		ns.serverName = name
 		ns.serverNameGuid = UnitGUID("player")
 		ns.FixPlayerName()
+
+		-- Y SE DICE QUIEN ERES, aqui y no en la entrada al mundo. Despues de un
+		-- cambio de personaje "¿quien soy?" deja de ser una curiosidad: es el
+		-- dato del que depende todo lo demas del addon, y si el cliente lo tiene
+		-- mal el sintoma aparece tres modulos mas alla.
+		ns.Print(("|cff33ccffEres %s|r |cff888888%s|r"):format(
+			name, tostring(UnitGUID("player"))))
 	end)
 
 	ns.Markers:Create()
@@ -462,13 +714,19 @@ f:SetScript("OnEvent", function(self, event)
 			ns.SendServer("WHOAMI")
 
 			ns.Selection:IdentityChanged()
-			-- Y SE DICE QUIEN ERES, sin que haya que preguntarlo. Despues de un
-			-- cambio de personaje "¿quien soy?" deja de ser una curiosidad: es
-			-- el dato del que depende todo lo demas del addon, y si el cliente
-			-- lo tiene mal el sintoma aparece tres modulos mas alla. Una linea
-			-- al entrar cuesta menos que acordarse de teclear `/rts whoami`.
-			ns.Print(("|cff33ccffEres %s|r |cff888888%s|r"):format(
-				tostring(UnitName("player")), tostring(UnitGUID("player"))))
+			-- AQUI YA NO SE DICE QUIEN ERES, Y ESO ES EL ARREGLO.
+			--
+			-- Decia *"Eres Neferite"* estando ya en Bob, y se leia como que el
+			-- cambio habia fallado. No fallaba: la linea imprimia
+			-- `UnitName("player")`, que sale de un buffer estatico
+			-- (`0x00C79D18`) que **solo rellena la pantalla de seleccion de
+			-- personaje** -- o sea el nombre con el que ARRANCASTE la sesion,
+			-- para siempre. Era el testigo equivocado, dicho con la voz del
+			-- bueno.
+			--
+			-- El aviso se dice ahora al contestar `IAM`, que es el servidor
+			-- diciendo a quien acaba de meter en la sesion. Llega un instante
+			-- despues de esta linea y es autoridad, no una pista.
 
 			-- Y SE LE PIDE A BLIZZARD QUE REPINTE SU MARCO.
 			--
@@ -1051,7 +1309,10 @@ SlashCmdList["RTSCOMMAND"] = function(msg)
 		end
 
 	elseif cmd == "bars" or cmd == "barras" then
-		if not ns.Link:HasServer() then
+		local sub = strlower(strtrim(rest or ""))
+		if sub == "page" or sub == "pagina" then
+			ns.DumpBarPage()
+		elseif not ns.Link:HasServer() then
 			ns.Print("|cffff8800barras:|r hace falta mod-rts.")
 		else
 			ns.SendServer("MYBARS")
@@ -1114,6 +1375,25 @@ SlashCmdList["RTSCOMMAND"] = function(msg)
 			tostring(UnitName("player")), tostring(UnitGUID("player"))))
 		ns.Print(("|cffffff00entradas al mundo|r %d   |cffffff00companeros|r %d"):format(
 			ns.worldEntries or 0, GetNumPartyMembers() or 0))
+
+		-- QUE FILA DE LAS 120 ESTA DIBUJANDO LA BARRA, que es el testigo que
+		-- faltaba el 2026-09-04. Un guerrero, un druida o una pica dibujan la
+		-- BARRA DE POSTURA (casillas 72-83 y siguientes) y no la pagina 1, y
+		-- quien lo decide es `GetBonusBarOffset()`. Los dos numeros separan dos
+		-- fallos con arreglos opuestos:
+		--
+		--   * postura>0 y la barra ensena la pagina 1 -> el dato esta bien y lo
+		--     que no se entero es la interfaz: el golpecito de pagina de
+		--     `RefreshAfterSwap` lo arregla.
+		--   * postura=0 teniendo el personaje su aura de postura -> el que no se
+		--     entero es el CLIENTE, y entonces el arreglo es del servidor.
+		--
+		-- `forma` es la misma pregunta por otra via, para que un `GetBonus...`
+		-- que no exista en este cliente no se lea como un cero legitimo.
+		ns.Print(("|cffffff00pagina|r %s   |cffffff00postura|r %s   |cffffff00forma|r %s"):format(
+			tostring(type(GetActionBarPage) == "function" and GetActionBarPage() or "?"),
+			tostring(type(GetBonusBarOffset) == "function" and GetBonusBarOffset() or "?"),
+			tostring(type(GetShapeshiftForm) == "function" and GetShapeshiftForm() or "?")))
 
 		-- EL GRUPO CON SUS GUIDS, porque el fallo que esto persigue es que un
 		-- compañero y tu parezcais el mismo. Con los guids delante se ve de un
