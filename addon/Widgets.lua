@@ -46,7 +46,16 @@ local GREY = { r = 0.55, g = 0.55, b = 0.58 }
 -- un color que falta tiene que verse como "no lo se", no reventar el que lo usa.
 function W:ClassColor(unit)
 	if not unit or not UnitExists(unit) then return GREY end
-	local _, token = UnitClass(unit)
+	-- PARA TI NO SE LE PREGUNTA AL CLIENTE. `UnitClass("player")` lee un byte
+	-- estatico que rellena la pantalla de seleccion de personaje, asi que tras
+	-- un cambio devuelve la clase con la que ARRANCASTE la sesion -- un mago con
+	-- el color del guerrero. Esta desensamblado en `Bridge.lua`.
+	local token
+	if ns.IsMe and ns.IsMe(unit) then
+		token = ns.MyClass()
+	else
+		token = select(2, UnitClass(unit))
+	end
 	local c = token and RAID_CLASS_COLORS and RAID_CLASS_COLORS[token]
 	return c or GREY
 end
@@ -185,34 +194,54 @@ end
 -- un macro es algo que el jugador ha puesto ahi y puede cambiar manana, asi que
 -- su nombre tiene que estar delante.
 --
--- El icono va a la izquierda y pequeno, como pista, no como contenido. Sin el,
--- cuatro barras de texto iguales se leen como una lista y no como botones.
-function W:Wide(parent, w, h, icon)
+-- SIN ICONO DESDE LA 0.77.0, y a peticion: *"no quiero los botones con icono,
+-- seran textos"* (`PRUEBAS-23`, seccion E). Llevaba uno pequeno a la izquierda
+-- "como pista"; en pantalla lo que hacia era quitarle a la etiqueta el tercio
+-- que mas falta le hace, para poner cuatro dibujos que a ese tamano no se
+-- reconocen.
+--
+-- EL ICONO SIGUE EN LA TABLA DE ACCIONES, porque el desplegable de eleccion si
+-- lo usa: ahi hay once opciones en una lista vertical y el dibujo ayuda a
+-- encontrar la que buscas. Misma pieza, dos sitios, dos respuestas -- y esta
+-- bien que sean distintas.
+function W:Wide(parent, w, h)
 	local b = CreateFrame("Button", nil, parent)
 	b:SetWidth(w)
 	b:SetHeight(h)
 
-	b.bg = b:CreateTexture(nil, "BACKGROUND")
-	b.bg:SetAllPoints()
+	-- UN BORDE FINO, y son DOS texturas y no cinco: la de abajo ocupa el boton
+	-- entero con el color del borde, y la oscura se mete `EDGE` por dentro. Lo
+	-- que asoma es el marco. Cuatro rayas darian lo mismo y habria que
+	-- recolocarlas en cada `WideSize`.
+	--
+	-- Sale del boceto retocado del 2026-09-05, medido: un pixel de pantalla de
+	-- (87,67,118) alrededor de cada macro. Sin el, cuatro rectangulos oscuros
+	-- sobre un panel oscuro se leen como huecos y no como botones -- que es
+	-- justo lo que se pierde al quitarles el icono.
+	local EDGE = 2
+
+	b.edge = b:CreateTexture(nil, "BACKGROUND")
+	b.edge:SetAllPoints()
+	b.edge:SetTexture(0.55, 0.47, 0.72, 0.75)
+
+	b.bg = b:CreateTexture(nil, "BORDER")
+	b.bg:SetPoint("TOPLEFT", b, "TOPLEFT", EDGE, -EDGE)
+	b.bg:SetPoint("BOTTOMRIGHT", b, "BOTTOMRIGHT", -EDGE, EDGE)
 	b.bg:SetTexture(0, 0, 0, 0.55)
 
 	local pad = 3
-	local side = h - pad * 2
-	b.icon = b:CreateTexture(nil, "ARTWORK")
-	b.icon:SetWidth(side)
-	b.icon:SetHeight(side)
-	b.icon:SetPoint("LEFT", b, "LEFT", pad, 0)
-	b.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
-	if icon then b.icon:SetTexture(icon) end
 
 	-- EL TEXTO SE ANCLA A LOS DOS LADOS, no se le da un ancho. Un FontString de
 	-- ancho fijo en 3.3.5a NO recorta: parte en dos lineas y deja la segunda a
 	-- medias contra el borde (`SetWordWrap` no existe). Anclado izquierda y
 	-- derecha dentro de un alto de una linea, lo que sobra se recorta solo.
+	--
+	-- CENTRADO ahora que ocupa la barra entera: alineado a la izquierda y sin
+	-- icono delante, las cuatro etiquetas quedaban pegadas al borde.
 	b.label = self:Text(b, W.FONT.small)
-	b.label:SetPoint("LEFT", b.icon, "RIGHT", 6, 0)
-	b.label:SetPoint("RIGHT", b, "RIGHT", -6, 0)
-	b.label:SetJustifyH("LEFT")
+	b.label:SetPoint("LEFT", b, "LEFT", 8, 0)
+	b.label:SetPoint("RIGHT", b, "RIGHT", -8, 0)
+	b.label:SetJustifyH("CENTER")
 	b.label:SetHeight(h - pad * 2)
 
 	b:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
@@ -221,14 +250,11 @@ function W:Wide(parent, w, h, icon)
 	return b
 end
 
--- Recolocar una barra ancha sin recrearla. El icono es cuadrado y su lado sale
--- del alto, asi que cambiar de tamano no puede dejarlo estirado.
+-- Recolocar una barra ancha sin recrearla.
 function W:WideSize(b, w, h)
 	local pad = 3
 	b:SetWidth(w)
 	b:SetHeight(h)
-	b.icon:SetWidth(h - pad * 2)
-	b.icon:SetHeight(h - pad * 2)
 	b.label:SetHeight(h - pad * 2)
 end
 

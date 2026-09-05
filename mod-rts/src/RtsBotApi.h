@@ -165,6 +165,24 @@ namespace rts
         // enfriamiento y GCD, y falla como fallaria el bot solo.
         bool Cast(Player* bot, uint32 spellId, Unit* target);
 
+        // CALLAR SU IA UNOS MILISEGUNDOS. Es `SetNextCheckDelay`, lo mismo que
+        // playerbots se hace a si mismo tras un GCD (`PlayerbotAI.cpp:1476`).
+        //
+        // HACE FALTA PARA QUE UN LANZAMIENTO LARGO LLEGUE A TERMINAR, y es el
+        // arreglo de `PRUEBAS-23` C6 ("empieza la animacion y cancela al medio
+        // segundo"). `StopMoving` corta el paso que el bot lleva en ese
+        // instante; lo que no puede es impedir que su IA le mande otro en el
+        // tick siguiente -- y `passive`, que es lo que `Suppress` acaba de
+        // ponerle, lleva "follow" en su lista de partes permitidas A PROPOSITO
+        // (`PassiveMultiplier.cpp`). Asi que un bot recolocandose se movia
+        // DURANTE el casteo y lo interrumpia, exactamente medio segundo
+        // despues, que es lo que tarda su siguiente vuelta.
+        //
+        // Parar el movimiento era necesario y no suficiente, y esa distincion es
+        // la que costo la ronda: el arreglo de la etapa 5o se dio por bueno
+        // porque el sintoma se movio, no porque desapareciera.
+        bool HoldAi(Player* bot, uint32 ms);
+
         // --- valores del contexto -------------------------------------------
 
         // La estrategia de botin: `all` recoge todo (grises incluidos), la de

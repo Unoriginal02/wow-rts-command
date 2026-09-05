@@ -47,14 +47,22 @@ function S:GetRoster()
 		for i = 1, raid do
 			local unit = "raid" .. i
 			if UnitExists(unit) and not UnitIsUnit(unit, "player") then
-				tinsert(roster, { name = UnitName(unit), unit = unit })
+				local n = UnitName(unit)
+				ns.NoteClass(n, unit)
+				tinsert(roster, { name = n, unit = unit })
 			end
 		end
 	else
 		for i = 1, GetNumPartyMembers() do
 			local unit = "party" .. i
 			if UnitExists(unit) then
-				tinsert(roster, { name = UnitName(unit), unit = unit })
+				-- SE APUNTA LA CLASE DE CADA COMPANERO AL PASAR. Es lo que
+				-- permite saber la TUYA despues de un cambio de personaje: el
+				-- que ahora eres estaba aqui hace un segundo, y para un
+				-- `partyN` el cliente si mira el objeto. Ver `ns.MyClass`.
+				local n = UnitName(unit)
+				ns.NoteClass(n, unit)
+				tinsert(roster, { name = n, unit = unit })
 			end
 		end
 	end
@@ -169,6 +177,15 @@ function S:GetPrimary()
 	return ns.MyName()
 end
 
+-- SIN LLAMANTE DESDE LA 0.77.0, y dicho aqui para que no se busque uno.
+--
+-- El unico gesto que lo usaba era el click derecho sobre una fila del grupo, y
+-- `PRUEBAS-23` A5 lo mando quitar. El primario se pone solo, en `Set`, cuando
+-- hay exactamente uno seleccionado.
+--
+-- Se queda porque es inerte: un `set` que nadie llama no puede armarse a si
+-- mismo, que es la diferencia con la retencion de altura de camara -- aquella
+-- tenia su interruptor GUARDADO en las SavedVariables y se encendia sola.
 function S:SetPrimary(name)
 	if not name or self.primary == name then return end
 	self.primary = name

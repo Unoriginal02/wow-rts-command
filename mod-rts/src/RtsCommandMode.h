@@ -56,7 +56,13 @@ namespace rts
         // y para la cola manda lo segundo.
         char ClassifySpell(SpellInfo const* info);
 
-        // Los hechizos de la barra de un bot, en orden de barra, sin repetidos.
+        // El catalogo de hechizos de un personaje: PRIMERO su barra de acciones
+        // en el orden en que esta puesta, y DETRAS todo lo demas que sepa, por
+        // nombre. Sin repetidos.
+        //
+        // VALE TAMBIEN PARA TU PROPIO PERSONAJE (nombre vacio o el tuyo). No
+        // pasa por `ResolveBot`, que rechaza a proposito que te resuelvas a ti
+        // mismo: eso protege de mandarte ordenes de bot, y esto es una lectura.
         //
         // FILTRA LOS DE LA MASCOTA, y eso no es cosmetico:
         // `PlayerbotAI::CastSpell` empieza con

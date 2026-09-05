@@ -4,7 +4,7 @@
 	Es el contenido de la zona derecha de la sala, y dibuja los DOS estados que
 	`Hall.lua` decide:
 
-	  A  un personaje  ->  una fila de DIEZ huecos + CUATRO macros anchos
+	  A  un personaje  ->  una fila de huecos (los que quepan) + CUATRO macros
 	  B  dos o mas     ->  por columna: 2x2 de huecos + DOS macros anchos
 
 	Los datos y las acciones no estan aqui: `Skills.lua` los tiene. Aqui esta el
@@ -24,7 +24,7 @@
 
 	=== LOS CUATRO DEL ESTADO A SON LOS MISMOS QUE LOS DOS DEL B ============
 
-	Igual que los diez huecos y el 2x2: el estado B ensena los DOS PRIMEROS de
+	Igual que la fila de huecos y el 2x2: el estado B ensena los DOS PRIMEROS de
 	los cuatro macros de ese personaje. Guardar dos listas habria sido dos
 	sitios donde configurar lo mismo, y el jugador descubriendo en combate que
 	el macro 2 no dice lo mismo segun cuantos lleve cogidos.
@@ -310,9 +310,52 @@ local function FlyoutRow(i)
 	return b
 end
 
+-- CUANTAS FILAS CABEN DE UNA VEZ.
+--
+-- Hasta la 0.76.0 no habia paginacion porque no hacia falta: el catalogo era la
+-- barra de acciones del personaje y son doce como mucho. Desde la 0.77.0 el
+-- servidor manda ADEMAS todo lo que el personaje sabe (que es lo que se pidio en
+-- `PRUEBAS-23` C2), y eso son cincuenta o cien entradas segun el nivel.
+--
+-- Sin esto la lista se dibujaria de 3.000 pixeles de alto, fuera de la pantalla,
+-- y en juego se leeria como "el desplegable no sale". No es un `ScrollFrame`
+-- porque no hace falta uno: dos filas de navegacion cuestan quince lineas y no
+-- dependen de nada que haya que comprobar contra este cliente.
+local PAGE = 14
+
 -- `entries` = { { icon, text, sub, fn }, ... }
-function C:ShowPicker(anchor, entries)
+function C:ShowPicker(anchor, entries, page)
 	EnsureFlyout()
+
+	page = page or 0
+	local total = #entries
+	local pages = math.max(1, math.ceil(total / PAGE))
+	if page >= pages then page = pages - 1 end
+	if page < 0 then page = 0 end
+
+	local from = page * PAGE + 1
+	local to   = math.min(total, from + PAGE - 1)
+
+	local shown = {}
+	if page > 0 then
+		table.insert(shown, {
+			icon = "Interface\\Buttons\\UI-MicroStream-Green",
+			text = ("|cffffd100... anteriores|r |cff888888(%d/%d)|r"):format(page, pages),
+			keep = true,
+			fn = function() C:ShowPicker(anchor, entries, page - 1) end,
+		})
+	end
+	for i = from, to do table.insert(shown, entries[i]) end
+	if to < total then
+		table.insert(shown, {
+			icon = "Interface\\Buttons\\UI-MicroStream-Red",
+			text = ("|cffffd100mas ... |r|cff888888(%d mas, %d/%d)|r"):format(
+				total - to, page + 2, pages),
+			keep = true,
+			fn = function() C:ShowPicker(anchor, entries, page + 1) end,
+		})
+	end
+	entries = shown
 
 	local n = 0
 	for i, e in ipairs(entries) do
@@ -323,7 +366,10 @@ function C:ShowPicker(anchor, entries)
 		b.icon:SetTexture(e.icon or "Interface\\Icons\\INV_Misc_QuestionMark")
 		b.text:SetText(e.text .. (e.sub and (" |cff888888" .. e.sub .. "|r") or ""))
 		b:SetScript("OnClick", function()
-			flyout:Hide()
+			-- Una fila de navegacion NO cierra la lista: vuelve a dibujarla en
+			-- otra pagina. Cerrarla y reabrirla haria parpadear el desplegable y
+			-- perderia el anclaje.
+			if not e.keep then flyout:Hide() end
 			local ok, err = pcall(e.fn)
 			if not ok then ns.Print("|cffff0000sala:|r " .. tostring(err)) end
 		end)
@@ -332,7 +378,7 @@ function C:ShowPicker(anchor, entries)
 	end
 	for i = n + 1, #rows do rows[i]:Hide() end
 
-	flyout:SetWidth(340)
+	flyout:SetWidth(440)
 	flyout:SetHeight(n * (ROW_H + 2) + 12)
 	flyout:ClearAllPoints()
 	flyout:SetPoint("BOTTOMLEFT", anchor, "TOPLEFT", 0, 8)
@@ -349,7 +395,7 @@ function C:PickSpell(anchor, name, i)
 	if #cat == 0 then
 		ns.Print(("|cffff8800%s|r no tiene hechizos que ofrecer%s."):format(name,
 			ns.Skills:Pending(name) and " todavia (pidiendolos...)" or
-			": entra con el una vez y ponle hechizos en la barra"))
+			": con el servidor al dia esto no deberia pasar -- |cffffff00/rts skills|r"))
 		return
 	end
 
@@ -504,14 +550,12 @@ local function PaintMacro(b, owner, i)
 	b.owner, b.index, b.act = owner, i, a
 
 	if not a then
-		b.icon:SetTexture("Interface\\Buttons\\UI-Quickslot")
 		b.label:SetText("|cff666666(vacio)|r")
 		ns.W:Tip(b, "Macro " .. i, "Click derecho para elegir que hace.")
 		SetArmed(b, false)
 		return
 	end
 
-	b.icon:SetTexture(a.icon)
 	b.label:SetText(a.label)
 
 	-- El foco encendido se dibuja, y lo dice el SERVIDOR: un boton que se
@@ -596,7 +640,9 @@ function C:LayoutB()
 
 		col.head:SetParent(h)
 		col.head:ClearAllPoints()
-		col.head:SetPoint("TOPLEFT", h, "TOPLEFT", 0, 0)
+		-- El nombre arranca donde `Hall` diga, no en el borde: la columna entera
+		-- baja un poco desde la 0.79.0 y el nombre es lo primero que hay.
+		col.head:SetPoint("TOPLEFT", h, "TOPLEFT", 0, -ns.Hall:HeadTop())
 		col.head:SetWidth(ns.Hall.colW or 100)
 		col.head:SetHeight(ns.Hall:HeadHeight())
 		col.head:Show()
@@ -640,8 +686,13 @@ function C:Refresh()
 
 	if ns.Hall:State() == "A" then
 		local owner = ns.Hall:Subject()
-		local slots = ns.Skills:Slots(owner, ns.Hall.slots)
-		for i = 1, ns.Hall.slots do
+		-- `shown`, no `slots`: el tope que el jugador puso no es lo que hay
+		-- dibujado. Repintar mas de los que hay es tocar botones escondidos,
+		-- y eso no falla hoy: falla el dia que uno reaparece con el hechizo
+		-- de otro personaje puesto.
+		local n = ns.Hall.shown or 0
+		local slots = ns.Skills:Slots(owner, n)
+		for i = 1, n do
 			local b = spellBtn[i]
 			if b and b:IsShown() then PaintSpell(b, owner, i, slots[i], aiming) end
 		end

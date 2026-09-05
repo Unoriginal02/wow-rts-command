@@ -62,7 +62,7 @@ namespace
     // pieces in this project -- the DLL, this module, and the addon -- and only
     // the DLL had a version you could see, which made a server-side fix look
     // like nothing had happened. All three now report.
-    constexpr char const* kModVersion = "0.36.0";
+    constexpr char const* kModVersion = "0.37.0";
 
     std::string Upper(std::string s)
     {
@@ -633,8 +633,12 @@ namespace
         }
 
         // --- command mode -------------------------------------------------
-        // "BARS <bot>" -> the bot's own action-bar spell ids, so the addon can
-        // build a bar from what YOU arranged when you last played it.
+        // "BARS <nombre>" -> el catalogo de hechizos de ese personaje: primero
+        // su barra de acciones (lo que TU colocaste jugandolo) y detras todo lo
+        // demas que sepa, por nombre.
+        //
+        // ACEPTA TU PROPIO NOMBRE desde 0.37.0. Antes no, y por eso tu heroe
+        // salia sin hechizos: ver `SpellSubject` en `RtsCommandMode.cpp`.
         if (verb == "BARS")
         {
             auto const spells = rts::command::ActionBarSpells(player, rest);

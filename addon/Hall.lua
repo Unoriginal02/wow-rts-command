@@ -8,22 +8,22 @@
 
 	  ESTADO A -- uno seleccionado (o ninguno):
 
-	    +--------+------------------------------------------------+
-	    | LISTA  |  (o) [==]    (o) [==]   (o)[=]                  |  marcos
-	    |  x5    |  ---------------------------------------------- |  raya
-	    |        |  [1][2][3][4][5][6][7][8][9][10]                |  hechizos
-	    |        |  [ macro 1 ][ macro 2 ][ macro 3 ][ macro 4 ]   |  macros
-	    +--------+------------------------------------------------+
+	    +------+-----------------------------------------------------+
+	    |LISTA |  (o)[====]  (o)[===]  (o)[==]                       | marcos
+	    | x5   |  --------------------------------------------------- raya
+	    |      |  [1][2][3][4][5][6][7][8][9][10][11][12][13][14]    | hechizos
+	    |      |  [  macro 1  ][  macro 2  ][  macro 3  ][  macro 4 ]| macros
+	    +------+-----------------------------------------------------+
 
-	  ESTADO B -- dos o mas:
+	  ESTADO B -- dos o mas, con una raya vertical entre cada dos:
 
-	    +--------+-------------+-------------+-------------+------+
-	    | LISTA  |    Bob      |    Avy      |  Kirinah    | ...  |
-	    |  x5    |  [1] [2]    |  [1] [2]    |  [1] [2]    |      |
-	    |        |  [3] [4]    |  [3] [4]    |  [3] [4]    |      |
-	    |        |  [ macro 1 ]|  [ macro 1 ]|  [ macro 1 ]|      |
-	    |        |  [ macro 2 ]|  [ macro 2 ]|  [ macro 2 ]|      |
-	    +--------+-------------+-------------+-------------+------+
+	    +------+------------+|+------------+|+------------+|+--------+
+	    |LISTA |    Bob     ||    Avy      ||   Kirinah   ||  ...    |
+	    | x5   |  [1] [2]   ||  [1] [2]    ||  [1] [2]    ||         |
+	    |      |  [3] [4]   ||  [3] [4]    ||  [3] [4]    ||         |
+	    |      | [ macro 1 ]|| [ macro 1 ] || [ macro 1 ] ||         |
+	    |      | [ macro 2 ]|| [ macro 2 ] || [ macro 2 ] ||         |
+	    +------+------------+|+------------+|+------------+|+--------+
 
 	=== ESTE FICHERO NO DIBUJA NADA ==========================================
 
@@ -45,13 +45,13 @@
 	parpadea, y el primario nunca es nil (`Selection:GetPrimary` cae a tu
 	personaje).
 
-	=== DIEZ EN A, CUATRO EN B, Y SON LOS MISMOS ============================
+	=== LOS QUE QUEPAN EN A, CUATRO EN B, Y SON LOS MISMOS ==================
 
-	El estado A ensena diez huecos y el B ensena 2x2. **No son dos
-	configuraciones**: el 2x2 son los huecos 1..4 de esos mismos diez. Con
-	cuatro personajes cogidos no caben diez de cada uno -- serian cuarenta
-	botones -- asi que se ensenan los cuatro primeros, que son los que el
-	jugador puso primero.
+	El estado A ensena **los huecos que quepan a lo ancho** (catorce con la
+	barra que sale sola) y el B ensena 2x2. **No son dos configuraciones**: el
+	2x2 son los huecos 1..4 de esa misma fila. Con cuatro personajes cogidos no
+	caben catorce de cada uno -- serian cincuenta y seis botones -- asi que se
+	ensenan los cuatro primeros, que son los que el jugador puso primero.
 
 	Guardar dos listas por personaje habria sido peor de la forma tipica: dos
 	sitios donde configurar lo mismo, y el jugador descubriendo en combate que
@@ -63,10 +63,14 @@
 	los dos estados, y comprueba que nada se sale, nada se solapa y ningun hueco
 	sale de tamano absurdo. Cazo dos fallos antes de que existiera este fichero.
 
-	Y CAZO UNO MAS AL PASAR A DIEZ HUECOS: **con `grow` 1 la fila de diez no
-	cabe** (438 de ancho para 472 que hacen falta). No se recorta -- se esconde,
-	y `/rts hall` dice por que. Es la misma decision que `SlotGrid` toma en
-	`Bar.lua`: meter una celda a la fuerza deja un boton flotando sobre el arte.
+	Y SIGUE CAZANDO. Al pasar la fila a "los que quepan" encontro que con `grow`
+	5 el TOPE (20) es el que manda y sobran 424 de dibujo -- que es correcto y no
+	un fallo, pero la comprobacion de "llena el ancho" lo daba por malo. Sin esa
+	distincion escrita, la unica decision deliberada del reparto salia en rojo.
+
+	Lo que no cabe no se recorta: se esconde, y `/rts hall` dice por que. Es la
+	misma decision que `SlotGrid` toma en `Bar.lua` -- meter una celda a la
+	fuerza deja un boton flotando sobre el arte.
 
 	Si se cambia un numero de aqui, se cambia en el guion y se vuelve a correr.
 	Son dos sitios a proposito: el guion es el que puede probarlo.
@@ -89,25 +93,92 @@ H.active = false
 --
 -- Espejo exacto de `sim/hall_layout.py`. Los nombres coinciden a proposito.
 
-local LIST_W   = 260    -- la columna de personajes: estrecha, pero el nombre cabe
-local GUTTER   = 12
+-- LA COLUMNA DE PERSONAJES Y EL AIRE QUE LA SEPARA DEL RESTO.
+--
+-- MEDIDOS SOBRE EL BOCETO RETOCADO del 2026-09-05, no elegidos: la columna sale
+-- a 168 px de pantalla y el contenido empieza 216 px despues del borde de la
+-- sala, que a la escala de esa captura son 272 y 350 de dibujo.
+--
+-- LA COLUMNA BAJA DE 440 A 272 Y ESO NO CONTRADICE "los player frames muy
+-- pequenos". Lo que se pidio era que se LEYERAN, y lo que no se leia era el
+-- texto -- que subio de tamano en la 0.77.0 y ahi se queda. Ensanchar ademas la
+-- columna no hizo la letra mas grande: dejo "Secretaria  3 134" (114 px de
+-- texto) flotando en 276 px de fila, con la mitad vacia. A 168 px el mismo texto
+-- llena su sitio, se lee igual de bien, y los 168 px que sobran se los queda el
+-- centro, que es donde hacian falta.
+--
+-- El tope de la columna lo pone `sim/hall_layout.py`: menos del 20% de la sala
+-- con el `grow` que sale solo, o deja de ser una columna y pasa a ser la mitad
+-- de la consola.
+local LIST_W   = 272
+local GUTTER   = 78
 
 local ROW_N    = 5      -- heroe + cuatro companeros
 local ROW_GAP  = 4
 
-local TOP_H    = 96     -- los marcos: "el minimo espacio vertical posible" (§2)
-local DIV_GAP  = 10
+-- LOS MARCOS DE UNIDAD. El brief pedia "el minimo espacio vertical posible"
+-- (§2) y 96 lo cumplia demasiado bien: 54 px de pantalla para un marco con
+-- retrato, nombre, vida, poder y mascota. `PRUEBAS-23` lo llamo "muy pequenos"
+-- y tiene razon -- el marco de jugador del propio cliente mide 100 px de alto.
+--
+-- Los tres numeros de aqui salen de MEDIR la raya en el boceto retocado: cae a
+-- 154 de dibujo del borde de arriba, que es exactamente `TOP_H + DIV_GAP`. Con
+-- los 128+10 de la 0.77.0 el bloque de abajo acababa 25 px antes del suelo de
+-- la sala, y ese hueco muerto es lo que hacia que la consola se viera corta por
+-- abajo.
+local TOP_H    = 140
+local DIV_GAP  = 14
 local DIV_H    = 2
 
-local SLOT_GAP = 8
-local SLOT_MAX = 112
+-- LA SEPARACION ENTRE ICONOS, medida tambien sobre el boceto: 9 px de pantalla
+-- contra los 5 de antes. Con la fila llena de lado a lado, 5 px hacian que los
+-- diez iconos se leyeran como UNA pieza larga en vez de como diez botones.
+local SLOT_GAP = 16
+
+-- EL TOPE DEL ICONO DE HECHIZO. 112 de dibujo son 63 px de pantalla, o sea
+-- EXACTAMENTE un boton de accion del cliente -- que suena bien y en pantalla no
+-- lo era: al lado de unas filas de grupo de 36 px y unos marcos de 54, el icono
+-- era la pieza mas grande de la consola. Reportado como *"los iconos son puto
+-- enormes"*.
+--
+-- 84 son 47 px: se sigue reconociendo el dibujo (que es todo lo que un icono
+-- tiene que hacer) y deja de mandar sobre lo que hay alrededor.
+local SLOT_MAX = 84
 local SLOT_MIN = 40
 
-local SPELL_N   = 10    -- "10x Spells" del boceto, en UNA fila
+-- CUANTOS HUECOS DE HECHIZO, Y AQUI CAMBIA LA REGLA.
+--
+-- Hasta la 0.77.0 eran DIEZ fijos y el tamano se calculaba para que cupieran.
+-- El boceto retocado da la vuelta a las dos mitades: **el tamano es fijo y la
+-- CUENTA es la que se calcula**, hasta llenar el ancho. En esa captura salen
+-- trece; con la barra mas ancha salen mas y con una mas estrecha menos.
+--
+-- Es lo unico que llena el hueco sin romper otra cosa. Con diez fijos solo hay
+-- dos formas de llegar al borde derecho: estirar los huecos (que es lo que se
+-- acaba de quitar por "iconos enormes") o estirar la separacion, que a `grow` 3
+-- serian 37 px entre iconos de 47 -- una fila de sellos sueltos.
+--
+-- EL PRECIO, dicho por delante: la cuenta depende del ancho de la barra, asi que
+-- estrechar la barra esconde los ultimos huecos. Lo guardado NO se pierde -- la
+-- configuracion es por indice y vuelve al ensanchar -- y `/rts hall` imprime
+-- siempre cuantos hay. `SPELL_CAP` es el techo de lo que se guarda; `H.slots`
+-- es el tope que el jugador puede bajar con `/rts hall slots <n>`.
+local SPELL_CAP = 20
 local MACRO_N   = 4
 local MACRO_H   = 56    -- 31 px de pantalla: cabe el texto a fuente 22 de dibujo
-local MACRO_GAP = 8
-local VGAP      = 14
+
+-- LOS MACROS SE SEPARAN MAS QUE LOS ICONOS, y tambien sale del boceto: 18 px
+-- contra 9. Un icono se reconoce por el dibujo aunque este pegado al de al lado;
+-- una barra de texto pegada a otra barra de texto se lee como una tabla.
+local MACRO_GAP = 28
+
+-- Y NINGUNO POR DEBAJO DE ESTO. Con la barra muy estrecha la fila de hechizos
+-- se queda en tres o cuatro huecos, y cuatro macros dentro de ese ancho salen a
+-- 31 px: no cabe "Sigueme". Se esconden y `/rts hall` dice por que, que es la
+-- misma decision que toma `SlotGrid` en `Bar.lua`.
+local MACRO_MIN = 110
+
+local VGAP      = 18
 
 -- El estado B, por columna
 local HEAD_H      = 26
@@ -116,26 +187,45 @@ local B_COLS      = 2
 local B_ROWS      = 2
 local B_MACRO_N   = 2
 local B_MACRO_H   = 42
-local B_MACRO_GAP = 4
-local B_MID_GAP   = 10
+
+-- LOS TRES QUE BAJAN Y SEPARAN LA COLUMNA DEL ESTADO B, pedidos mirandola:
+-- el nombre iba pegado al borde de arriba, el bloque 2x2 pegado a los macros y
+-- los dos macros pegados entre si. Cuatro cosas apiladas sin aire se leen como
+-- una sola.
+--
+-- EL PRECIO ESTA EN EL ICONO, y es donde tenia que estar: el alto de la sala es
+-- fijo, asi que los 46 de aire salen del cuadrado, que baja de 84 a 78 (de 47 a
+-- 44 px). Un icono se reconoce igual; cuatro bloques pegados no se separan solos.
+local B_MACRO_GAP = 12
+local B_MID_GAP   = 26
+local B_TOP_PAD   = 18
+
+-- Cuanto se queda corta la raya vertical por arriba y por abajo. Llegar de
+-- borde a borde la convierte en parte del arte; dejarla corta la deja como lo
+-- que es, una separacion entre dos cosas.
+local VDIV_PAD    = 18
 
 H.SLOT_MIN  = SLOT_MIN
 H.MACRO_N   = MACRO_N
 H.B_MACRO_N = B_MACRO_N
 H.B_SLOTS   = B_COLS * B_ROWS     -- los cuatro del 2x2
 H.ROW_N     = ROW_N
-H.MAX_SPELLS = SPELL_N
+H.MAX_SPELLS = SPELL_CAP
+H.SPELL_CAP = SPELL_CAP
 
--- Cuantos huecos de hechizo en el estado A. Diez por defecto, que es lo que
--- pide el boceto; el knob existe para poder bajarlo sin recompilar nada, no
--- porque haya una respuesta mejor.
-H.slots = SPELL_N
+-- El TOPE que el jugador pone. Por defecto el maximo, o sea "los que quepan".
+H.slots = SPELL_CAP
+
+-- Y los que de verdad se dibujan, que es lo que mira el contenido. Lo calcula
+-- `Recompute`; nunca se escribe a mano.
+H.shown = 0
 
 --- Los sitios donde se apunta el contenido --------------------------------
 
 local host                -- el marco de la sala, de Bar
 local frames = {}         -- key -> Frame
 local divider             -- la raya bajo los marcos
+local vdivs  = {}         -- las rayas verticales entre columnas (estado B)
 local rects  = {}         -- key -> { x, y, w, h } en coordenadas del marco
 local listeners = {}
 local panels = {}
@@ -239,8 +329,16 @@ local function Recompute()
 
 	Rect("list", 0, 0, LIST_W, h)
 
+	-- EL MISMO AIRE A LOS DOS LADOS. Hasta la 0.78.0 la zona llegaba al borde
+	-- del arte y, con la fila llena, el ultimo hueco y el ultimo macro acababan
+	-- pegados al marco -- se veia como recortado, no como ajustado.
+	--
+	-- Se le quita `GUTTER` por la derecha, que es literalmente lo que se pidio:
+	-- *"igual del que hay entre las barras pequenas y la seccion de hechizos"*.
+	-- Y sale un numero bonito de regalo: con la barra que sale sola la fila pasa
+	-- a ser de TRECE huecos, que es exactamente lo que tenia el boceto retocado.
 	local cx = LIST_W + GUTTER
-	local cw = w - cx
+	local cw = w - cx - GUTTER
 	Rect("content", cx, 0, cw, h)
 
 	if H:State() == "B" then
@@ -253,7 +351,7 @@ local function Recompute()
 		-- EL ALTO MANDA CASI SIEMPRE y por eso se calcula primero: el ancho solo
 		-- puede empeorarlo. Con la columna a 385 caben cuadrados de 188, pero el
 		-- alto de la sala solo da para 103.
-		local room = h - HEAD_H - HEAD_GAP - B_MID_GAP
+		local room = h - B_TOP_PAD - HEAD_H - HEAD_GAP - B_MID_GAP
 		           - (B_MACRO_H * B_MACRO_N + B_MACRO_GAP * (B_MACRO_N - 1))
 		           - SLOT_GAP * (B_ROWS - 1)
 		local byHeight = math.floor(room / B_ROWS)
@@ -268,23 +366,47 @@ local function Recompute()
 		H.cols = n
 		for i = 1, n do
 			Rect("col" .. i, cx + (i - 1) * (colw + GUTTER), 0, colw, h)
+			-- UNA RAYA VERTICAL ENTRE CADA DOS SELECCIONADOS, en el centro del
+			-- hueco que ya los separaba. Sin ella, cinco columnas de botones son
+			-- una rejilla de veinte y hay que contar para saber donde acaba uno
+			-- y empieza el siguiente; con ella son cinco fichas.
+			--
+			-- Va DENTRO del hueco y no pegada a una columna a proposito: si se
+			-- ancla a un lado, el ojo la lee como el borde de esa columna y la
+			-- asimetria se nota.
+			if i > 1 then
+				Rect("vdiv" .. (i - 1),
+				     cx + (i - 1) * colw + (i - 1) * GUTTER - math.floor(GUTTER / 2) - 1,
+				     VDIV_PAD, 2, h - VDIV_PAD * 2)
+			end
 		end
 		return
 	end
 
 	Rect("top", cx, 0, cw, TOP_H)
-	Rect("div", cx, TOP_H + DIV_GAP, cw, DIV_H)
 
 	local by = TOP_H + DIV_GAP + DIV_H + DIV_GAP
 	local bh = h - by
 
-	local n = H.slots
-	local side = FitAcross(cw, n, SLOT_GAP)
+	-- EL LADO ES FIJO Y LA CUENTA SE CALCULA, que es la vuelta que da el
+	-- boceto retocado. El alto sigue mandando cuando aprieta: la fila de
+	-- hechizos y la de macros comparten banda.
+	local side = SLOT_MAX
 	local room = bh - VGAP - MACRO_H
 	if side > room then side = room end
+	if side > cw then side = cw end
 	if side < SLOT_MIN then side = 0 end
 
+	local n = 0
+	if side > 0 then
+		-- `+ SLOT_GAP` porque el ultimo hueco no lleva separacion detras.
+		n = math.floor((cw + SLOT_GAP) / (side + SLOT_GAP))
+		if n > H.slots then n = H.slots end
+		if n < 1 then side, n = 0, 0 end
+	end
+
 	H.slotSide = side
+	H.shown = n
 	local rowW = (side > 0) and (side * n + SLOT_GAP * (n - 1)) or 0
 	H.spellRowW = rowW
 
@@ -294,11 +416,33 @@ local function Recompute()
 	-- aplica a las posiciones de sus piezas: toda posicion se deriva, ninguna
 	-- se escribe.
 	H.macroW = (rowW > 0) and math.floor((rowW - MACRO_GAP * (MACRO_N - 1)) / MACRO_N) or 0
+	if H.macroW < MACRO_MIN then H.macroW = 0 end
+	local macroTotal = (H.macroW > 0) and (H.macroW * MACRO_N + MACRO_GAP * (MACRO_N - 1)) or 0
 
+	-- TODO PEGADO A LA IZQUIERDA, que es lo que cambia respecto de la 0.77.0.
+	--
+	-- Aquella version centraba el bloque porque la fila de diez dejaba 846 de
+	-- dibujo vacios a un lado. Ahora la fila llena el ancho, asi que no hay nada
+	-- que repartir: el borde izquierdo de los marcos, el de la raya, el de la
+	-- fila de hechizos y el de la de macros son EL MISMO, y esa columna de
+	-- bordes alineados es lo que hace que la zona se lea como un bloque.
+	--
+	-- Centrar y alinear a la izquierda daban lo mismo mientras el bloque no
+	-- llenaba; en cuanto llena, centrar solo puede descuadrarlo.
 	Rect("spells", cx, by, rowW, side)
-	Rect("macros", cx, by + (side > 0 and (side + VGAP) or 0),
-	     (H.macroW > 0) and (H.macroW * MACRO_N + MACRO_GAP * (MACRO_N - 1)) or 0,
-	     MACRO_H)
+	Rect("macros", cx, by + (side > 0 and (side + VGAP) or 0), macroTotal, MACRO_H)
+
+	-- LA RAYA MIDE LO QUE EL BLOQUE, no lo que la zona. Tambien del boceto: alli
+	-- empieza y acaba exactamente donde la fila de hechizos. Una raya que
+	-- sobresale por la derecha de todo lo que separa se lee como un borde suelto.
+	--
+	-- Y SIN BLOQUE NO HAY RAYA. Se declara aqui y no arriba a proposito: con la
+	-- barra tan estrecha que no cabe ni un hueco, una raya suelta separaria los
+	-- marcos de nada.
+	local rule = math.max(rowW, macroTotal)
+	if rule > 0 then
+		Rect("div", cx, TOP_H + DIV_GAP, rule, DIV_H)
+	end
 end
 
 --- Lo que usan los modulos de contenido -----------------------------------
@@ -329,7 +473,7 @@ function H:SpellCells()
 	local out = {}
 	local side = self.slotSide or 0
 	if side <= 0 then return out end
-	for i = 1, self.slots do
+	for i = 1, (self.shown or 0) do
 		out[i] = { x = (i - 1) * (side + SLOT_GAP), y = 0, w = side, h = side }
 	end
 	return out
@@ -354,7 +498,7 @@ function H:ColumnSpellCells()
 	local side = self.colSide or 0
 	if side <= 0 then return out end
 	local ox = math.floor(((self.colW or 0) - self.colGridW) / 2)
-	local y0 = HEAD_H + HEAD_GAP
+	local y0 = B_TOP_PAD + HEAD_H + HEAD_GAP
 	for i = 1, B_COLS * B_ROWS do
 		local c = (i - 1) % B_COLS
 		local r = math.floor((i - 1) / B_COLS)
@@ -376,7 +520,8 @@ function H:ColumnMacroCells()
 	local out = {}
 	local side = self.colSide or 0
 	if side <= 0 then return out end
-	local y0 = HEAD_H + HEAD_GAP + side * B_ROWS + SLOT_GAP * (B_ROWS - 1) + B_MID_GAP
+	local y0 = B_TOP_PAD + HEAD_H + HEAD_GAP + side * B_ROWS
+	         + SLOT_GAP * (B_ROWS - 1) + B_MID_GAP
 	for i = 1, B_MACRO_N do
 		out[i] = { x = 0, y = y0 + (i - 1) * (B_MACRO_H + B_MACRO_GAP),
 		           w = self.colW or 0, h = B_MACRO_H }
@@ -385,6 +530,7 @@ function H:ColumnMacroCells()
 end
 
 function H:HeadHeight() return HEAD_H end
+function H:HeadTop()    return B_TOP_PAD end
 
 --- Distribuir -------------------------------------------------------------
 
@@ -424,6 +570,28 @@ function H:Layout()
 		divider:Show()
 	else
 		divider:Hide()
+	end
+
+	-- Y LAS VERTICALES DEL ESTADO B. Se crean bajo demanda y se esconden las que
+	-- sobren, igual que los marcos de area: pasar de cinco columnas a dos no
+	-- puede dejar tres rayas dibujadas sobre nada.
+	for i = 1, (H.ROW_N - 1) do
+		local r = rects["vdiv" .. i]
+		local t = vdivs[i]
+		if r then
+			if not t then
+				t = host:CreateTexture(nil, "OVERLAY")
+				t:SetTexture(0.55, 0.58, 0.66, 0.45)
+				vdivs[i] = t
+			end
+			t:SetWidth(r.w)
+			t:SetHeight(r.h)
+			t:ClearAllPoints()
+			t:SetPoint("TOPLEFT", host, "TOPLEFT", r.x, -r.y)
+			t:Show()
+		elseif t then
+			t:Hide()
+		end
 	end
 
 	Announce()
@@ -482,8 +650,9 @@ end
 
 function H:SetSlots(n)
 	n = tonumber(n)
-	if not n or n < 1 or n > SPELL_N then
-		ns.Print(("|cffff8800sala:|r los huecos van de 1 a %d."):format(SPELL_N))
+	if not n or n < 1 or n > SPELL_CAP then
+		ns.Print(("|cffff8800sala:|r los huecos van de 1 a %d. Es un TOPE: si " ..
+		          "caben menos, salen menos."):format(SPELL_CAP))
 		return
 	end
 	self.slots = math.floor(n)
@@ -501,12 +670,19 @@ function H:Load()
 	-- SavedVariables no olvida ninguna clave y sobrevive a la version que la
 	-- escribio, y los `Set*` solo corren cuando el jugador teclea.
 	--
-	-- Y AQUI EL RANGO CAMBIO DE SIGNIFICADO: hasta la tarde del 2026-09-04 el
-	-- tope eran 6 y el defecto 4. Un 4 guardado sigue siendo valido, asi que no
-	-- se tira -- pero quien tuviera 6 puestos ahora tiene diez disponibles y no
-	-- se entera. Por eso `/rts hall` imprime siempre cuantos hay.
+	-- Y AQUI EL RANGO CAMBIO DE SIGNIFICADO DOS VECES: el 2026-09-04 el tope
+	-- paso de 6 a 10, y el 09-05 la clave dejo de significar "cuantos hay" para
+	-- significar "como mucho cuantos". Un valor guardado sigue siendo valido en
+	-- rango, pero **un 10 guardado ahora TOPA una fila que podria ensenar
+	-- catorce** -- y eso no da error, solo deja la fila corta sin motivo
+	-- visible. Por eso un valor que venga del tope viejo se descarta: quien lo
+	-- quiera lo vuelve a poner, y quien no se entere ve la fila llena.
 	local n = tonumber(db.slots)
-	if n and n >= 1 and n <= SPELL_N then
+	if n == 10 or n == 6 then
+		ns.Print(("|cff888888sala: descartado slots=%d, que era el tope viejo; " ..
+		          "ahora la fila llena el ancho.|r"):format(n))
+		db.slots = nil
+	elseif n and n >= 1 and n <= SPELL_CAP then
 		self.slots = math.floor(n)
 	elseif db.slots ~= nil then
 		ns.Print(("|cff888888sala: descartado slots=%s.|r"):format(tostring(db.slots)))
@@ -539,13 +715,23 @@ function H:Report()
 		return
 	end
 
-	ns.Print(("  de |cff33ccff%s|r: %d huecos de %d, %d macros de %dx%d"):format(
-		tostring(self:Subject()), self.slots, self.slotSide or 0,
-		MACRO_N, self.macroW or 0, self.macroH or 0))
-	if (self.slotSide or 0) == 0 then
-		ns.Print(("  |cffff8800los %d huecos no caben|r: ensancha con " ..
-		          "|cffffff00/rts bar grow|r o baja el numero con " ..
-		          "|cffffff00/rts hall slots <n>|r."):format(self.slots))
+	ns.Print(("  de |cff33ccff%s|r: %d huecos de %d (tope %d), fila de %d"):format(
+		tostring(self:Subject()), self.shown or 0, self.slotSide or 0,
+		self.slots, self.spellRowW or 0))
+	if (self.macroW or 0) > 0 then
+		ns.Print(("  %d macros de %dx%d"):format(MACRO_N, self.macroW, self.macroH or 0))
+	else
+		ns.Print(("  |cffff8800los macros no caben|r: %d de ancho para %d que " ..
+		          "necesitan. Ensancha con |cffffff00/rts bar grow|r."):format(
+			math.floor(((self.spellRowW or 0) - MACRO_GAP * (MACRO_N - 1)) / MACRO_N),
+			MACRO_MIN))
+	end
+	if (self.shown or 0) == 0 then
+		ns.Print("  |cffff8800no cabe ni un hueco|r: ensancha con " ..
+		         "|cffffff00/rts bar grow|r.")
+	elseif (self.slots or 0) < SPELL_CAP and self.shown == self.slots then
+		ns.Print(("  |cff888888el tope los esta limitando; sube con " ..
+		          "/rts hall slots %d.|r"):format(SPELL_CAP))
 	end
 end
 

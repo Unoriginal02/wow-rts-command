@@ -202,6 +202,19 @@ bool rts::bots::Cast(Player* bot, uint32 spellId, Unit* target)
     return ai->CastSpell(spellId, target);
 }
 
+bool rts::bots::HoldAi(Player* bot, uint32 ms)
+{
+    PlayerbotAI* ai = AiFor(bot);
+    if (!ai)
+        return false;
+
+    // `SetNextCheckDelay` es publica y viene de `PlayerbotAIBase`, que es de
+    // donde cuelga `PlayerbotAI`. No hay nada que reimplementar: es el mismo
+    // mando que ellos usan para no pensar durante un GCD.
+    ai->SetNextCheckDelay(ms);
+    return true;
+}
+
 // === valores del contexto ===================================================
 
 bool rts::bots::SetLootAll(Player* bot, bool everything)

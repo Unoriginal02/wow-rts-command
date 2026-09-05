@@ -15,10 +15,12 @@
 #include "Pet.h"
 
 #include <algorithm>
+#include <cstring>
 #include <list>
 #include <set>
 #include <unordered_map>
 #include <unordered_set>
+#include <vector>
 
 namespace
 {
@@ -132,12 +134,34 @@ char rts::command::ClassifySpell(SpellInfo const* info)
     return 'N';
 }
 
+// DE QUIEN SON LOS HECHIZOS QUE SE PIDEN.
+//
+// `ResolveBot` rechaza a proposito que te resuelvas a ti mismo -- lo hace para
+// que nadie se mande ordenes de bot a su propio personaje, y ahi esta bien.
+// Pero el CATALOGO de hechizos no es una orden: es una lectura, y tu personaje
+// tiene uno igual que los demas.
+//
+// ESO ERA EL "NEFERITE NO TIENE SPELLS" DE `PRUEBAS-23` C2. Con tu heroe de
+// primario, `BARS` resolvia a nullptr y contestaba la lista vacia; el addon
+// caia a leer TU barra con `GetActionInfo`, cuyo segundo valor puede ser el
+// indice del libro en vez del id -- y el filtro que protege de eso (contrastar
+// contra el icono dibujado) se lleva por delante la lista entera cuando pasa.
+// Dos caminos distintos para la misma pregunta, y el tuyo era el malo.
+static Player* SpellSubject(Player* master, std::string const& name)
+{
+    if (!master)
+        return nullptr;
+    if (name.empty() || name == master->GetName())
+        return master;
+    return rts::bots::Resolve(master, name);
+}
+
 std::vector<rts::command::BarSpell> rts::command::ActionBarSpells(Player* master,
                                                                   std::string const& botName)
 {
     std::vector<BarSpell> out;
 
-    Player* bot = ResolveBot(master, botName);
+    Player* bot = SpellSubject(master, botName);
     if (!bot)
         return out;
 
@@ -153,6 +177,7 @@ std::vector<rts::command::BarSpell> rts::command::ActionBarSpells(Player* master
     Pet* pet = bot->GetPet();
 
     std::unordered_set<uint32> seen;
+    std::vector<BarSpell> extra;   // lo que sabe y no tiene en la barra
 
     for (uint8 slot = 0; slot < MAX_ACTION_BUTTONS; ++slot)
     {
@@ -180,6 +205,69 @@ std::vector<rts::command::BarSpell> rts::command::ActionBarSpells(Player* master
         out.push_back(BarSpell{ spellId, ClassifySpell(info) });
     }
 
+    // Y DETRAS, TODO LO DEMAS QUE SEPA. Es la respuesta a la pregunta de
+    // `PRUEBAS-23` C2 -- *"¿son los de mi barra o los de playerbot?"*.
+    //
+    // Playerbots NO TIENE una lista de hechizos suya que consultar: su IA elige
+    // por accion, en el momento, y no guarda ningun catalogo. Asi que "los de
+    // playerbot" no existe como fuente. Lo que si existe y ademas es lo que el
+    // jugador queria -- una lista que **se actualiza sola segun el personaje
+    // sube** -- es el libro de hechizos del propio personaje, que el nucleo
+    // mantiene y que aqui se lee entero.
+    //
+    // LA BARRA VA PRIMERO Y SE QUEDA, no se sustituye: es la lista CURADA, en el
+    // orden en que el jugador la coloco, y por eso sigue siendo la que llena los
+    // huecos por defecto. Lo que se anade detras es el resto, para que se pueda
+    // elegir sin tener que entrar con el personaje a recolocarle la barra.
+    //
+    // `Active` HACE EL TRABAJO DE FILTRAR RANGOS y lo dice el propio nucleo en
+    // su comentario (`Player.h:130`): *"lower rank of a spell are not useable,
+    // but learnt"*. O sea que preguntando por `Active` sale el rango bueno y
+    // nada mas, sin recorrer cadenas de hechizos a mano -- que seria escribir
+    // una segunda version de una regla que el nucleo ya tiene.
+    for (auto const& kv : bot->GetSpellMap())
+    {
+        uint32 const spellId = kv.first;
+        PlayerSpell const* ps = kv.second;
+        if (!ps || ps->State == PLAYERSPELL_REMOVED || !ps->Active)
+            continue;
+        if (seen.count(spellId))
+            continue;
+
+        SpellInfo const* info = sSpellMgr->GetSpellInfo(spellId);
+        if (!info || info->IsPassive())
+            continue;
+
+        // Sin nombre no hay boton que ensenar, y hay entradas internas que no
+        // lo tienen.
+        if (!info->SpellName[0] || !*info->SpellName[0])
+            continue;
+
+        // Un oficio abre la ventana de fabricar, y un idioma no hace nada
+        // visible. Los dos saldrian como botones que no responden.
+        uint32 const eff = info->Effects[0].Effect;
+        if (eff == SPELL_EFFECT_TRADE_SKILL || eff == SPELL_EFFECT_LANGUAGE)
+            continue;
+
+        if (pet && pet->HasSpell(spellId))
+            continue;
+
+        seen.insert(spellId);
+        extra.push_back(BarSpell{ spellId, ClassifySpell(info) });
+    }
+
+    // Por nombre, que es como se busca en una lista larga. La barra de arriba
+    // conserva SU orden, que es el que el jugador eligio.
+    std::sort(extra.begin(), extra.end(), [](BarSpell const& a, BarSpell const& b)
+    {
+        SpellInfo const* ia = sSpellMgr->GetSpellInfo(a.id);
+        SpellInfo const* ib = sSpellMgr->GetSpellInfo(b.id);
+        char const* na = (ia && ia->SpellName[0]) ? ia->SpellName[0] : "";
+        char const* nb = (ib && ib->SpellName[0]) ? ib->SpellName[0] : "";
+        return std::strcmp(na, nb) < 0;
+    });
+
+    out.insert(out.end(), extra.begin(), extra.end());
     return out;
 }
 
@@ -221,12 +309,37 @@ bool rts::command::CastAs(Player* master, std::string const& botName, uint32 spe
 
     // NOW take the wheel -- on the cast, not on selection. Until you actually
     // use a bot, it carries on doing whatever it was doing.
+    //
+    // SOLTAR EL ANTERIOR VA **ANTES** DE COGER LA REFERENCIA, Y ESE ORDEN ERA EL
+    // CRASH DEL SERVIDOR DEL 2026-09-05.
+    //
+    // `Release` hace `g_borrowed.erase(it)`. La version anterior tenia cogida
+    // una referencia a ESE nodo (`Borrowed& b = g_borrowed[...]`) y la seguia
+    // usando despues: cuatro escrituras -- el guid, `suppressed`, los dos
+    // `wasPassive*` de `Suppress` y `sinceLastCast` -- sobre memoria ya
+    // liberada. O sea que lanzar un hechizo por un bot DISTINTO del anterior
+    // pisaba el monton, y el servidor se caia mas tarde, en cualquier sitio.
+    //
+    // Los dos volcados lo dicen igual: `ACCESS_VIOLATION` dentro de
+    // `std::string::_Tidy_deallocate` (RVA 0x14B462), con la capacidad a
+    // 0x100000000 y el puntero valiendo texto suelto ("log", "guild de") -- la
+    // firma de un `std::string` que nadie corrompio, sino cuyo bloque se reuso
+    // despues de que alguien escribiera en el ya liberado. El sintoma no tiene
+    // NADA que ver con la causa, que es lo caro de esta clase de fallo: se
+    // reporto como "pulso hechizos un rato y se cuelga".
+    //
+    // La regla que lo evita, y que este proyecto ya paga en otros sitios: una
+    // referencia a un nodo de un contenedor no sobrevive a una llamada que
+    // pueda tocar ese contenedor. Se suelta primero, se coge despues.
+    {
+        auto prev = g_borrowed.find(master->GetGUID());
+        if (prev != g_borrowed.end() && prev->second.bot && prev->second.bot != bot->GetGUID())
+            Release(master, "");   // invalida `prev` a proposito
+    }
+
     Borrowed& b = g_borrowed[master->GetGUID()];
     if (b.bot != bot->GetGUID())
     {
-        // Switched to a different bot: give the previous one back first.
-        if (b.bot)
-            Release(master, "");
         b.bot = bot->GetGUID();
         b.suppressed = false;
     }
@@ -279,6 +392,24 @@ bool rts::command::CastAs(Player* master, std::string const& botName, uint32 spe
         if (retryable)
             *retryable = true;
         return fail("no salio (alcance, enfriamiento, linea de vision o estaba en movimiento)");
+    }
+
+    // Y AHORA QUE SE CALLE SU IA HASTA QUE TERMINE, que es la otra mitad del
+    // arreglo de arriba y la que faltaba (`PRUEBAS-23` C6).
+    //
+    // `StopMoving` corta el paso que lleva EN ESTE INSTANTE. No puede impedir
+    // que su motor le mande otro medio segundo despues -- y se lo manda, porque
+    // `passive` permite "follow" a proposito. El resultado es el sintoma
+    // reportado al pie de la letra: la animacion arranca y se corta sola.
+    //
+    // El plazo es el tiempo de lanzamiento mas un margen. Un instantaneo no
+    // necesita nada, asi que no se le calla: callar a un bot que no lo necesita
+    // es quitarle medio segundo de pelea por nada.
+    if (SpellInfo const* info = sSpellMgr->GetSpellInfo(spellId))
+    {
+        uint32 const cast = info->CalcCastTime(bot);
+        if (cast > 0)
+            rts::bots::HoldAi(bot, std::min<uint32>(cast + 300, 10000));
     }
 
     return true;
@@ -556,22 +687,39 @@ void rts::command::ReleaseAll(Player* master)
 
 void rts::command::Update(uint32 diff)
 {
-    for (auto it = g_borrowed.begin(); it != g_borrowed.end();)
+    // SOBRE UNA COPIA DE LAS CLAVES, no sobre el mapa. `Suppress` entra en
+    // mod-playerbots (`ChangeStrategy`), y un iterador sobre un `unordered_map`
+    // no sobrevive a que alguien inserte o borre por debajo.
+    //
+    // Hoy nada de ese camino vuelve aqui, asi que esto no arregla ningun fallo
+    // conocido -- se pone porque es la MISMA forma que el crash del 2026-09-05
+    // (una referencia a un nodo que sobrevive a una llamada que puede tocar el
+    // contenedor), y `queue::Update` y `swap::Update` ya la llevan escrita por
+    // haberla pagado. Cuesta seis lineas.
+    std::vector<ObjectGuid> masters;
+    masters.reserve(g_borrowed.size());
+    for (auto const& kv : g_borrowed)
+        masters.push_back(kv.first);
+
+    for (ObjectGuid const& mg : masters)
     {
-        Borrowed& b = it->second;
-        b.sinceLastCast += diff;
-
-        if (b.sinceLastCast < kIdleReleaseMs)
-        {
-            ++it;
+        auto it = g_borrowed.find(mg);
+        if (it == g_borrowed.end())
             continue;
+
+        it->second.sinceLastCast += diff;
+        if (it->second.sinceLastCast < kIdleReleaseMs)
+            continue;
+
+        if (it->second.suppressed)
+        {
+            if (Player* bot = ObjectAccessor::FindPlayer(it->second.bot))
+                Suppress(bot, it->second, false);
         }
 
-        if (b.suppressed)
-        {
-            if (Player* bot = ObjectAccessor::FindPlayer(b.bot))
-                Suppress(bot, b, false);
-        }
-        it = g_borrowed.erase(it);
+        // Se vuelve a buscar: `Suppress` acaba de llamar a codigo ajeno.
+        it = g_borrowed.find(mg);
+        if (it != g_borrowed.end())
+            g_borrowed.erase(it);
     }
 }

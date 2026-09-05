@@ -64,56 +64,57 @@ LO PRIMERO DE TODO
 A. LA COLUMNA DE PERSONAJES (§3 del brief)
 ------------------------------------------
 
-[ ] A1. Cinco filas, y **TU EL PRIMERO** con un asterisco amarillo delante.
+[x] A1. Cinco filas, y **TU EL PRIMERO** con un asterisco amarillo delante.
         notas:
 
-[ ] A2. Por fila: el nombre ENCIMA, la barra de vida debajo con el color de la
+[x] A2. Por fila: el nombre ENCIMA, la barra de vida debajo con el color de la
         clase, y una linea fina de recurso debajo del todo.
         La barra tiene que ser PLANA, sin degradado. Si tiene brillo arriba,
         `SetStatusBarTexture(r,g,b)` no funciono como se esperaba en este
         cliente y hay que decirlo: es de las cuatro cosas que el informe da por
         probables de fallar.
+        notas:texto muy pequeño
+
+[x] A3. La linea de recurso se ve como una linea (3-4 px), no como una barra.
         notas:
 
-[ ] A3. La linea de recurso se ve como una linea (3-4 px), no como una barra.
-        notas:
-
-[ ] A4. Click izquierdo selecciona. Doble click = todos. Shift = sumar.
+[x] A4. Click izquierdo selecciona. Doble click = todos. Shift = sumar.
         La fila seleccionada sale con marco amarillo.
         notas:
 
-[ ] A5. **Click DERECHO hace primario sin seleccionar.** El nombre de esa fila
+[!] A5. **Click DERECHO hace primario sin seleccionar.** El nombre de esa fila
         se pone amarillo y los huecos de abajo pasan a ser los suyos, SIN que
         cambie lo que esta seleccionado.
         Este es el gesto que sustituye al Tab que se quito en 0.52.0.
-        notas:
+        notas: Pare que iba a querer yo eso? no quiero seleccionar con tab
+
 
 
 B. LOS MARCOS DE ARRIBA (§4.1)
 ------------------------------
 
-[ ] B1. Con UN personaje seleccionado salen hasta tres marcos: el suyo, el de
+[X] B1. Con UN personaje seleccionado salen hasta tres marcos: el suyo, el de
         su objetivo, y el del objetivo de su objetivo.
         Con el bot peleando tienen que salir los tres, y **cada uno mas pequeno
         que el anterior** (300 / 240 / 180 de ancho de dibujo). Es la jerarquia
         dicha con el tamano, no un descuadre.
-        notas:
+        notas: esta seccion (y las habilidades estan muy cerca de las barras pequeñas de la izq. separar. 
 
-[ ] B2. El retrato se ve. Si sale en negro, `SetPortraitTexture` no esta
+[x] B2. El retrato se ve. Si sale en negro, `SetPortraitTexture` no esta
         aceptando un token de companero -- decirlo.
         notas:
 
-[ ] B3. La mascota. Con el cazador o el brujo seleccionado tiene que salir una
+[x] B3. La mascota. Con el cazador o el brujo seleccionado tiene que salir una
         cuarta barra fina, verde. Con un mago NO debe salir nada (una barra
         vacia permanente se lee como que algo falla).
         notas:
 
-[ ] B4. Los puntos de combo con la pica o el druida. Si no salen NUNCA es que
+[x] B4. Los puntos de combo con la pica o el druida. Si no salen NUNCA es que
         `GetComboPoints` no contesto por ninguna de las dos firmas; se prueban
         las dos, asi que si falla es que ninguna vale.
         notas:
 
-[ ] B5. LAS RUNAS NO SALEN Y ES A PROPOSITO. `GetRuneCooldown` de 3.3.5a no
+[x] B5. LAS RUNAS NO SALEN Y ES A PROPOSITO. `GetRuneCooldown` de 3.3.5a no
         toma unidad, o sea que solo se pueden leer las TUYAS. No hay nada que
         arreglar aqui; esta apuntado por si se quieren de verdad (seria un
         verbo de mod-rts).
@@ -122,7 +123,7 @@ B. LOS MARCOS DE ARRIBA (§4.1)
 C. LOS HUECOS DE HECHIZO (§4.1, §5)
 -----------------------------------
 
-[ ] C1. Con un personaje seleccionado salen **DIEZ** huecos en una fila.
+[x] C1. Con un personaje seleccionado salen **DIEZ** huecos en una fila.
         Los que su barra no llene salen vacios (con la ranura gris), que es
         correcto: son huecos para configurar.
         Si salen vacios: `/rts skills` dice de quien son, cuantos hay y si se
@@ -130,54 +131,55 @@ C. LOS HUECOS DE HECHIZO (§4.1, §5)
         nada -- hay que entrar con el una vez y ponerle hechizos.
         notas:
 
-[ ] C2. **Click DERECHO sobre un hueco abre la lista de SUS hechizos**, con el
+[x] C2. **Click DERECHO sobre un hueco abre la lista de SUS hechizos**, con el
         icono, el nombre y el tipo en gris ("sobre un amigo", "sin objetivo"...).
         Elegir uno lo pone en el hueco.
         Si la lista sale vacia con un bot que si tiene barra, el problema esta
         en `BARS` -- decirlo con el nombre del bot.
-        notas:
+        notas: Neferite no tiene spells ni aplicado a su barra de rts ni en modo multi selecicon. 
+ 	PRegunta: los hechizos son los que estan en mi barra de jugador (cuando logueo) o los de PLayerbot? es que segun como me gustaria que fueran los de playerbot porque va mas o menos actualizando no ?  
 
-[ ] C3. Los tipos son correctos. Con la sanadora: una curacion tiene que decir
+[x] C3. Los tipos son correctos. Con la sanadora: una curacion tiene que decir
         "sobre un amigo" y un hechizo de dano "sobre un enemigo".
         **Si TODOS dicen "sin objetivo"**, la letra de tipo no esta llegando --
         o el servidor es viejo (ver 0) o el formato `id:letra` no se esta
         leyendo.
         notas:
 
-[ ] C4. **La configuracion persiste.** Poner hechizos en los huecos, `/reload`,
+[x] C4. **La configuracion persiste.** Poner hechizos en los huecos, `/reload`,
         y tienen que seguir ahi.
         `/rts skills reset` los devuelve a los de fabrica.
         notas:
 
-[ ] C5. Un hechizo SIN objetivo (un grito, un aura) se lanza al pulsarlo, sin
+[x] C5. Un hechizo SIN objetivo (un grito, un aura) se lanza al pulsarlo, sin
         preguntar nada.
         notas:
 
-[ ] C6. **LA LUZ CIRCULAR.** Un hechizo que SI pide objetivo (una curacion) no
+[x] C6. **LA LUZ CIRCULAR.** Un hechizo que SI pide objetivo (una curacion) no
         se lanza al pulsarlo: el icono se pone a dar vueltas con la luz de las
         mascotas de cazador, y el chat dice "elige objetivo".
         ES LA PIEZA MAS PROBABLE DE FALLAR y sus dos modos de fallo son
         silenciosos: si no se ve NADA, el frame no cogio nombre; si las chispas
         dan la vuelta por fuera del icono, esta mal dimensionada. Distinguir las
         dos cosas es lo unico que hace falta reportar.
-        notas:
+        notas: PEro no lanza el hechizo, hace como que li initenta, empieza al animacion y cancela al medio segudno.
 
-[ ] C7. Con la luz puesta, **el segundo click sobre una fila de la lista**
+[x] C7. Con la luz puesta, **el segundo click sobre una fila de la lista**
         lanza el hechizo sobre ese personaje. Esta es la mitad que mas se va a
         usar: curar al tanque sin soltar al grupo.
         notas:
 
-[ ] C8. Y **el segundo click sobre el mundo 3D** hace lo mismo. Sobre un bot,
+[x] C8. Y **el segundo click sobre el mundo 3D** hace lo mismo. Sobre un bot,
         sobre tu personaje o sobre un enemigo, segun el hechizo.
         notas:
 
-[ ] C9. El click DERECHO cancela la luz sin lanzar nada.
+[x] C9. El click DERECHO cancela la luz sin lanzar nada.
         notas:
 
-[ ] C10. Con Alt, el hechizo va sobre el propio personaje sin preguntar.
+[x] C10. Con Alt, el hechizo va sobre el propio personaje sin preguntar.
          notas:
 
-[ ] C11. **Tipo equivocado.** Con una curacion armada y un LOBO apuntado, tiene
+[x] C11. **Tipo equivocado.** Con una curacion armada y un LOBO apuntado, tiene
          que avisar ("es sobre un amigo y tu objetivo no lo parece") y NO
          mandarlo; pulsando otra vez lo manda igual.
          Avisa y no bloquea a proposito: la clasificacion del nucleo no es
@@ -188,7 +190,7 @@ C. LOS HUECOS DE HECHIZO (§4.1, §5)
 D. LA COLA (§5, y `docs/HECHIZOS-COLA.md`)
 ------------------------------------------
 
-[ ] D1. **El caso que justifica la cola entera.** Manda al grupo a beber
+[-] D1. **El caso que justifica la cola entera.** Manda al grupo a beber
         (rejilla 4x4, "Beber"), espera a que se sienten, y pulsa un hechizo de
         uno de ellos.
         ANTES esto fallaba SIEMPRE la primera vez -- `PlayerbotAI::CastSpell`
@@ -196,28 +198,31 @@ D. LA COLA (§5, y `docs/HECHIZOS-COLA.md`)
         despues.
         notas:
 
-[ ] D2. Pulsar un hechizo mientras el bot esta lanzando otro. Tiene que salir
+[-] D2. Pulsar un hechizo mientras el bot esta lanzando otro. Tiene que salir
         en cuanto acabe, no fallar.
         notas:
 
-[ ] D3. **Un hechizo que no puede salir DICE por que.** Pulsa una curacion
+[-] D3. **Un hechizo que no puede salir DICE por que.** Pulsa una curacion
         sobre alguien que este lejisimos.
         A los 8 segundos tiene que salir "no pudo lanzar X: fuera de alcance".
         Si no sale NADA, la cola se esta comiendo el fallo -- que es justo lo
         que no debe pasar.
         notas:
 
-[ ] D4. **Y NO DEBE ANCLAR AL BOT.** Con la curacion en cola sobre alguien
+[-] D4. **Y NO DEBE ANCLAR AL BOT.** Con la curacion en cola sobre alguien
         lejos, el sanador tiene que poder seguir moviendose (seguirte,
         acercarse). Si se queda CLAVADO en el sitio los 8 segundos, la guarda de
         alcance no esta funcionando: `CastAs` para al bot en cada intento y ese
         era el fallo que se construyo a proposito para evitar.
         notas:
 
-[ ] D5. Un hechizo de MASCOTA no debe aparecer en la lista de eleccion de un
+[-] D5. Un hechizo de MASCOTA no debe aparecer en la lista de eleccion de un
         cazador o un brujo. Si aparece y al pulsarlo "no pasa nada" pero el chat
         del bot dice algo de auto-cast, el filtro no esta corriendo.
         notas:
+
+Notas Global: Los hechizos funcionan y tal, pero si pulso algunos de ellos durante un ratop se cuelga el juego y el servidor se para xD
+ALso los iconos son puto enormes puedes hacerlos algo mas pequeño y administrar correctamente el espacio
 
 
 E. LOS CUATRO MACROS (§4.1 y el boceto)
@@ -226,26 +231,26 @@ E. LOS CUATRO MACROS (§4.1 y el boceto)
 Son BARRAS ANCHAS con el nombre escrito, no iconos cuadrados: un macro se lee,
 un hechizo se reconoce.
 
-[ ] E1. Debajo de los hechizos hay cuatro barras anchas con icono pequeno a la
+[x] E1. Debajo de los hechizos hay cuatro barras anchas con icono pequeno a la
         izquierda y nombre: Cuidar, Quieto, Sigueme, Ataca.
         **Los cuatro juntos tienen que medir lo mismo que la fila de hechizos
         de arriba** -- el ancho se deriva de ella. Si no coinciden, decirlo.
         notas:
 
-[ ] E1b. El nombre NO se parte en dos lineas ni se sale de la barra. Si lo hace,
+[x] E1b. El nombre NO se parte en dos lineas ni se sale de la barra. Si lo hace,
          el anclaje a los dos lados no esta recortando (`SetWordWrap` no existe
          en 3.3.5a, asi que esa es la unica defensa).
          notas:
 
-[ ] E2. **Click DERECHO cambia lo que hace cada uno** (lista de once acciones).
+[x] E2. **Click DERECHO cambia lo que hace cada uno** (lista de once acciones).
         Persiste tras `/reload`. `/rts hall acciones` los imprime.
-        notas:
+        notas: Solo me salen las que yo configurase en la barra de ese jugaros. Tal vez me intereesaria mas que fueran ls de pare,
 
-[ ] E3. Aplican SOLO al personaje seleccionado. Selecciona a uno, pulsa
+[x] E3. Aplican SOLO al personaje seleccionado. Selecciona a uno, pulsa
         "Quieto": solo ese se para.
         notas:
 
-[ ] E4. **CURAR EN FOCUS, que es el caso de uso prioritario del brief.**
+[x] E4. **CURAR EN FOCUS, que es el caso de uso prioritario del brief.**
         Selecciona a la sanadora, pulsa "Focus" (el icono se pone a dar
         vueltas), y pincha al tanque en la lista de la izquierda.
         A partir de ahi la sanadora tiene que dedicarse a curarle.
@@ -254,54 +259,56 @@ un hechizo se reconoce.
         cura al tanque, es el aviso lo que falla, no el foco.
         notas:
 
-[ ] E5. "Suelta" le quita el foco.
+[x E5. "Suelta" le quita el foco.
         notas:
 
-[ ] E6. Focus sobre un ENEMIGO tambien vale: se le pega y no le suelta.
+[x] E6. Focus sobre un ENEMIGO tambien vale: se le pega y no le suelta.
         notas:
+
+Nota general. No quiero los botones con icono. seran textos. 
 
 
 F. EL ESTADO B: VARIOS SELECCIONADOS (§4.2)
 -------------------------------------------
 
-[ ] F1. Selecciona DOS. Los marcos y la fila de diez desaparecen y salen dos
+[x] F1. Selecciona DOS. Los marcos y la fila de diez desaparecen y salen dos
         columnas, cada una con el nombre en su color de clase, un 2x2 de huecos
         y DOS macros anchos debajo.
         notas:
 
-[ ] F2. Con los CINCO seleccionados salen cinco columnas. Segun el sim esto cabe
+[x] F2. Con los CINCO seleccionados salen cinco columnas. Segun el sim esto cabe
         con `grow` 4, que es lo que sale solo a pantalla completa en 2560x1440.
         notas:
 
-[ ] F3. Los huecos de cada columna son los de SU personaje, no los mismos
+[x] F3. Los huecos de cada columna son los de SU personaje, no los mismos
         repetidos. Es lo que hace util el modo: repartir ordenes de una tacada.
         notas:
 
-[ ] F3b. **Y son los MISMOS que los cuatro primeros del estado A.** Configura el
+[x] F3b. **Y son los MISMOS que los cuatro primeros del estado A.** Configura el
          hueco 2 de alguien con un personaje solo seleccionado, luego selecciona
          a dos, y el hueco 2 de su columna tiene que ser el mismo hechizo.
          Si no coinciden hay dos configuraciones donde deberia haber una.
          notas:
 
-[ ] F3c. Los dos macros de la columna son los DOS PRIMEROS de sus cuatro.
+[x] F3c. Los dos macros de la columna son los DOS PRIMEROS de sus cuatro.
          notas:
 
-[ ] F4. Lanzar desde una columna funciona igual, luz circular incluida.
+[x] F4. Lanzar desde una columna funciona igual, luz circular incluida.
         notas:
 
-[ ] F5. **Si NO caben** (prueba `/rts bar grow 1` y selecciona a los cinco):
+[x] F5. **Si NO caben** (prueba `/rts bar grow 1` y selecciona a los cinco):
         las columnas no deben dibujarse recortadas ni salirse del arte.
         `/rts hall` tiene que decir que no caben y que se ensanche.
         notas:
 
-[ ] F5b. **Y con `grow` 1 la fila de DIEZ tampoco cabe** (438 de ancho para 472
+[x] F5b. **Y con `grow` 1 la fila de DIEZ tampoco cabe** (438 de ancho para 472
          que hacen falta). Con un solo seleccionado, la fila de hechizos tiene
          que ESCONDERSE entera -- no salir recortada ni pisando el arte -- y
          `/rts hall` decir por que.
          Volver con `/rts bar grow 4`.
          notas:
 
-[ ] F6. `/rts hall slots 6` baja la fila del estado A a seis huecos; los macros
+[x] F6. `/rts hall slots 6` baja la fila del estado A a seis huecos; los macros
         de abajo tienen que ENCOGER con ella, porque su ancho se deriva de la
         fila. `/rts hall slots 10` vuelve.
         notas:
@@ -310,19 +317,19 @@ F. EL ESTADO B: VARIOS SELECCIONADOS (§4.2)
 G. LA REJILLA 4x4, QUE AHORA VA SIEMPRE AL GRUPO (§6, §8)
 ---------------------------------------------------------
 
-[ ] G1. Selecciona a UNO y pulsa "Quieto" en la rejilla de la derecha.
+[x] G1. Selecciona a UNO y pulsa "Quieto" en la rejilla de la derecha.
         **Se tienen que parar TODOS**, no solo el seleccionado.
         Es un cambio deliberado: antes respetaba la seleccion.
         notas:
 
-[ ] G2. Los tooltips de la rejilla dicen "-> todo el grupo". Ya no hay etiquetas
+[x] G2. Los tooltips de la rejilla dicen "-> todo el grupo". Ya no hay etiquetas
         azules ni "-> N seleccionada(s)".
         notas:
 
-[ ] G3. "Reset" ya no dice "Nadie seleccionado": va al grupo entero.
+[x] G3. "Reset" ya no dice "Nadie seleccionado": va al grupo entero.
         notas:
 
-[ ] G4. Lo que NO cambia: Salir sigue saliendo del modo, Formar sigue abriendo
+[x] G4. Lo que NO cambia: Salir sigue saliendo del modo, Formar sigue abriendo
         su lista, y Control sigue necesitando UNO seleccionado.
         notas:
 
@@ -330,21 +337,21 @@ G. LA REJILLA 4x4, QUE AHORA VA SIEMPRE AL GRUPO (§6, §8)
 H. QUE NO SE HAYA ROTO NADA
 ---------------------------
 
-[ ] H1. El minimapa, los dos railes y la rejilla siguen donde estaban.
+[x H1. El minimapa, los dos railes y la rejilla siguen donde estaban.
         notas:
 
-[ ] H2. La caja de arrastre para seleccionar en el mundo sigue funcionando --
+[x] H2. La caja de arrastre para seleccionar en el mundo sigue funcionando --
         el arte de la sala no debe comerse los clicks.
         notas:
 
-[ ] H3. Las rutas con shift + click derecho siguen funcionando.
+[x] H3. Las rutas con shift + click derecho siguen funcionando.
         notas:
 
-[ ] H4. El cambio de personaje (`/rts swap`) sigue funcionando, y al volver la
+[x] H4. El cambio de personaje (`/rts swap`) sigue funcionando, y al volver la
         sala se rehace con el heroe nuevo el primero de la lista.
         notas:
 
-[ ] H5. Salir del modo RTS devuelve la interfaz de Blizzard.
+xx] H5. Salir del modo RTS devuelve la interfaz de Blizzard.
         notas:
 
 

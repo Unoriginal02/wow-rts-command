@@ -1385,6 +1385,20 @@ SlashCmdList["RTSCOMMAND"] = function(msg)
 		-- que saber para decidir si hace falta forzarlo.
 		ns.Print(("|cffffff00player|r %s  |cff888888%s|r"):format(
 			tostring(UnitName("player")), tostring(UnitGUID("player"))))
+
+		-- LOS TRES CAMPOS QUE EL CLIENTE GUARDA APARTE, uno al lado del otro.
+		-- `UnitName`, `UnitClass` y `UnitRace` sobre "player" NO miran el objeto:
+		-- leen una ficha estatica que solo rellena la pantalla de seleccion de
+		-- personaje (`0x00C79D18`, `0x00C79E89`, `0x00C79E8A`), o sea el paso que
+		-- el cambio se salta. Todo lo demas -- vida, retrato, hechizos -- sale
+		-- del objeto y es correcto, y esa mezcla es lo que hace el sintoma
+		-- ilegible: retrato de uno, nombre del otro.
+		--
+		-- Aqui se imprimen los DOS: lo que dice el cliente y lo que decimos
+		-- nosotros. Si difieren, hubo un cambio y la correccion esta actuando.
+		ns.Print(("|cffffff00cliente|r %s / %s   |cffffff00nosotros|r %s / %s"):format(
+			tostring(UnitName("player")), tostring(select(2, UnitClass("player"))),
+			tostring(ns.MyName()), tostring(ns.MyClass())))
 		ns.Print(("|cffffff00entradas al mundo|r %d   |cffffff00companeros|r %d"):format(
 			ns.worldEntries or 0, GetNumPartyMembers() or 0))
 

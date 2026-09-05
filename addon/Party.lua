@@ -57,7 +57,17 @@ P.active = false
 -- El reparto vertical de una fila. Sale de `sim/hall_layout.py`: con la sala
 -- en 344 y cinco filas, la fila mide 65 y dentro caben 24 de nombre, 31 de
 -- vida y 6 de linea de recurso.
-local NAME_H   = 24
+-- EL NOMBRE SUBE DE 24 A 26 Y CAMBIA DE FUENTE, por `PRUEBAS-23` A2: *"texto
+-- muy pequeno"*. La fuente era `small` (22 de dibujo = 12 px de pantalla) y el
+-- nivel/vida iba en `tiny` (18 = 10 px), que es mas pequeno que cualquier cosa
+-- que el cliente escriba.
+--
+-- 26 ES EL TOPE Y NO ES ARBITRARIO: la fila mide 65, y de ahi salen el nombre,
+-- la vida y la linea de recurso. `sim/hall_layout.py` comprueba que la barra de
+-- vida siga siendo la pieza dominante de la fila -- con 28 dejaria de serlo, y
+-- entonces la fila se leeria como una etiqueta con una barra debajo en vez de
+-- como un marco de unidad.
+local NAME_H   = 26
 local NAME_GAP = 2
 local POWER_H  = 6
 local POWER_GAP = 2
@@ -90,8 +100,8 @@ local function GetRow(i)
 	if rows[i] then return rows[i] end
 
 	local row = CreateFrame("Button", "RTSPartyRow" .. i, host)
-	row.name   = ns.W:Text(row, ns.W.FONT.small)
-	row.hp     = ns.W:Text(row, ns.W.FONT.tiny)
+	row.name   = ns.W:Text(row, ns.W.FONT.normal)
+	row.hp     = ns.W:Text(row, ns.W.FONT.small)
 	row.health = FlatBar(row)
 	row.power  = FlatBar(row)
 
@@ -127,16 +137,18 @@ local function GetRow(i)
 			return
 		end
 
-		-- EL DERECHO HACE PRIMARIO SIN SELECCIONAR. Es el gesto del video --
-		-- *"we get the command bar for the next person WITHOUT deselecting"* --
-		-- que estaba en Tab hasta que se pidio quitarlo (0.52.0): el concepto de
-		-- primario se quedo y el gesto se fue, asi que hasta ahora la unica
-		-- forma de ver los hechizos de alguien era seleccionarlo a el solo, o
-		-- sea soltar al grupo.
+		-- EL CLICK DERECHO NO HACE NADA MAS, Y ESO ES LO QUE SE PIDIO.
 		--
-		-- Aqui no compite con nada: el izquierdo ya es seleccionar.
+		-- Hasta la 0.76.0 hacia primario sin seleccionar -- el gesto del video,
+		-- *"the command bar for the next person WITHOUT deselecting"*. En
+		-- `PRUEBAS-23` A5 se marco `[!]`: *"¿para que iba a querer yo eso?"*.
+		--
+		-- Se quita el GESTO, no el CONCEPTO: el primario sigue existiendo porque
+		-- es quien decide de quien son los hechizos de abajo, y ahora lo pone
+		-- unicamente la seleccion -- seleccionar a uno le hace primario, y con
+		-- nada seleccionado es tu personaje. Un concepto sin gesto propio es
+		-- exactamente lo que ya paso con Tab en la 0.52.0.
 		if button == "RightButton" then
-			ns.Selection:SetPrimary(self.unitName)
 			return
 		end
 
@@ -193,7 +205,13 @@ function P:Layout()
 
 		row.name:ClearAllPoints()
 		row.name:SetPoint("TOPLEFT", row, "TOPLEFT", 2, 0)
-		row.name:SetWidth(w - 60)
+		-- LO QUE SE LE RESERVA AL NUMERO DE LA DERECHA, y sube de 60 a 88 con la
+		-- columna estrechada. El numero es nivel + vida corta ("80 12k"), que a
+		-- fuente 22 son unos 72 de dibujo; con 60 el nombre se le echaba encima.
+		-- Y un `FontString` de ancho fijo en 3.3.5a NO recorta: parte en dos
+		-- lineas y deja la segunda fuera del alto, asi que el sintoma habria
+		-- sido "a veces falta media letra" en vez de un solape claro.
+		row.name:SetWidth(w - 88)
 		row.name:SetHeight(NAME_H)
 
 		row.hp:ClearAllPoints()

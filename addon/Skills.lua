@@ -17,13 +17,32 @@
 	    ns.Skills:Use(name, i)      -> lanzar el hueco i de ese personaje
 	    ns.Skills:Subscribe(fn)     -> aviso de que algo cambio
 
-	=== DE DONDE SALEN LOS HECHIZOS DE UN BOT ==============================
+	=== DE DONDE SALEN LOS HECHIZOS ========================================
 
-	De SU barra de acciones, no de tu libro. Tu libro solo tiene TUS hechizos --
-	la Polimorfia del mago no esta ahi porque no la conoces -- asi que
-	"arrastrar del libro de hechizos" es imposible para un bot y no es rodeable.
-	La barra del bot ademas es la lista BUENA: son los hechizos que tu pusiste
-	ahi jugandolo. Lo contesta el servidor con el verbo `BARS`.
+	De SU personaje, no de tu libro. Tu libro solo tiene TUS hechizos -- la
+	Polimorfia del mago no esta ahi porque no la conoces -- asi que "arrastrar
+	del libro de hechizos" es imposible para un bot y no es rodeable. Lo contesta
+	el servidor con el verbo `BARS`, y desde la 0.77.0 en DOS mitades:
+
+	  1. SU BARRA DE ACCIONES, en el orden en que esta puesta. Es la lista
+	     curada -- los hechizos que tu colocaste jugando ese personaje -- y por
+	     eso es la que llena los huecos por defecto.
+	  2. Y DETRAS, TODO LO DEMAS QUE SEPA, por nombre.
+
+	La segunda mitad es la respuesta a `PRUEBAS-23` C2: *"¿son los de mi barra o
+	los de playerbot? me gustaria que fueran los de playerbot porque va
+	actualizando"*. **Playerbots no tiene una lista de hechizos que consultar**:
+	su IA elige accion por accion, en el momento, y no guarda ningun catalogo.
+	Lo que si existe y ademas hace lo que se pedia -- crecer solo segun el
+	personaje sube de nivel -- es su libro de hechizos, que es lo que se manda.
+
+	Se filtra en el servidor lo que seria un boton muerto: pasivos, oficios,
+	idiomas, hechizos de mascota (ver `ActionBarSpells`) y los rangos viejos, que
+	el nucleo ya marca como no activos.
+
+	Y COMO LA LISTA PASA DE DOCE A CIEN, el desplegable de `Cast.lua` va por
+	paginas desde la misma version. Sin eso se dibujaria de tres mil pixeles de
+	alto y en juego se leeria como que no sale.
 
 	=== LOS HUECOS SON DEL JUGADOR, NO DEL ORDEN DE LA BARRA ================
 
@@ -69,15 +88,17 @@ local ADDON, ns = ...
 local K = {}
 ns.Skills = K
 
--- DIEZ, que es lo que pide el boceto ("10x Spells"). El brief escrito decia
--- "4, ampliables a 6"; el boceto que vino despues los pone en una sola fila de
--- diez y manda el boceto, que es mas concreto y ademas cabe (lo comprueba
--- `sim/hall_layout.py` para los cinco `grow`).
+-- EL TECHO DE LO QUE SE GUARDA, y solo eso. Cuantos se DIBUJAN lo decide
+-- `Hall.shown`, que desde la 0.78.0 es "los que quepan a lo ancho" en vez de un
+-- numero fijo -- el boceto retocado del 2026-09-05.
 --
--- Es el techo de lo que se GUARDA. Cuantos se DIBUJAN lo decide `Hall`, y con
--- varios personajes cogidos son cuatro (el 2x2) -- pero los mismos cuatro
--- primeros de esta lista, no otra configuracion.
-K.MAX_SLOTS = 10
+-- Tiene que ir por delante de lo que quepa en la barra mas ancha (con `grow` 5
+-- salen diecinueve), porque un hueco dibujado que no se puede guardar es un
+-- boton que acepta un hechizo y lo olvida al recargar.
+--
+-- Con varios personajes cogidos se ensenan cuatro (el 2x2), y son los mismos
+-- cuatro PRIMEROS de esta lista -- no otra configuracion.
+K.MAX_SLOTS = 20
 
 --- Estado ------------------------------------------------------------------
 
@@ -169,14 +190,26 @@ end
 
 --- Pedir la de un personaje ------------------------------------------------
 
+-- TU PERSONAJE PASA POR EL SERVIDOR IGUAL QUE LOS DEMAS DESDE LA 0.77.0.
+--
+-- ESO ERA EL "NEFERITE NO TIENE SPELLS" de `PRUEBAS-23` C2. Tu heroe tenia su
+-- propio camino -- `MyBar()`, leyendo tus casillas con `GetActionInfo` -- y ese
+-- camino tiene la trampa 2 de la cabecera: el segundo valor puede ser el indice
+-- del libro en vez del id. La defensa contra eso es contrastar el icono, y
+-- cuando el cliente devuelve indices esa defensa **tira la lista entera**. En
+-- pantalla: un personaje sin un solo hechizo y ningun error.
+--
+-- El servidor no tiene esa ambiguedad: lee la barra guardada del personaje, que
+-- son ids de verdad, y ademas clasifica el tipo -- que por el camino propio no
+-- se sabia (todos salian como "sin objetivo").
+--
+-- `MyBar()` SE QUEDA COMO RESPALDO y solo como eso: sin mod-rts delante es lo
+-- unico que hay, y con el es lo que se dibuja mientras llega la respuesta, para
+-- que la fila no aparezca vacia un segundo.
 function K:Request(name)
 	if not name or name == "" then return end
 
-	if name == ns.MyName() then
-		bars[name] = { list = MyBar(), at = GetTime() }
-		Notify()
-		return
-	end
+	local mine = (name == ns.MyName())
 
 	local b = bars[name] or {}
 	bars[name] = b
@@ -186,11 +219,11 @@ function K:Request(name)
 	ns.Link:WhenServer(function(ok)
 		if not ok then
 			b.pending = false
-			b.list = {}
+			b.list = mine and MyBar() or {}
 			Notify()
 			return
 		end
-		b.list = nil
+		if mine and not b.list then b.list = MyBar() end
 		b.staging = {}
 		ns.SendServer("BARS " .. name)
 	end)
@@ -271,7 +304,7 @@ end
 -- nada mas seleccionar a alguien se lee como que la barra no funciona.
 function K:Slots(name, n)
 	name = name or ns.Selection:GetPrimary()
-	n = n or ns.Hall.slots or K.MAX_SLOTS
+	n = n or ns.Hall.shown or K.MAX_SLOTS
 
 	local cat = self:Available(name)
 	local byId = {}
@@ -586,7 +619,7 @@ end
 
 function K:Report()
 	local name = ns.Selection:GetPrimary()
-	local n = ns.Hall.slots or K.MAX_SLOTS
+	local n = ns.Hall.shown or K.MAX_SLOTS
 	local slots = self:Slots(name, n)
 	ns.Print(("habilidades de |cff33ccff%s|r: %d huecos%s"):format(
 		name, n, self:Pending(name) and " (pidiendo...)" or ""))

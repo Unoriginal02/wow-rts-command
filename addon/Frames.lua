@@ -54,24 +54,40 @@ ns.Frames = F
 
 F.active = false
 
--- El reparto de un marco de 96 de alto (`TOP_H` en Hall.lua).
-local PORT   = 72     -- el retrato, cuadrado
-local PAD    = 6
-local NAME_H = 24
-local HP_H   = 28
-local PP_H   = 12
-local PET_H  = 8
-local GAP    = 2
+-- El reparto de un marco de 128 de alto (`TOP_H` en Hall.lua).
+--
+-- TODO SUBE EN LA 0.77.0 por `PRUEBAS-23`: *"los player frames muy pequenos"*.
+-- El marco medio 84 de dibujo, o sea 47 px de pantalla, para meter retrato,
+-- nombre, vida, poder y mascota. El marco de jugador del propio cliente mide
+-- 100 px de alto y es la medida que el jugador tiene calibrada en la retina --
+-- la misma regla que hizo que el alto de la barra se calcara de `ActionButton1`
+-- en la etapa 5i.
+local PORT   = 104    -- el retrato, cuadrado
+local PAD    = 8
+local NAME_H = 28
+local HP_H   = 34
+local PP_H   = 14
+local PET_H  = 10
+local GAP    = 3
 
 -- LOS TRES MARCOS BAJAN DE TAMANO SEGUN SE ALEJAN DE TI, que es lo que dibuja
 -- el boceto: el circulo del tercero es visiblemente mas pequeno que el del
 -- segundo. No es decoracion -- es la jerarquia dicha con el tamano, que se lee
 -- de reojo: el tuyo importa, el enemigo importa menos, y a quien pega el
 -- enemigo es un dato de apoyo.
-local FRAME_W  = 300  -- el del personaje seleccionado
-local SMALL_W  = 240  -- su objetivo
-local TOT_W    = 180  -- el objetivo de su objetivo
-local FRAME_GAP = 14
+-- CUANTO BAJAN LOS MARCOS DENTRO DE SU BANDA. Pedido mirandolos: iban pegados
+-- al borde de arriba de la sala, y el marco de un personaje pegado al filo del
+-- arte se lee como que se ha salido, no como que empieza ahi.
+--
+-- No crece `TOP_H` para hacerle sitio: la banda ya tiene 20 de sobra sobre los
+-- 120 que mide el marco, asi que el aire estaba puesto y solo estaba en el lado
+-- que no era. Crecerla ademas dejaria la fila de macros a 2 del suelo.
+local FRAME_TOP = 14
+
+local FRAME_W  = 460  -- el del personaje seleccionado
+local SMALL_W  = 380  -- su objetivo
+local TOT_W    = 300  -- el objetivo de su objetivo
+local FRAME_GAP = 20
 
 local host, marcos = nil, {}
 
@@ -102,7 +118,7 @@ local function Build(key, w)
 	end
 
 	local x = PAD + PORT + PAD
-	f.name = ns.W:Text(f, ns.W.FONT.small)
+	f.name = ns.W:Text(f, ns.W.FONT.normal)
 	f.name:SetPoint("TOPLEFT", f, "TOPLEFT", x, -PAD)
 	f.name:SetWidth(w - x - PAD)
 	f.name:SetHeight(NAME_H)
@@ -129,9 +145,9 @@ local function Build(key, w)
 	for i = 1, 5 do
 		local t = f:CreateTexture(nil, "OVERLAY")
 		t:SetTexture("Interface\\ComboFrame\\ComboPoint")
-		t:SetWidth(14)
-		t:SetHeight(14)
-		t:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -PAD - (5 - i) * 16, PAD)
+		t:SetWidth(18)
+		t:SetHeight(18)
+		t:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -PAD - (5 - i) * 21, PAD)
 		t:Hide()
 		f.combo[i] = t
 	end
@@ -146,13 +162,13 @@ local function Build(key, w)
 			if button == "RightButton" then
 				ns.Skills:AimAt(nil)
 			else
-				ns.Skills:AimAt(UnitGUID(self.unit), UnitName(self.unit))
+				ns.Skills:AimAt(UnitGUID(self.unit), ns.UnitLabel(self.unit))
 			end
 			return
 		end
 
 		if ns.Cast:AimAt(button ~= "RightButton" and UnitGUID(self.unit) or nil,
-		                 UnitName(self.unit)) then
+		                 ns.UnitLabel(self.unit)) then
 			return
 		end
 
@@ -242,7 +258,11 @@ local function Paint(f, unit, selects, unitName)
 	ns.W:Fill(f.power, UnitMana(unit) or 0, UnitManaMax(unit) or 0)
 
 	local lvl = UnitLevel(unit) or 0
-	f.name:SetText(("%s |cffaaaaaa%s|r"):format(UnitName(unit) or "?",
+	-- `ns.UnitLabel` Y NO `UnitName`: para TI el cliente devuelve el nombre con
+	-- el que arrancaste la sesion, no con el que estas jugando. Se vio como un
+	-- marco que ensenaba el retrato, la vida y los hechizos de Bob con el nombre
+	-- de Neferite encima. Ver `Bridge.lua`.
+	f.name:SetText(("%s |cffaaaaaa%s|r"):format(ns.UnitLabel(unit) or "?",
 		lvl > 0 and tostring(lvl) or ""))
 	f.name:SetTextColor(c.r, c.g, c.b)
 
@@ -299,17 +319,26 @@ function F:Layout()
 	marcos.target   = marcos.target   or Build("target", SMALL_W)
 	marcos.totarget = marcos.totarget or Build("totarget", TOT_W)
 
-	-- ALINEADOS A LA IZQUIERDA y en el minimo alto, que es lo que pide el
-	-- brief. Si no caben los tres, se dibujan los que quepan: `Paint` esconde
-	-- lo que no exista y aqui se esconde lo que no entre, que son dos motivos
-	-- distintos para la misma cosa.
+	-- PEGADOS A LA IZQUIERDA, y esa es la vuelta atras de la 0.78.0.
+	--
+	-- La 0.77.0 los centro porque el bloque de abajo tampoco llenaba y quedaba
+	-- todo a un lado. Ahora la fila de hechizos llena el ancho, asi que el borde
+	-- izquierdo de la zona es la referencia: marcos, raya, hechizos y macros
+	-- empiezan todos en la misma x. Es la columna de bordes alineados lo que
+	-- hace que la zona se lea como un bloque, y centrar la rompia -- ademas de
+	-- forma VARIABLE, porque el ancho total dependia de si el bot tenia
+	-- objetivo.
+	--
+	-- Si no caben los tres se dibujan los que quepan: `Paint` esconde lo que no
+	-- exista y esto esconde lo que no entre, que son dos motivos distintos para
+	-- la misma cosa.
 	local x = 0
 	for _, key in ipairs({ "self", "target", "totarget" }) do
 		local f = marcos[key]
 		local w = f:GetWidth()
 		if x + w <= r.w then
 			f:ClearAllPoints()
-			f:SetPoint("TOPLEFT", host, "TOPLEFT", x, 0)
+			f:SetPoint("TOPLEFT", host, "TOPLEFT", x, -FRAME_TOP)
 			f.fits = true
 			x = x + w + FRAME_GAP
 		else
