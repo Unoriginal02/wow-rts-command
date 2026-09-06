@@ -3,11 +3,13 @@
 #include "RtsBotApi.h"   // la unica puerta a mod-playerbots
 #include "RtsOrders.h"
 
+#include "DBCStores.h"
 #include "Group.h"
 #include "GroupReference.h"
 #include "Log.h"
 #include "ObjectAccessor.h"
 #include "Player.h"
+#include "SharedDefines.h"
 #include "SpellInfo.h"
 #include "SpellMgr.h"
 
@@ -82,6 +84,54 @@ namespace
             rts::bots::Change(bot, "-passive", rts::bots::IDLE);
         if (!b.wasPassiveCombat)
             rts::bots::Change(bot, "-passive", rts::bots::COMBAT);
+    }
+}
+
+// ESTA EN EL LIBRO DE HECHIZOS, O SOLO EN EL MAPA?
+//
+// `GetSpellMap()` trae bastante mas de lo que el cliente dibuja en el libro. En
+// un personaje de nivel 3 salian, junto a Punicion y Sanacion inferior:
+// "Duelo", "Objetivo sin honor", "Cerrando" (tres veces), "Activar
+// especializacion principal" y "Atacar automaticamente". Reportado, con razon,
+// como *"los hechizos disponibles son raros de cojones"*.
+//
+// **No se pueden reconocer por el nombre ni por los atributos**, y se comprobo
+// antes de escribir nada: los seis tienen entrada en `SkillLineAbility` igual
+// que los buenos, y el bit 0x80 de "no mostrar" lo llevan unos si y otros no
+// (Objetivo sin honor no lo lleva). Un filtro por cualquiera de esas dos cosas
+// habria dejado basura dentro y se habria descubierto en juego.
+//
+// LO QUE SI LOS SEPARA, Y LO DICE CON TODAS LAS LETRAS: los seis cuelgan de la
+// linea de habilidad **183, "GENERIC (DND)"**, cuya categoria es la 12 --
+// llamada en `SkillLineCategory.dbc` literalmente **"Not Displayed"**. Los de
+// verdad cuelgan de una linea de clase (Holy, Discipline, Fury) o de una racial
+// (Night Elf Racial). Es la regla de siempre de este proyecto: no inventar una
+// constante, leer la que el cliente ya tiene puesta -- y la categoria 12 hasta
+// tiene nombre en el nucleo, `SKILL_CATEGORY_GENERIC`.
+//
+// Verificado leyendo `dist\data\dbc` con un guion, no deducido: la categoria 12
+// tiene UNA sola linea (la 183) y ninguno de los hechizos buenos pasa por ella.
+//
+// Un hechizo que ademas cuelgue de una linea normal se queda: se descarta solo
+// si TODAS sus lineas son de la categoria oculta. Y sin ninguna entrada tampoco
+// esta en el libro -- el cliente no tendria pestana donde ponerlo.
+namespace
+{
+    bool InSpellBook(uint32 spellId)
+    {
+        SkillLineAbilityMapBounds const bounds =
+            sSpellMgr->GetSkillLineAbilityMapBounds(spellId);
+
+        for (auto it = bounds.first; it != bounds.second; ++it)
+        {
+            SkillLineEntry const* line = sSkillLineStore.LookupEntry(it->second->SkillLine);
+            if (!line || line->categoryId != SKILL_CATEGORY_GENERIC)
+                return true;
+        }
+
+        // Ni una linea normal, o ninguna linea: el cliente no tendria donde
+        // ponerlo, asi que no esta en el libro.
+        return false;
     }
 }
 
@@ -247,6 +297,16 @@ std::vector<rts::command::BarSpell> rts::command::ActionBarSpells(Player* master
         // visible. Los dos saldrian como botones que no responden.
         uint32 const eff = info->Effects[0].Effect;
         if (eff == SPELL_EFFECT_TRADE_SKILL || eff == SPELL_EFFECT_LANGUAGE)
+            continue;
+
+        // Y SOLO LO QUE EL LIBRO ENSENARIA. Ver `InSpellBook` arriba: es lo que
+        // quita el "Duelo", el "Objetivo sin honor" y los tres "Cerrando".
+        //
+        // Se aplica AQUI y no a la barra de acciones de arriba a proposito: esa
+        // es la lista CURADA por el jugador, y si el puso ahi "Atacar
+        // automaticamente" es porque lo quiere. Filtrar lo que uno mismo
+        // coloco seria decidir por el.
+        if (!InSpellBook(spellId))
             continue;
 
         if (pet && pet->HasSpell(spellId))

@@ -495,10 +495,11 @@ end
 
 -- Drop the override and go back to deriving the scales from the live camera.
 function C:Auto()
-	ns.Markers.autoIntrinsics = true
-	ns.Markers.DEPTH_BIAS = 0
-	RTSCommandDB.forceScale = nil
-	RTSCommandDB.DEPTH_BIAS = 0
+	-- Por `UseDerived`, que es el unico sitio que sabe todo lo que hay que
+	-- olvidar: dejar `RTSCommandDB.SX` puesto hacia que la escala mala volviera
+	-- al siguiente arranque, porque `Core.Initialise` la lee sin mirar.
+	ns.Markers:UseDerived()
+	ns.Markers.overrideChecked = true
 	local SX, SY = ns.Markers:Intrinsics()
 	ns.Print(("|cff00ff00derived intrinsics|r SX=%.4f SY=%.4f from fov %.4f rad (diagonal)")
 		:format(SX, SY, RTS_CamFov or 0))

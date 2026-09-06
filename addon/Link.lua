@@ -117,14 +117,42 @@ local frame
 --
 -- No molesta a playerbots: sus ordenes de chat son texto plano y esto es un
 -- mensaje de addon con prefijo propio, que su lector ignora.
+-- EL TOPE DE UN MENSAJE DE ADDON, Y POR QUE AHORA SE MIRA.
+--
+-- Un mensaje de chat de 3.3.5a son 255 caracteres, y un mensaje de addon viaja
+-- dentro de uno: `prefijo` + tabulador + cuerpo. Con "RTS" delante quedan 251
+-- para el cuerpo, y aqui se usan 250 por dejar un pelo.
+--
+-- PASARSE NO DA ERROR: el cliente no manda nada, o manda un trozo. Las dos
+-- cosas se ven en juego como *"la orden no llego"*, sin una sola linea que lo
+-- relacione con el LARGO del mensaje.
+--
+-- Y eso costo una ronda entera con un sintoma que apuntaba a otro sitio:
+-- *"selecciono al grupo entero y no atacan; si quito a Kirinah, atacan"*. No
+-- era Kirinah: `CLICK` con cinco unidades y un guid de criatura mide 258
+-- caracteres, y quitar a cualquiera de los cinco lo baja de 255. El nombre que
+-- se quito era el suyo, asi que parecia suyo el problema. Con el mensaje de
+-- abajo eso se contesta en el primer click en vez de en una ronda.
+L.LIMIT = 250
+
 function L:Send(body)
-	if self.debug then ns.Print("|cff888888-> " .. body .. "|r") end
+	if self.debug then
+		ns.Print(("|cff888888-> [%d] %s|r"):format(#body, body))
+	end
+
+	if #body > L.LIMIT then
+		ns.Print(("|cffff0000canal:|r mensaje de |cffff8800%d|r caracteres, el tope " ..
+		          "son %d -- |cffff0000no sale|r."):format(#body, L.LIMIT))
+		ns.Print(("|cff888888  %s...|r"):format(body:sub(1, 60)))
+		return false
+	end
 
 	if (GetNumPartyMembers() or 0) > 0 then
 		SendAddonMessage(PREFIX, body, "PARTY")
 	else
 		SendAddonMessage(PREFIX, body, "WHISPER", ns.MyName())
 	end
+	return true
 end
 
 -- El nombre viejo, que usan `Orders`, `Route`, `Marks` y `RTSMode`. Se queda

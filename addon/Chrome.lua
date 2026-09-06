@@ -155,17 +155,31 @@ local SETS = {
 
 C.SETS = SETS
 
--- Escondidos por defecto SALVO el estado de las unidades -- tu marco, el del
--- objetivo y los del grupo/banda. La sala del centro de la barra se vacio el
--- 2026-09-02 y con ella se fue lo unico que decia tu vida, tu poder y la del
--- grupo, asi que esconder ademas los marcos de Blizzard deja el modo RTS sin
--- NINGUN estado en pantalla. Vuelven donde Blizzard los pone; donde acaben
--- viviendo es una decision del rediseno de la sala, no de este fichero.
--- Se siguen pudiendo apagar con /rts ui player|target|party.
-local SHOW_BY_DEFAULT = { player = true, target = true, party = true }
+-- ESCONDIDOS POR DEFECTO, INCLUIDOS TU MARCO Y LOS DEL GRUPO desde 2026-09-06.
+--
+-- Estuvieron a la vista desde el 2026-09-02 por un motivo que ya no existe: la
+-- sala del centro se habia vaciado para redisenarla, y con ella se fue lo unico
+-- que decia tu vida, tu poder y la del grupo -- esconder ademas los marcos de
+-- Blizzard habria dejado el modo RTS sin NINGUN estado en pantalla. El
+-- comentario de entonces lo decia entero: *"donde acaben viviendo es una
+-- decision del rediseno de la sala, no de este fichero"*.
+--
+-- La sala se lleno el 2026-09-04: el retrato del heroe con su vida y su poder, y
+-- la columna de cinco con la de cada companero. La razon de la excepcion se
+-- cumplio, asi que la excepcion se va -- y ahora eran DOS dibujos de lo mismo,
+-- uno encima del otro.
+--
+-- El objetivo se queda a la vista: la sala ensena el objetivo del BOT
+-- seleccionado, que no es el tuyo, asi que ahi no hay duplicado que quitar.
+-- Se siguen pudiendo encender con /rts ui player|party.
+local SHOW_BY_DEFAULT = { target = true }
 
 -- Se sube cuando cambia lo que significa una clave guardada de `uiHide`.
-local UIHIDE_GEN = 2
+--
+-- A 3 el 2026-09-06: `player` y `party` cambian de valor de fabrica, y una
+-- preferencia guardada bajo el defecto viejo los dejaria a la vista para
+-- siempre sin que nada lo explicara. Es la misma purga que `railCropGen`.
+local UIHIDE_GEN = 3
 
 C.hide = {}
 for _, s in ipairs(SETS) do C.hide[s.k] = not SHOW_BY_DEFAULT[s.k] end
@@ -405,10 +419,22 @@ function C:Create()
 	-- volver". Se tiran esas tres claves UNA vez, con sello de generacion --
 	-- comprobar el valor no basta cuando lo que cambia es lo que el valor
 	-- significaba. Misma familia que `grow = 688`, `camHold` y `railCropGen`.
+	-- LA PURGA TIRA LA TABLA ENTERA, y hasta hoy no lo hacia: borraba solo las
+	-- claves de `SHOW_BY_DEFAULT`. Eso funciona mientras esa tabla CREZCA, y se
+	-- rompe en silencio en cuanto encoge -- que es justo lo que paso el
+	-- 2026-09-06 al sacar de ahi `player` y `party`: sus valores guardados bajo
+	-- el defecto viejo habrian sobrevivido a la purga hecha para ellos.
+	--
+	-- Una generacion significa "lo guardado ya no quiere decir lo mismo", asi
+	-- que lo unico coherente es no fiarse de nada de lo guardado. El precio --
+	-- perder los ajustes que el jugador si habia tocado -- se paga DICIENDOLO,
+	-- que es la diferencia entre una purga y una perdida.
 	if RTSCommandDB.uiHideGen ~= UIHIDE_GEN then
-		if type(RTSCommandDB.uiHide) == "table" then
-			for k in pairs(SHOW_BY_DEFAULT) do RTSCommandDB.uiHide[k] = nil end
+		if type(RTSCommandDB.uiHide) == "table" and next(RTSCommandDB.uiHide) then
+			ns.Print("|cff888888ui: los ajustes de que se esconde vuelven a fabrica " ..
+			         "(tu marco y los del grupo pasan a esconderse; /rts ui los devuelve).|r")
 		end
+		RTSCommandDB.uiHide = {}
 		RTSCommandDB.uiHideGen = UIHIDE_GEN
 	end
 

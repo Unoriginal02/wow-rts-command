@@ -56,11 +56,16 @@ C.active = false
 -- captured before its first change and restored on the way out. An earlier
 -- version set cameraDistanceMaxFactor and never gave it back, which quietly
 -- changed how far normal play could zoom out. That is the bug this prevents.
--- guildMemberNotify is not a camera setting -- it is a second borrowed CVar,
--- carrying the one thing the packed selection channel cannot: a number. The DLL
--- reads it as the wanted field of view in tenths of a degree. It rides in this
--- list because it needs exactly the same discipline as the real camera CVars:
--- captured before the first change, put back on the way out.
+-- `rtsFov` no es un ajuste de camara -- es el canal que lleva lo unico que el
+-- empaquetado de la seleccion no puede: un numero. El DLL lo lee como el campo
+-- de vision que se quiere, en decimas de grado. Viaja en esta lista porque
+-- necesita la misma disciplina que los CVars de verdad: capturado antes del
+-- primer cambio y devuelto al salir -- que aqui significa volver a 0, o sea
+-- "no toques el FOV", y con eso el angulo normal vuelve solo.
+--
+-- Hasta el 2026-09-06 esto era `guildMemberNotify`, tomado prestado. Ver mas
+-- abajo: ese CVar no existe en este cliente y el canal llevaba tres etapas
+-- muerto sin que nada lo dijera.
 -- shadowLevel es la TERCERA que no es de camara, y esta si es lo que dice ser:
 -- la sombra que el cliente dibuja bajo cada personaje. Se pidio en PRUEBAS-18
 -- ("sombras mas duras y grandes debajo de los personajes para distinguirlos
@@ -73,11 +78,51 @@ C.active = false
 -- puede hacer es encenderla y subirla. Si con la sombra puesta las unidades
 -- siguen sin distinguirse, la respuesta buena no es este CVar: es el circulo
 -- nativo bajo los pies, que ya existe (etapa 5e) y admite color por unidad.
+local FOV_CVAR = "rtsFov"
+
 local CVARS = {
 	"cameraSmoothStyle", "cameraDistanceMaxFactor", "cameraDistanceMax",
-	"guildMemberNotify", "shadowLevel",
+	FOV_CVAR, "shadowLevel",
 }
-local FOV_CVAR = "guildMemberNotify"
+-- UN CVAR NUESTRO, NO UNO PRESTADO -- y el prestado NUNCA EXISTIO.
+--
+-- El canal del FOV se escribio en la etapa 5g tomando prestado
+-- `guildMemberNotify`, "un aviso del registro de hermandad, inerte en un
+-- servidor solitario". La cadena esta en el `Wow.exe` -- por eso parecia buena
+-- -- pero el cliente no la tiene registrada como CVar, y `rts_core.log` lo lleva
+-- diciendo desde entonces en una linea que nadie leyo:
+--
+--     cvar: 'guildMemberNotify' not found -- channel unavailable
+--
+-- O sea que la camara isometrica de la etapa 5g **no se ha aplicado ni una sola
+-- vez**, y las dos rondas que la dieron por arreglada (0.50.0 y la 0.52.0)
+-- arreglaron cosas reales que eran necesarias y no suficientes. Tres intentos
+-- sobre un canal que estaba muerto por debajo.
+--
+-- La cura es dejar de depender de que exista un CVar ajeno que nos venga bien:
+-- `RegisterCVar` crea uno, y existe en este cliente (comprobado en el binario,
+-- no de memoria). Con eso el canal no puede faltar, no pisa ningun ajuste de
+-- nadie, y lo unico que deja detras es una linea en Config.wtf que dice lo que
+-- es.
+-- Se crea si no esta. `SetCVar` sobre un nombre que no existe **no da error**:
+-- no hace nada, que es exactamente como este canal llevaba tres etapas
+-- fallando.
+--
+-- Se llama desde `Create` y NO en el ambito del fichero, aunque ahi seria mas
+-- corto: `ns.Print` todavia no existe cuando este fichero carga. Lo canto
+-- `sim/load_order.py` antes de compilar, que es justo para lo que esta.
+local function EnsureFovCVar()
+	if GetCVar(FOV_CVAR) ~= nil then return true end
+	if type(RegisterCVar) == "function" then
+		RegisterCVar(FOV_CVAR, "0")
+	end
+	if GetCVar(FOV_CVAR) ~= nil then return true end
+	-- Si ni asi, se dice: es la diferencia entre "el FOV no se aplica" y una
+	-- tarde buscando por que.
+	ns.Print("|cffff0000camara:|r no puedo crear el CVar |cffffff00" .. FOV_CVAR ..
+	         "|r; el angulo se quedara en el del cliente.")
+	return false
+end
 local cvarWas = nil
 
 local function HoldCamera(overrides)
@@ -487,12 +532,22 @@ C.DEFAULTS = {
 	tilt = 0.85,
 	zoom = 50,
 
-	-- Diagonal field of view in degrees while in RTS mode. WoW's own is 90;
-	-- narrowing it flattens the perspective toward orthographic, which is most
-	-- of what makes a scene read as a map rather than a place you are standing
-	-- in. 0 leaves the client's alone. Needs rts_core injected -- it is the DLL
-	-- that writes the camera struct.
-	fov = 60,
+	-- CAMPO DE VISION DIAGONAL EN GRADOS, y por defecto **0 = no tocarlo**.
+	--
+	-- Estuvo en 60 desde la etapa 5g, con la idea de que estrechar el angulo
+	-- aplana la perspectiva y hace que la escena se lea como un mapa. Nunca se
+	-- aplico -- el canal estaba muerto (ver `FOV_CVAR`) -- asi que **ese 60 no
+	-- se ha visto nunca en juego**: la camara que el jugador conoce es la de los
+	-- 90 grados del cliente.
+	--
+	-- El dia que el canal empezo a funcionar (2026-09-06) la camara cambio sola
+	-- de aspecto sin que nadie tocara nada, y eso no es un valor por defecto: es
+	-- un cambio de comportamiento colado por la puerta de atras. Vuelve a 0, que
+	-- es la camara de siempre, y el angulo se pide cuando se quiere con
+	-- `/rts cam fov <grados>`.
+	--
+	-- Necesita rts_core inyectado: el struct de la camara lo escribe el DLL.
+	fov = 0,
 
 	-- La sombra bajo los personajes mientras dura el modo RTS. -1 = no tocarla.
 	-- 2 enciende la sombra proyectada, que es lo que hace que un personaje se
@@ -559,9 +614,17 @@ function C:SavePreset()
 end
 
 -- How steeply the camera is looking down, in degrees, from the forward vector
--- rts_core publishes. Nil without the DLL. Reported rather than used: there is
--- no way to SET a pitch in 3.3.5a, but a number is what makes a framing
--- reproducible in code instead of only in a saved view slot.
+-- rts_core publishes. Nil without the DLL.
+--
+-- Es un LECTOR, no un mando: se imprime en `/rts cam` para que un encuadre se
+-- pueda repetir en codigo y no solo en una ranura de vista guardada.
+--
+-- No hay ninguna llamada que fije un angulo en 3.3.5a. SI se puede cerrar el
+-- lazo -- mover la vista con el movimiento continuo del cliente y parar cuando
+-- este numero cruza el que se quiere -- y se escribio el 2026-09-06 como
+-- `/rts cam pitch`. **Se borro el mismo dia, a peticion**: la camara vuelve a
+-- ser la de siempre y lo unico que se pidio conservar del experimento fue el
+-- mando del FOV. Queda escrito porque la tecnica sirve, no el codigo.
 function C:PitchDegrees()
 	if RTS_HasCam ~= 1 or not RTS_CamFwdZ then return nil end
 	local fz = math.max(-1, math.min(1, RTS_CamFwdZ))
@@ -621,9 +684,30 @@ function C:Report()
 			:format(tostring(a.fov), math.floor(fov * 10),
 			        tostring(a.maxFactor), tostring(a.distanceMax),
 			        tostring(a.shadow), tostring(a.smooth)))
-		if RTS_Ready ~= 1 then
-			ns.Print("|cffff8800rts_core no esta inyectado|r - el FOV lo escribe el DLL, " ..
+		-- LA VUELTA COMPLETA, que es lo unico que prueba que el canal esta vivo:
+		-- lo que se pide, lo que se quedo en el CVar, y el angulo con el que el
+		-- DLL dibuja DESPUES de escribirlo. Si los tres no cuadran se sabe en
+		-- cual de los tres saltos se perdio.
+		--
+		-- No tenerlo costo TRES rondas: el CVar prestado no existia, `SetCVar`
+		-- sobre un nombre inexistente no da error, y sin leer la vuelta no habia
+		-- forma de distinguir "no se aplica" de "no llega".
+		if GetCVar(FOV_CVAR) == nil then
+			ns.Print("|cffff0000  el CVar del FOV no existe|r - " ..
+			         "sin el, el angulo no viaja. |cffffff00/reload|r.")
+		elseif RTS_Ready ~= 1 then
+			ns.Print("|cffff8800  rts_core no esta inyectado|r - el FOV lo escribe el DLL, " ..
 			         "asi que ese CVar no lo lee nadie.")
+		elseif RTS_CamFov and RTS_CamFov > 0 then
+			local diag = math.deg(RTS_CamFov)
+			local w, h = GetScreenWidth(), GetScreenHeight()
+			local aspect = (h and h > 0) and (w / h) or (16 / 9)
+			local horiz = 2 * math.deg(math.atan(
+				math.tan(math.rad(diag * 0.5)) / math.sqrt(1 + 1 / (aspect * aspect))))
+			ns.Print(("  el DLL dibuja con |cff00ff00%.1f|r diagonales = " ..
+			          "|cff00ff00%.1f|r horizontales%s"):format(diag, horiz,
+				(fov > 0 and math.abs(diag - fov) > 1.5)
+					and ("  |cffff8800(se pidieron %.0f)|r"):format(fov) or ""))
 		end
 	else
 		ns.Print("|cff888888cvars: todavia sin aplicar (entra en modo RTS).|r")
@@ -746,7 +830,12 @@ function C:SetFrame(key, value)
 			amount > 0 and (", saved as the entry angle") or ""))
 
 	elseif key == "fov" and n then
-		cfg.fov = (n <= 0) and 0 or math.max(20, math.min(140, n))
+		-- EL SUELO BAJA DE 20 A 5. Pedido: *"lo quiero a 15 para probar"*, y el
+		-- tope de 20 lo habria convertido en 20 **sin decir nada** -- un numero
+		-- que se acepta y se cambia por otro es peor que uno que se rechaza.
+		-- Por debajo de 20 grados el mundo se aplana casi del todo, que es
+		-- justamente lo que se quiere ver.
+		cfg.fov = (n <= 0) and 0 or math.max(5, math.min(140, n))
 		HoldCamera({ [FOV_CVAR] = tostring(math.floor(cfg.fov * 10)) })
 		if cfg.fov == 0 then
 			ns.Print("fov override |cffff0000off|r - the client's own 90 degrees.")
@@ -785,20 +874,51 @@ function C:SetFrame(key, value)
 		ns.Print(("camera framing: tilt=%.2f zoom=%.0f sombra=%s"):format(
 			cfg.tilt, cfg.zoom, (cfg.shadow or -1) < 0 and "sin tocar" or tostring(cfg.shadow)))
 		ns.Print("|cffffff00/rts cam tilt <sec>|r - negative tilts back up")
-		ns.Print("|cffffff00/rts cam zoom <yards>|r / |cffffff00fov <deg>|r - |cffffff00frame|r re-applies all")
+		ns.Print("|cffffff00/rts cam zoom <yards>|r / |cffffff00fov <deg>|r - " ..
+		         "|cffffff00frame|r re-applies all")
+		ns.Print("|cff888888El fov es DIAGONAL, como el del cliente: los 90 de " ..
+		         "siempre son 90 diagonales. 0 = no tocarlo.|r")
 		ns.Print("|cffffff00/rts cam shadow <0-5>|r - sombra bajo los personajes, -1 no tocarla")
 		return
 	end
 
-	RTSCommandDB.camFrame = { tilt = cfg.tilt, zoom = cfg.zoom, fov = cfg.fov,
-	                          shadow = cfg.shadow }
+	self:SaveFrame()
+end
+
+-- El encuadre a disco, en un solo sitio. Sale de `SetFrame`, donde estaba
+-- escrito a mano al final: en cuanto hubo un segundo llamante, la copia habria
+-- sido la que se olvida de una clave el dia que se anada una. El segundo
+-- llamante ya no esta, y esto se queda igual -- un solo sitio no cuesta nada.
+function C:SaveFrame()
+	local f = self.frame
+	RTSCommandDB.camFrame = { tilt = f.tilt, zoom = f.zoom, fov = f.fov,
+	                          shadow = f.shadow }
 end
 
 function C:Create()
 	MakeZoomButtons()
+	EnsureFovCVar()
 
 	local saved = RTSCommandDB and RTSCommandDB.camFrame
 	if type(saved) == "table" then
+		-- UN `fov` GUARDADO DE ANTES DEL 2026-09-06 NO ES UNA PREFERENCIA.
+		--
+		-- El canal estuvo muerto desde la etapa 5g, asi que cualquier numero
+		-- guardado ahi se escribio a ciegas y **no se llego a ver nunca**.
+		-- Aplicarlo ahora que el canal funciona seria estrenar en la cara del
+		-- jugador una decision que nadie tomo mirando la pantalla.
+		--
+		-- Se tira UNA vez, con sello, y se dice. Septima purga de este addon.
+		if RTSCommandDB.camFovGen ~= 1 then
+			RTSCommandDB.camFovGen = 1
+			if tonumber(saved.fov) and tonumber(saved.fov) ~= 0 then
+				ns.Print(("|cff888888camara: descartado fov=%s, guardado cuando ese " ..
+				          "canal no funcionaba. /rts cam fov <grados> lo pone.|r")
+					:format(tostring(saved.fov)))
+			end
+			saved.fov = nil
+		end
+
 		if tonumber(saved.tilt) then self.frame.tilt = saved.tilt end
 		if tonumber(saved.zoom) then self.frame.zoom = saved.zoom end
 		if tonumber(saved.fov)  then self.frame.fov  = saved.fov  end

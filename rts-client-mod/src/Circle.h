@@ -48,7 +48,31 @@ void Remove();
 bool Installed();
 
 // Replace the whole table. Anything not listed stops wearing a circle on the
-// next frame; your target and mouseover keep the client's own two either way.
+// next frame.
+//
+// WHILE THIS TABLE HAS ANYTHING IN IT, the client's own circle under YOUR
+// TARGET is suppressed for player targets. Two reasons, both seen in game:
+//
+//   * a unit that is both your target and RTS-selected got TWO draws of the
+//     same circle and came out visibly brighter than the others -- "the world
+//     selection is brighter, because both stack";
+//   * and a friendly you had targeted earlier kept its circle after you moved
+//     the RTS selection somewhere else, so two units looked selected at once.
+//
+// Only PLAYER guids (high dword zero) are suppressed. A creature you target is
+// the game's own business and keeps its ring.
 void Set(const Entry* entries, int count);
+
+// ONE DRAW PER UNIT, and the knob that used to be here is gone.
+//
+// It drew each entry twice for a few hours on 2026-09-06, on the theory that
+// two passes of the same ring would read as one heavier ring -- which is what
+// a targeted-and-selected unit looked like back when the client's ring and ours
+// stacked. In game it does not: it draws TWO RINGS, plainly separate. The two
+// passes do not land on top of each other.
+//
+// Removed from both sides rather than defaulted off, because bit 30 of the
+// packed channel is free again and a DLL that still understood it would be a
+// trap for whoever spends that bit next.
 
 }  // namespace circle

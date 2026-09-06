@@ -12,15 +12,26 @@ namespace {
 // __thiscall(table, name) -> CVar*, the client's own lookup.
 using LookupFn = uint32_t(__thiscall*)(void*, const char*);
 
-// The lookup is called every tick, and the table it walks does not change once
-// the CVars are registered, so the result is cached per name pointer. A miss is
-// cached too: a CVar that does not exist now will not appear later.
+// The lookup is called every tick, so a HIT is cached per name pointer -- the
+// table it walks does not change once a CVar is registered.
+//
+// A MISS IS NOT CACHED, and the sentence that used to be here is why: *"a CVar
+// that does not exist now will not appear later"*. That was written as a fact
+// and it is an assumption, and a wrong one. This DLL attaches while the client
+// is still on the login screen; the addon's own CVars do not exist until the UI
+// loads, several seconds later. Caching that miss meant a name registered by
+// Lua could never be found for the rest of the session -- which is a silent,
+// permanent failure of whatever channel used it.
+//
+// The retry is cheap and bounded: one lookup per name per second while it is
+// missing, and never again once it resolves.
 struct Cached {
     const char* name;
     uint32_t obj;
-    bool resolved;
+    uint32_t nextTry;    // GetTickCount() before which a miss is not retried
 };
 constexpr int kMaxCached = 4;
+constexpr uint32_t kRetryMs = 1000;
 Cached g_cache[kMaxCached] = {};
 int g_cacheCount = 0;
 
@@ -39,18 +50,35 @@ uint32_t LookupUncached(const char* name) {
 }  // namespace
 
 uint32_t Find(const char* name) {
+    uint32_t const now = GetTickCount();
+
+    Cached* slot = nullptr;
     for (int i = 0; i < g_cacheCount; ++i) {
-        if (g_cache[i].name == name) return g_cache[i].obj;
+        if (g_cache[i].name == name) {
+            slot = &g_cache[i];
+            break;
+        }
     }
 
-    uint32_t obj = LookupUncached(name);
+    if (slot) {
+        if (slot->obj) return slot->obj;                 // resuelto: nada que hacer
+        if (now < slot->nextTry) return 0;               // fallo hace poco
+        slot->obj = LookupUncached(name);
+        slot->nextTry = now + kRetryMs;
+        if (slot->obj)
+            RTS_LOG("cvar: '%s' appeared -- channel up", name);
+        return slot->obj;
+    }
+
+    uint32_t const obj = LookupUncached(name);
     if (g_cacheCount < kMaxCached) {
         g_cache[g_cacheCount].name = name;
         g_cache[g_cacheCount].obj = obj;
-        g_cache[g_cacheCount].resolved = true;
+        g_cache[g_cacheCount].nextTry = now + kRetryMs;
         ++g_cacheCount;
     }
-    if (obj == 0) RTS_LOG("cvar: '%s' not found -- channel unavailable", name);
+    if (obj == 0)
+        RTS_LOG("cvar: '%s' not there yet -- retrying once a second", name);
     return obj;
 }
 

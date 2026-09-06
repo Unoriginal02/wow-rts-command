@@ -67,6 +67,12 @@ namespace
     // importa mide bastante mas que eso, y el corte se afina despues con una
     // biseccion -- que es donde se gana la precision, no en el paso.
     constexpr float kRayStep = 1.0f;
+
+    // Cuanto por debajo del campo de alturas hay que estar para dar por hecho
+    // que se esta DEBAJO del terreno y no rozandolo. Una yarda y media: una
+    // camara de RTS vuela muy por encima del suelo, asi que no hay caso normal
+    // que caiga aqui por accidente.
+    constexpr float kUnderSlack = 1.5f;
     constexpr int   kRayBisect = 14;
 
     // Por debajo de esto la casilla no tiene datos de altura (INVALID_HEIGHT es
@@ -132,7 +138,26 @@ bool rts::orders::GroundRay(Player const* who,
     // de alturas, asi que se anda el rayo hasta que deja de estar por encima.
     // El limite del paseo es el corte con los modelos, porque lo que hay detras
     // de una pared no se ha pinchado.
-    float const walk = std::min(maxDist, vdist);
+    //
+    // PERO SOLO SI EL RAYO EMPIEZA POR ENCIMA DEL CAMPO DE ALTURAS. Dentro de
+    // una cueva no lo esta: el suelo de la cueva es un MODELO y el campo de
+    // alturas sigue describiendo la ladera que tienes ENCIMA. Con la camara
+    // dentro, `pz <= g` da cierto en el primer paso -- estas debajo del monte
+    // desde el metro uno -- asi que el paseo cortaba a una yarda de la camara y
+    // devolvia la altura del terreno de fuera.
+    //
+    // En pantalla eso era exactamente lo reportado: *"no puedo clicar dentro de
+    // cuevas, el punto se imprime en el terreno por encima y los bots van
+    // alli"*. No fallaba el rayo: fallaba pedirle una respuesta a un campo de
+    // alturas desde debajo de el, donde no significa nada.
+    //
+    // Bajo tierra manda el modelo, que es una interseccion de verdad y ya esta
+    // calculada arriba. La holgura es para no confundir "dentro de una cueva"
+    // con "la camara roza el suelo en una hondonada".
+    float const groundAtEye = map->GetGridHeight(ox, oy);
+    bool const underTerrain = (groundAtEye > kNoHeight) && (oz < groundAtEye - kUnderSlack);
+
+    float const walk = underTerrain ? 0.0f : std::min(maxDist, vdist);
     float prev = 0.0f;
     bool crossed = false;
     float hit = 0.0f;

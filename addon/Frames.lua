@@ -162,7 +162,8 @@ local function Build(key, w)
 			if button == "RightButton" then
 				ns.Skills:AimAt(nil)
 			else
-				ns.Skills:AimAt(UnitGUID(self.unit), ns.UnitLabel(self.unit))
+				ns.Skills:AimAt(UnitGUID(self.unit), ns.UnitLabel(self.unit),
+				                UnitCanAttack("player", self.unit) and true or false)
 			end
 			return
 		end
@@ -300,8 +301,17 @@ function F:Refresh()
 		return
 	end
 
+	-- SIN DUENO, NINGUN MARCO. Pasa con la seleccion vacia desde la 0.80.0:
+	-- `Hall` no produce el area y su marco esta escondido, asi que esto es
+	-- cinturon y tirantes -- pero un marco escondido sigue recibiendo `Show()`
+	-- de `Paint`, y el dia que el area vuelva a existir por otro motivo saldrian
+	-- tres marcos de nadie.
 	local name = ns.Hall:Subject()
-	local unit = name and ns.Selection:UnitFor(name)
+	if not name then
+		for _, f in pairs(marcos) do f:Hide() end
+		return
+	end
+	local unit = ns.Selection:UnitFor(name)
 
 	Paint(marcos.self, unit, true, name)
 	Paint(marcos.target, unit and (unit .. "target"), false, nil)
@@ -313,7 +323,10 @@ end
 function F:Layout()
 	if not host then return end
 	local r = ns.Hall:Get("top")
-	if not r then return end
+	if not r then
+		for _, f in pairs(marcos) do f:Hide() end
+		return
+	end
 
 	marcos.self     = marcos.self     or Build("self", FRAME_W)
 	marcos.target   = marcos.target   or Build("target", SMALL_W)

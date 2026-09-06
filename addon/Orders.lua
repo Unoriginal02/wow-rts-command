@@ -539,10 +539,20 @@ function O:Click(guid, x, y, z, rayId)
 	-- you are a unit like the others, so a click means the same for you; the
 	-- server routes your name to the paths that work on a body the camera is
 	-- holding control of.
+	--
+	-- UNA CIFRA DECIMAL Y NO DOS, y no es cosmetico: es lo que hace que quepa.
+	-- Un mensaje de addon son 250 caracteres utiles (ver `Link.lua`), y con
+	-- cinco unidades, un guid de criatura y el rayo detras, este mensaje media
+	-- 258 y NO SALIA -- de ahi *"no atacan si esta Kirinah"*, que no era ella
+	-- sino su nombre sumando siete caracteres de mas.
+	--
+	-- La decima de yarda no se echa de menos por ningun lado: el destino se
+	-- recorta luego contra el suelo de verdad con el rayo, y el `position` de
+	-- playerbots redondea a yardas ENTERAS de todas formas.
 	local offsets = self:SpreadOffsets(#sel, self:FacingTo(x, y))
 	local parts = {}
 	for i, n in ipairs(sel) do
-		tinsert(parts, ("%s %.2f %.2f %.2f"):format(n, x + offsets[i][1], y + offsets[i][2], z))
+		tinsert(parts, ("%s %.1f %.1f %.1f"):format(n, x + offsets[i][1], y + offsets[i][2], z))
 	end
 
 	-- EL RAYO VIAJA CON LA ORDEN, en un tramo final marcado con '@'.
@@ -554,14 +564,32 @@ function O:Click(guid, x, y, z, rayId)
 	-- desplaza todos los destinos en bloque, asi que la formacion se conserva y
 	-- solo se corrige de donde cuelga. Sin rayo (sin camara publicada) el
 	-- servidor usa los puntos tal cual y todo sigue como antes.
+	local hex = tostring(guid):gsub("^0[xX]", "")
+	local body = ("CLICK %s %s"):format(hex, table.concat(parts, ";"))
+
+	-- EL RAYO ES LO PRIMERO QUE SE CAE SI NO CABE, y esa es la degradacion
+	-- correcta: sin el, el servidor usa los puntos tal cual -- que es lo que
+	-- habia antes de que el rayo existiera y sigue estando soportado al otro
+	-- lado. Recortar unidades en cambio dejaria bots sin orden, o sea el fallo
+	-- que esto viene a arreglar.
+	--
+	-- Se mide contra el limite del canal en vez de confiar en que quepa: el
+	-- largo depende de los NOMBRES del grupo y de si el click lleva guid, asi
+	-- que "cabe" es una propiedad de la partida, no del formato.
 	local ox, oy, oz, dx, dy, dz = ns.Markers:CursorRay()
 	if ox then
-		tinsert(parts, ("@ %d %.2f %.2f %.2f %.5f %.5f %.5f %.2f %.2f %.2f")
-			:format(rayId or 0, ox, oy, oz, dx, dy, dz, x, y, z))
+		local tail = ("@ %d %.1f %.1f %.1f %.4f %.4f %.4f %.1f %.1f %.1f")
+			:format(rayId or 0, ox, oy, oz, dx, dy, dz, x, y, z)
+		if #body + 1 + #tail <= ns.Link.LIMIT then
+			body = body .. ";" .. tail
+		elseif not self.warnedRay then
+			self.warnedRay = true
+			ns.Print(("|cffff8800click:|r con %d seleccionados el rayo no cabe en el " ..
+			          "mensaje; el destino sale del plano y en cuesta cae peor."):format(#sel))
+		end
 	end
 
-	local hex = tostring(guid):gsub("^0[xX]", "")
-	ns.SendServer(("CLICK %s %s"):format(hex, table.concat(parts, ";")))
+	ns.SendServer(body)
 
 	-- Shown straight away rather than waiting for the server to say what the
 	-- click meant: a marker that appears a round trip late does not feel like a

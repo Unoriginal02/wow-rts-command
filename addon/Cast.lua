@@ -243,6 +243,19 @@ end
 -- nada -- sin dar error.
 local shineSeq = 0
 
+-- POR ENCIMA DEL BOTON Y UN POCO MAS GRANDE QUE EL.
+--
+-- Un frame hijo con nivel MAS ALTO se dibuja sobre todas las capas de su padre,
+-- asi que subirlo es lo que saca las chispas de debajo del icono. Y el recorrido
+-- de la animacion es el ancho del frame, de modo que agrandarlo un pelo manda
+-- las chispas a orbitar por FUERA del dibujo en vez de por encima de el, que es
+-- donde se ven contra el fondo.
+--
+-- El 1.18 no es libre: la separacion entre huecos es de 16 sobre 84 (un 19%),
+-- asi que con un 9% por lado la luz no llega a pisar al vecino.
+local SHINE_SCALE = 1.18
+local SHINE_LIFT  = 10
+
 local function Shine(b)
 	if b.shine then return b.shine end
 	if type(_G.AutoCastShine_AutoCastStart) ~= "function" then return nil end
@@ -260,10 +273,13 @@ local function SetArmed(b, on)
 	local f = Shine(b)
 	if not f then return end
 	if on then
-		-- El recorrido de la animacion es `GetWidth()`, asi que la luz tiene que
-		-- medir lo que el boton o las chispas dan la vuelta por donde no es.
-		f:SetWidth(b:GetWidth())
-		f:SetHeight(b:GetHeight())
+		-- Se remide y se resube CADA VEZ, no al crearlo: el boton cambia de
+		-- tamano con la barra (`grow`) y de nivel al reparentarse entre el
+		-- estado A y el B, y un nivel puesto una sola vez se queda viejo sin
+		-- dar error -- la luz volveria debajo del icono y pareceria que no sale.
+		f:SetWidth(b:GetWidth() * SHINE_SCALE)
+		f:SetHeight(b:GetHeight() * SHINE_SCALE)
+		f:SetFrameLevel(b:GetFrameLevel() + SHINE_LIFT)
 		AutoCastShine_AutoCastStart(f)
 	elseif type(_G.AutoCastShine_AutoCastStop) == "function" then
 		AutoCastShine_AutoCastStop(f)
@@ -497,6 +513,11 @@ local function PaintSpell(b, owner, i, s, aiming)
 	if q and q.id == s.spellId then
 		extra = extra .. "\n|cffffd100en cola, esperando hueco|r"
 	end
+	-- LOS TRES GESTOS, ESCRITOS. Un modificador que no se cuenta en ningun sitio
+	-- es un modificador que no existe.
+	extra = extra .. (info.ask
+		and "\n|cff888888Click: elegir objetivo. Alt: sobre si mismo.|r"
+		or  "\n|cff888888Click: se manda ya. Shift: elegir objetivo.|r")
 	ns.W:Tip(b, s.name, ("%s -- %s%s\n|cff888888Click derecho: cambiar.|r"):format(
 		owner, info.label, extra))
 
@@ -686,6 +707,11 @@ function C:Refresh()
 
 	if ns.Hall:State() == "A" then
 		local owner = ns.Hall:Subject()
+		-- SIN DUENO NO SE PINTA. Los botones ya estan escondidos con su marco,
+		-- asi que esto no se ve -- pero `Skills:Slots(nil)` cae al primario, y
+		-- pintar los hechizos de alguien en unos botones escondidos es dejarlos
+		-- cargados para el instante en que vuelvan a salir.
+		if not owner then return end
 		-- `shown`, no `slots`: el tope que el jugador puso no es lo que hay
 		-- dibujado. Repintar mas de los que hay es tocar botones escondidos,
 		-- y eso no falla hoy: falla el dia que uno reaparece con el hechizo

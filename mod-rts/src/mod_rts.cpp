@@ -62,7 +62,7 @@ namespace
     // pieces in this project -- the DLL, this module, and the addon -- and only
     // the DLL had a version you could see, which made a server-side fix look
     // like nothing had happened. All three now report.
-    constexpr char const* kModVersion = "0.37.0";
+    constexpr char const* kModVersion = "0.39.0";
 
     std::string Upper(std::string s)
     {

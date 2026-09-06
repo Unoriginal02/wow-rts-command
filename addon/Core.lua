@@ -973,7 +973,7 @@ local HELP = {
 	"|cffffff00/rts tri|r - green triangle over heads (parked; |cffffff00/rts tri help|r)",
 	"|cffffff00/rts turn|r - por que un click se pierde: mide el giro de camara y lo compara con el umbral",
 	"|cffffff00/rts halo <0-2>|r - cursor halo style, |cffffff00/rts halo size <yards>|r",
-	"|cffffff00/rts ring|r - native ground circle under selected units; |cffffff00tint|r adds the model glow, |cffffff00test|r proves the hook",
+	"|cffffff00/rts ring|r - aro nativo bajo lo seleccionado; |cffffff00tint|r anade el brillo del modelo, |cffffff00test|r prueba el gancho",
 	"|cffffff00/rts cam|r - camara RTS suelta (WASD en plano, ESPACIO/C sube y baja, Q/E pivotan, arrastre derecho gira)",
 	"|cffffff00/rts cam save|r - frame it how you want, then save; |cffffff00show|r reprints the values",
 	"|cffffff00/rts cam frame|r - re-apply it; |cffffff00tilt|r / |cffffff00zoom|r / |cffffff00fov <deg>|r nudge; |cffffff00clear|r forgets it",
@@ -995,7 +995,7 @@ local HELP = {
 	"|cffffff00/rts art|r - visor de texturas del cliente (para vestir la HUD sin dibujar)",
 	"|cffffff00/rts bags|r - las bolsas de todo el grupo (tambien con su tecla)",
 	"|cffffff00/rts quests|r - las misiones del PNJ apuntado; |cffffff00auto|r sigue al heroe",
-	"|cffffff00/rts skills|r - las habilidades del personaje primario (Tab lo cambia)",
+	"|cffffff00/rts skills|r - las habilidades del primario (lo pone seleccionar a UNO)",
 	"|cffffff00/rts chain|r - la cadena de ataque; |cffffff00/rts chain off|r la limpia",
 	"|cffffff00/rts npc|r - entrenador y vendedor, actuando como el primario",
 	"|cffffff00/rts play [nombre]|r - juegas como ese compañero; sin nombre, lo sueltas",
@@ -1469,10 +1469,12 @@ SlashCmdList["RTSCOMMAND"] = function(msg)
 		local sub, arg = (rest or ""):match("^(%S*)%s*(.*)$")
 		sub = (sub or ""):lower()
 		if sub == "reset" or sub == "limpiar" then
-			-- El dueno es el de la sala, que con nada seleccionado es el
-			-- primario. Se dice el nombre al limpiar: borrar la configuracion
-			-- de quien no era es de las cosas que no se pueden deshacer.
-			ns.Skills:ClearSlots(arg ~= "" and arg or ns.Hall:Subject())
+			-- EL PRIMARIO Y NO `Hall:Subject()`, que desde la 0.80.0 es nil con
+			-- nada cogido -- y entonces esto limpiaria los huecos de quien
+			-- decidiera `ClearSlots` por su cuenta. Se dice el nombre al
+			-- limpiar: borrar la configuracion de quien no era es de las cosas
+			-- que no se pueden deshacer.
+			ns.Skills:ClearSlots(arg ~= "" and arg or ns.Selection:GetPrimary())
 		else
 			ns.Skills:Report()
 		end

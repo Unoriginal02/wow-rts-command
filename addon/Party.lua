@@ -124,7 +124,8 @@ local function GetRow(i)
 			if button == "RightButton" then
 				ns.Skills:AimAt(nil)
 			else
-				ns.Skills:AimAt(UnitGUID(self.unit), self.unitName)
+				ns.Skills:AimAt(UnitGUID(self.unit), self.unitName,
+				                UnitCanAttack("player", self.unit) and true or false)
 			end
 			return
 		end

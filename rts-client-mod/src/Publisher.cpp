@@ -17,7 +17,7 @@
 
 namespace {
 
-constexpr const char* kVersion = "0.10.0";
+constexpr const char* kVersion = "0.14.0";
 constexpr int kProtocol = 3;
 
 // Every published unit costs ~110 bytes of Lua source that the client parses on
@@ -51,8 +51,13 @@ constexpr const char* kSelectionCVar = "enablePVPNotifyAFK";
 // guildMemberNotify is a guild-roster login toast -- inert on a solo server, and
 // an integer, which is all this needs. Value is FOV in TENTHS OF A DEGREE
 // (600 = 60.0 deg) so it stays a whole number; 0 means "leave the client's".
-constexpr const char* kFovCVar = "guildMemberNotify";
-constexpr float kFovMinDeg = 20.0f;
+constexpr const char* kFovCVar = "rtsFov";
+// EL SUELO BAJA A 5, Y HABIA DOS. El addon ya acotaba a 20 y este acotaba otra
+// vez a 20 por su cuenta, asi que bajar solo el del addon habria dejado un
+// `/rts cam fov 15` convertido en 20 **sin decir nada** -- que es exactamente el
+// modo de fallo que ese cambio venia a quitar. Dos topes para el mismo numero es
+// un tope que se olvida.
+constexpr float kFovMinDeg = 5.0f;
 constexpr float kFovMaxDeg = 140.0f;
 
 void ApplyFovOverride() {
@@ -114,6 +119,10 @@ constexpr int kSeqShift   = kStateSlots * kStateBits;   // 24
 constexpr uint32_t kBitCircle = 1u << 27;
 constexpr uint32_t kBitTint   = 1u << 28;
 constexpr uint32_t kBitAll    = 1u << 29;   // diagnostic: circle on EVERY unit
+
+// Bit 30 is FREE. It briefly meant "draw each of our circles twice"; that gives
+// two rings, not one heavier one, so it is gone from both sides -- see Circle.h.
+// Bit 31 is unusable: the client parses the CVar with a signed atoi.
 
 enum TintState : uint32_t {
     kStateNone     = 0,

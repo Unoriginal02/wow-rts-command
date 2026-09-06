@@ -46,6 +46,19 @@ R.version = 3
 R.enabled = true
 R.modelTint = false
 
+-- UNA PASADA POR UNIDAD, Y NO HAY MANDO PARA CAMBIARLO. Duro una tarde y lo
+-- desmintio el juego en el primer vistazo.
+--
+-- La idea era que dos pasadas del MISMO dibujo darian un aro mas marcado, que
+-- es lo que parecia la seleccion del mundo cuando se apilaba con la nuestra.
+-- En pantalla no da un aro mas marcado: **da DOS AROS**. Las dos pasadas no
+-- caen una encima de otra.
+--
+-- Se anota aqui y no se deja el interruptor puesto porque un ajuste cuyo unico
+-- valor alternativo esta comprobado que se ve mal no es un ajuste, es una
+-- trampa -- y ademas el bit 30 del canal vuelve a estar libre, asi que dejarlo
+-- entendido al otro lado seria plantar el fallo para quien lo reutilice.
+
 -- Diagnostic only, never saved: makes the DLL give EVERY unit it renders a
 -- circle in one colour. If the world fills with rings, the patched gate is
 -- understood correctly and any remaining problem is in the selection, not in
@@ -71,6 +84,11 @@ function R:Create()
 	if type(s) == "table" and s.version == self.version then
 		if type(s.enabled) == "boolean" then self.enabled = s.enabled end
 		if type(s.modelTint) == "boolean" then self.modelTint = s.modelTint end
+		-- `bright` vivio unas horas del 2026-09-06 y se tira al leer. Un fichero
+		-- de SavedVariables no olvida ninguna clave y sobrevive a la version que
+		-- la escribio; sin esto, quien la tuviera guardada seguiria mandando el
+		-- bit 30 que ya no significa nada. Sexta purga de este addon.
+		if s.bright ~= nil then s.bright = nil end
 	end
 	EnsureCVar()
 end
@@ -118,6 +136,8 @@ function R:Status()
 		self.enabled and "|cff00ff00on|r" or "|cffff0000off|r",
 		self.modelTint and "|cff00ff00on|r" or "|cffff0000off|r",
 		CIRCLE_CVAR, tostring(GetCVar(CIRCLE_CVAR))))
+	ns.Print("El circulo nativo de tu objetivo se apaga cuando el objetivo es un " ..
+	         "JUGADOR y hay algo seleccionado; una criatura conserva el suyo.")
 	if RTS_PROTO and RTS_PROTO ~= 3 then
 		ns.Print(("|cffff0000rts_core speaks protocol %s|r - circles need protocol 3. " ..
 			"Re-inject the current rts_core.dll."):format(tostring(RTS_PROTO)))

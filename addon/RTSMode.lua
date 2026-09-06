@@ -113,34 +113,67 @@ function R:HoverUnit()
     }
 end
 
+-- SE MIDE CONTRA EL CUERPO, NO CONTRA LOS PIES, y eso es lo que arregla al
+-- heroe.
+--
+-- La posicion que publica el DLL son los PIES. Medir la distancia del cursor a
+-- ESE punto hace que la diana sea un circulo en el suelo, asi que para coger a
+-- alguien hay que pinchar donde pisa -- literalmente *"es como si tuviera que
+-- clicar en sus pies"*.
+--
+-- Con los bots no se notaba porque ahi manda el mouseover del cliente, que es
+-- geometria de verdad. **El heroe no tiene mouseover: el cliente nunca apunta a
+-- tu propio personaje**, ni dentro ni fuera del modo RTS. Asi que el unico
+-- camino que le quedaba era tambien el mas estrecho de los tres, y por eso el
+-- sintoma parecia cosa de "estar convertido en bot" cuando no tiene nada que
+-- ver con eso.
+--
+-- Un modelo ocupa una FRANJA vertical en pantalla, asi que la diana es el
+-- segmento de los pies a la cabeza con el radio de siempre a los lados. Es la
+-- forma que tiene el bicho, y sale de dos proyecciones en vez de una.
+local BODY_TOP = 2.2      -- yardas de los pies a la coronilla
+
+local function BodyDist2(sx, sy, wx, wy, wz)
+	local fx, fy = ns.Markers:Project(wx, wy, wz + 0.2)
+	local hx, hy = ns.Markers:Project(wx, wy, wz + BODY_TOP)
+	if not fx then fx, fy = hx, hy end
+	if not hx then hx, hy = fx, fy end
+	if not fx then return nil end
+
+	local dx, dy = hx - fx, hy - fy
+	local len2 = dx * dx + dy * dy
+	local t = 0
+	if len2 > 0 then
+		t = ((sx - fx) * dx + (sy - fy) * dy) / len2
+		if t < 0 then t = 0 elseif t > 1 then t = 1 end
+	end
+	local px, py = fx + dx * t, fy + dy * t
+	return (sx - px) ^ 2 + (sy - py) ^ 2
+end
+
 -- Nearest roster unit to (sx,sy), or nil.
 --
 -- Kept as the fallback for the moment the mouse IS captured -- mid drag-box,
 -- when the catcher owns it and mouseover is gone. Outside that, HoverUnit is
--- both cheaper and exact.
+-- both cheaper and exact -- salvo para el heroe, que no tiene mouseover nunca y
+-- para el que este es el unico camino.
 function R:UnitAt(sx, sy)
 	local best, bestD
 	for _, m in ipairs(self:Roster()) do
-		local ux, uy = ns.Markers:UnitScreen(m.guid)
+		local wx, wy, wz = ns.Markers:UnitWorld(m.guid)
 
 		-- TU PROPIO PERSONAJE TIENE UNA SEGUNDA FUENTE, y hace falta.
 		--
-		-- `UnitScreen` sale de la lista que publica el DLL, y esa lista se
-		-- centra en la CAMARA: con la camara despegada lejos de tu cuerpo, tu
-		-- cuerpo puede quedarse fuera. Y el otro camino -- el mouseover del
-		-- cliente -- tampoco es fiable sobre uno mismo mientras la camara esta
-		-- poseida. Con los dos fallando a la vez el heroe solo se podia
-		-- seleccionar desde la consola, que es lo reportado en PRUEBAS-18.
-		--
-		-- `RTS_PX/PY/PZ` es tu posicion y se publica SIEMPRE, esta la camara
-		-- donde este: es la fuente que no puede faltar.
-		if not ux and m.isPlayer and RTS_HasPos == 1 then
-			ux, uy = ns.Markers:Project(RTS_PX, RTS_PY, RTS_PZ + 1.0)
+		-- La lista del DLL se centra en la CAMARA: con la camara despegada lejos
+		-- de tu cuerpo, tu cuerpo puede quedarse fuera de ella. `RTS_PX/PY/PZ`
+		-- es tu posicion y se publica SIEMPRE, este la camara donde este.
+		if not wx and m.isPlayer and RTS_HasPos == 1 then
+			wx, wy, wz = RTS_PX, RTS_PY, RTS_PZ
 		end
 
-		if ux then
-			local d = (ux - sx) ^ 2 + (uy - sy) ^ 2
-			if d <= PICK_RADIUS * PICK_RADIUS and (not bestD or d < bestD) then
+		if wx then
+			local d = BodyDist2(sx, sy, wx, wy, wz)
+			if d and d <= PICK_RADIUS * PICK_RADIUS and (not bestD or d < bestD) then
 				best, bestD = m, d
 			end
 		end
@@ -267,6 +300,30 @@ end
 -- before any capture could steal it. Falls back to projected picking only if
 -- there was none.
 function R:OnLeftClick(sx, sy, shift, alt, hover)
+	-- SIN MOUSEOVER, LA PROYECCION -- y solo con algo armado.
+	--
+	-- Hace falta justo desde que se pregunta SIEMPRE (2026-09-06): **tu heroe no
+	-- tiene mouseover nunca**, porque el cliente no apunta a tu propio
+	-- personaje. Asi que "que la sacerdotisa me cure a mi" pinchandote en el
+	-- mundo caia en la rama de "no hay nada bajo el cursor" y CANCELABA el
+	-- hechizo -- un gesto que hace lo contrario de lo que pides.
+	--
+	-- Se hace aqui arriba y no dentro de cada rama porque las dos bocas del
+	-- mismo gesto -- una habilidad y el boton de Cuidar -- tienen el hueco
+	-- identico, y arreglar solo una es como se acaba con dos gestos que se
+	-- parecen y no se comportan igual.
+	--
+	-- Solo cuando hay algo armado: fuera de eso el camino de siempre ya cae a
+	-- `UnitAt` mas abajo, y adelantarlo cambiaria comportamiento que funciona.
+	if not hover and (ns.Skills:Aiming() or ns.Cast.pendingFocus) then
+		local m = self:UnitAt(sx, sy)
+		if m then
+			-- `ours`/`hostile` son ciertos por construccion: `UnitAt` solo mira
+			-- tu propio grupo.
+			hover = { guid = m.guid, name = m.name, ours = true, hostile = false }
+		end
+	end
+
 	-- UNA HABILIDAD ARMADA SE COME EL CLICK, y va lo primero de todo.
 	--
 	-- Pulsar una habilidad sin Alt y sin objetivo la deja esperando a que elijas
@@ -277,7 +334,9 @@ function R:OnLeftClick(sx, sy, shift, alt, hover)
 	-- Sobre suelo vacio se cancela, que es lo que quiere decir pinchar la nada.
 	if ns.Skills:Aiming() then
 		if hover then
-			ns.Skills:AimAt(hover.guid, hover.name)
+			-- El bando viaja con el click: aqui es donde de verdad se sabe, y
+			-- es lo que deja que `AimAt` avise de una cura sobre un lobo.
+			ns.Skills:AimAt(hover.guid, hover.name, hover.hostile)
 		else
 			ns.Skills:AimAt(nil)
 		end
@@ -1179,6 +1238,25 @@ function R:Toggle()
 		ns.Print("|cff00ff00Modo RTS ON|r - el raton va normal: pasar por encima ilumina,")
 		ns.Print("click selecciona, |cffffff00doble click|r selecciona a todos, click derecho ordena.")
 		ns.Print("|cffffff00Ctrl + arrastrar|r = caja de seleccion.")
+
+		-- SIN rts_core EL MODO ENTRA IGUAL Y HACE LA MITAD, Y ESO NO SE VEIA.
+		--
+		-- Sin DLL no hay aros (el canal no publica nada porque no hay lista de
+		-- unidades) y **no hay ordenes al suelo**: `CursorGroundPoint` sale por
+		-- `RTS_HasCam ~= 1` en su primera linea. Lo que queda en pie es
+		-- justamente lo que vive solo en Lua -- seleccionar, la consola, la
+		-- camara -- asi que la pantalla ensena: seleccion multiple que funciona,
+		-- UN aro (el del cliente, bajo tu objetivo) y unidades que no se mueven.
+		--
+		-- Ese cuadro es indistinguible de "el addon esta roto", y costo una
+		-- ronda entera confundirlo con un fallo del arreglo del dia. Un estado
+		-- degradado que no se anuncia es peor que uno que falla.
+		if RTS_Ready ~= 1 then
+			ns.Print("|cffff0000rts_core NO esta inyectado.|r Sin el no hay aros de " ..
+			         "seleccion ni ordenes al suelo: los bots no se moveran.")
+			ns.Print("Cierra el juego y abrelo con |cffffff00rts-tools\\2-Jugar.bat|r, " ..
+			         "o comprueba con |cffffff00/rts native|r.")
+		end
 
 		-- SIN DLL EL MODO RTS SE DEGRADA EN SILENCIO, Y ESO COSTO UNA SESION
 		-- ENTERA. Un rts_core que no entra no da ningun error: la caja se

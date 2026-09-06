@@ -17,8 +17,17 @@
 	    bits 24..26   sequence number
 	    bit  27       draw the native ground circle
 	    bit  28       also glow the unit models
-	    bits 29, 30   free
+	    bit  29       diagnostic: a circle under EVERY published unit
+	    bit  30       LIBRE otra vez -- ver abajo
 	    bit  31       unusable -- the client parses the value with a SIGNED atoi
+
+	El bit 30 se uso unas horas del 2026-09-06 para dibujar cada aro DOS veces,
+	con la idea de que saldria mas marcado. En juego salen dos aros, asi que
+	esta fuera de los dos lados: el addon no lo manda y el DLL ya no lo lee.
+	Quien lo reutilice no hereda nada.
+
+	Con los cinco bits altos puestos y el peor caso de estados y secuencia el
+	valor no llega a 2^31, que es el techo del `atoi` con signo.
 
 	Protocol 2 packed nine state slots into bits 0..26 and had no room left:
 	the sequence took 27..29 and the model glow took 30. The native ground

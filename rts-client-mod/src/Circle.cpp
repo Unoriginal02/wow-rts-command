@@ -34,6 +34,7 @@ void* g_trampoline = nullptr;
 uint8_t g_original[off::kCircleStolen] = {};
 bool    g_installed = false;
 
+
 // Written as literals because MSVC inline asm cannot take a constexpr's value.
 static_assert(off::kCircleSlotA == 0x380, "asm literal out of sync");
 
@@ -56,14 +57,39 @@ __declspec(naked) void DrawHook() {
         push    esi
         push    edi
         mov     esi, ecx                    // the scene context
+        lea     ebx, g_table
 
-        // 1. the client's own two circles, exactly as before.
+        // 0. THE TARGET SLOT, BEFORE THE CLIENT DRAINS IT.
+        //
+        //    Slot A is your target's guid and slot B is your mouseover's. If we
+        //    are drawing our own circles this frame, a PLAYER in slot A would be
+        //    drawn by the client and then again by us -- the same ring twice,
+        //    which reads as a brighter one -- or, when it is not one of ours at
+        //    all, would leave a second unit looking selected.
+        //
+        //    A player guid has a zero high dword; a creature's is 0xF130xxxx.
+        //    So one compare separates "a friendly the RTS layer owns" from "the
+        //    mob I am fighting", with no reaction lookup and no list to walk.
+        //
+        //    Mouseover is deliberately left alone: it is transient feedback
+        //    about where the pointer is, not a claim about what is selected.
+        mov     eax, dword ptr [ebx]
+        mov     edx, dword ptr [ebx + 4]
+        or      eax, edx
+        jz      native                      // our table is empty: change nothing
+        mov     eax, dword ptr [esi + 0x384]
+        test    eax, eax
+        jnz     native                      // high dword set -> a creature: keep it
+        mov     dword ptr [esi + 0x380], 0
+
+    native:
+        // 1. the client's own circles, exactly as before.
         mov     ecx, esi
         call    dword ptr [g_trampoline]
 
-        // 2. ours, one call each. NO colour work: see Offsets.h for the two
-        //    ways that was tried and the in-game result of each.
-        lea     ebx, g_table
+        // 2. ours, ONE call each. NO colour work: see Offsets.h for the two
+        //    ways that was tried and the in-game result of each. And exactly
+        //    one call: see Circle.h for what two looked like.
     next:
         mov     eax, dword ptr [ebx]
         mov     edx, dword ptr [ebx + 4]

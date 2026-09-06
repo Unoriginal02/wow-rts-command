@@ -120,6 +120,19 @@ local TYPE = {
 	H = { ask = true,  friendly = false, label = "sobre un enemigo" },
 	G = { ask = true,  ground = true,    label = "en un sitio" },
 	D = { ask = true,  dead = true,      label = "sobre un muerto" },
+
+	-- SIN CLASIFICAR PREGUNTA, que no es lo mismo que `N`.
+	--
+	-- Un hueco configurado cuyo hechizo no esta en el catalogo de ahora --
+	-- porque la respuesta del servidor no ha llegado, o porque el bot no esta
+	-- cargado -- pasaba por `Describe`, que lo daba por `N`. Y `N` no pregunta:
+	-- se manda tal cual, o sea **sobre el propio lanzador**. Un bufo puesto en
+	-- un hueco se le aplicaba a si mismo por no saber todavia lo que era.
+	--
+	-- Preguntar cuando no se sabe es lo unico reversible de los dos: el click
+	-- derecho cancela, mientras que un hechizo lanzado sobre quien no era no se
+	-- deshace.
+	["?"] = { ask = true, label = "sin clasificar" },
 }
 
 -- Sin servidor no hay letra. `N` es el valor seguro: se manda y el servidor
@@ -302,9 +315,25 @@ end
 --
 -- SIN CONFIGURAR, LOS PRIMEROS DE SU BARRA. Ver la cabecera: un hueco vacio
 -- nada mas seleccionar a alguien se lee como que la barra no funciona.
+-- `n` POR DEFECTO ES EL TOPE, NO LO QUE HAYA DIBUJADO, y esto fue un fallo de
+-- verdad que duro un dia.
+--
+-- Antes caia a `ns.Hall.shown`, o sea "cuantos huecos hay pintados en la fila
+-- del estado A". Con dos o mas personajes cogidos la sala esta en el estado B y
+-- no hay fila: desde el 2026-09-05 `Recompute` deja `shown` en **0** -- y cero
+-- en Lua es CIERTO, asi que `n` valia 0, el bucle no daba una vuelta y
+-- `Slots(name)[i]` era nil.
+--
+-- En pantalla: los iconos SI salian (los pinta `Cast`, que pasa su 4 explicito)
+-- y pulsarlos no hacia absolutamente nada. O sea *"con seleccion multiple los
+-- hechizos no funcionan"*, sin un solo error y sin relacion visible con haber
+-- vaciado el centro de la consola el dia anterior.
+--
+-- Resolver un hueco no tiene nada que ver con cuantos se dibujan: quien dibuja
+-- ya pasa su cuenta. El tope es el unico valor que no puede envejecer.
 function K:Slots(name, n)
 	name = name or ns.Selection:GetPrimary()
-	n = n or ns.Hall.shown or K.MAX_SLOTS
+	n = n or K.MAX_SLOTS
 
 	local cat = self:Available(name)
 	local byId = {}
@@ -338,7 +367,7 @@ function K:Describe(id, stale)
 	local sname, _, icon = GetSpellInfo(id)
 	if not sname then return nil end
 	return { spellId = id, name = sname, texture = icon,
-	         type = DEFAULT_TYPE, stale = stale or nil }
+	         type = "?", stale = stale or nil }
 end
 
 function K:SetSlot(name, i, spellId)
@@ -433,8 +462,33 @@ end
 -- en el mundo 3D, indistintamente.
 --
 -- Con Alt va sobre el propio personaje sin preguntar, que es la convencion de
--- siempre en WoW y la del video. Con un objetivo ya apuntado se manda ya,
--- porque preguntar cuando la respuesta esta delante es una pulsacion de mas.
+-- siempre en WoW y la del video.
+--
+-- === Y SIEMPRE PREGUNTA, AUNQUE TENGAS ALGO APUNTADO ====================
+--
+-- Hasta el 2026-09-06 habia un atajo: con un objetivo puesto se lanzaba sobre
+-- el sin preguntar, *"porque preguntar cuando la respuesta esta delante es una
+-- pulsacion de mas"*. La premisa era falsa y en juego se veia asi:
+--
+--   * seleccionas a la sacerdotisa **pinchandola en el mundo** -- y ese gesto
+--     ADEMAS la apunta, porque el cliente apunta lo que pinchas;
+--   * pulsas su cura;
+--   * y como "hay objetivo", se lanza sobre el objetivo, que es ella misma.
+--     **Se cura a si misma.**
+--
+--   * seleccionandola desde la consola no hay objetivo, asi que se arma, eliges
+--     a quien, y cura a quien elegiste. Que es lo que se pide.
+--
+-- O sea que el mismo boton hacia dos cosas distintas segun COMO hubieras
+-- seleccionado, y la diferencia era invisible. El objetivo del cliente no es
+-- una declaracion de intencion aqui: casi siempre es el residuo del gesto de
+-- seleccionar. "La respuesta esta delante" solo era cierta fuera del modo RTS.
+--
+-- Con el atajo se va su red de seguridad -- el aviso de bando equivocado, que
+-- existia para proteger un disparo que ya no se hace a ciegas -- y baja a
+-- `AimAt`, donde el jugador SI ha elegido a quien. Alli avisa y no bloquea: la
+-- clasificacion no es infalible y el servidor rechaza lo imposible de todas
+-- formas.
 
 function K:Use(name, i)
 	name = name or ns.Selection:GetPrimary()
@@ -449,42 +503,35 @@ function K:Use(name, i)
 	local letter = s.type or self:TypeOf(s.spellId, name)
 	local info = self:TypeInfo(letter)
 
-	if IsAltKeyDown() or not info.ask then
+	-- SHIFT PREGUNTA IGUALMENTE, y es la valvula de la clasificacion.
+	--
+	-- La letra la decide el servidor con los predicados del nucleo, sin ninguna
+	-- lista de ids -- que es lo correcto y lo que este proyecto lleva etapas
+	-- defendiendo. Pero "no pide objetivo explicito" no es lo mismo que "solo
+	-- vale para el que lo lanza": un bufo que el juego deja echarle a un
+	-- companero puede caer en `N` y entonces se manda a ciegas, o sea al propio
+	-- lanzador.
+	--
+	-- En vez de inventar una regla nueva encima de la del nucleo -- que seria
+	-- adivinar, y adivinar aqui se paga en botones que no hacen lo que dicen --
+	-- se deja que lo diga el jugador, que es quien sabe si ese bufo va a otro.
+	-- Alt = sobre si mismo, Shift = elijo yo, sin nada = lo que diga la letra.
+	if IsAltKeyDown() or (not info.ask and not IsShiftKeyDown()) then
 		local guid = IsAltKeyDown() and UnitGUID(ns.Selection:UnitFor(name) or "player") or nil
 		Fire(name, s.spellId, guid)
-		ns.Print(("|cff33ccff%s|r -> %s%s"):format(name, s.name,
-			guid and " (sobre si)" or ""))
-		return
-	end
-
-	-- Con algo ya apuntado no se pregunta... salvo que sea del bando
-	-- equivocado. AVISA Y NO BLOQUEA: `IsPositive()` se apoya en atributos que
-	-- el nucleo corrige a mano y no es infalible, asi que negarse en redondo
-	-- podria dejar un hechizo inservible por una clasificacion mala.
-	if UnitExists("target") then
-		local hostil = UnitCanAttack("player", "target")
-		if info.friendly ~= nil and info.friendly == hostil then
-			ns.Print(("|cffff8800%s|r es %s y tu objetivo no lo parece. " ..
-			          "Elige otro, o pulsa otra vez para mandarlo igual."):format(
-				s.name, info.label))
-			if self.warned ~= s.spellId then
-				self.warned = s.spellId
-				aiming = { owner = name, slot = i, spellId = s.spellId,
-				           name = s.name, type = letter, at = GetTime() }
-				Notify()
-				return
-			end
-		end
-		self.warned = nil
-		Fire(name, s.spellId, UnitGUID("target"))
-		ns.Print(("|cff33ccff%s|r -> %s sobre %s"):format(name, s.name, UnitName("target")))
+		-- EL TIPO VA EN EL MENSAJE. "¿por que no me ha preguntado?" es una
+		-- pregunta sobre la LETRA, y sin ella cuesta una ronda de pruebas
+		-- averiguar si el hechizo esta mal clasificado o el gesto mal entendido.
+		ns.Print(("|cff33ccff%s|r -> %s |cff888888(%s)|r%s"):format(name, s.name,
+			info.label, guid and " sobre si" or ""))
 		return
 	end
 
 	aiming = { owner = name, slot = i, spellId = s.spellId, name = s.name,
 	           type = letter, at = GetTime() }
 	ns.Print(("|cffffd100%s|r (%s): elige objetivo con el click izquierdo; " ..
-	          "el derecho cancela."):format(s.name, info.label))
+	          "el derecho cancela."):format(s.name,
+		(not info.ask) and (info.label .. ", forzado con shift") or info.label))
 	Notify()
 end
 
@@ -495,7 +542,6 @@ end
 function K:CancelAim()
 	if not aiming then return false end
 	aiming = nil
-	self.warned = nil
 	Notify()
 	return true
 end
@@ -503,16 +549,29 @@ end
 -- Llamada desde `RTSMode` (mundo) y desde `Party` (la lista) cuando hay una
 -- habilidad armada y pinchas algo. Un guid vacio la cancela: pinchar el suelo
 -- con algo armado significa "olvida".
-function K:AimAt(guid, label)
+-- `hostile` es opcional: true, false, o nil cuando quien llama no lo sabe. Los
+-- tres sitios que arman esto SI lo saben, asi que el aviso de bando llega
+-- entero -- y aqui vale mas que donde estaba, porque el objetivo lo acabas de
+-- elegir tu en vez de heredarlo del gesto anterior.
+function K:AimAt(guid, label, hostile)
 	if not aiming then return false end
 	local a = aiming
 	aiming = nil
-	self.warned = nil
 
 	if not guid then
 		ns.Print("|cff888888" .. a.name .. ": cancelada.|r")
 		Notify()
 		return true
+	end
+
+	-- AVISA Y NO BLOQUEA. `IsPositive()` se apoya en atributos que el nucleo
+	-- corrige a mano y no es infalible, asi que negarse en redondo dejaria un
+	-- hechizo inservible por una clasificacion mala. Y quien decide de verdad es
+	-- el servidor, que rechaza lo imposible.
+	local info = self:TypeInfo(a.type)
+	if hostile ~= nil and info.friendly ~= nil and info.friendly == hostile then
+		ns.Print(("|cffff8800ojo:|r %s es %s y %s no lo parece."):format(
+			a.name, info.label, label or "eso"))
 	end
 
 	Fire(a.owner, a.spellId, guid)
@@ -619,7 +678,12 @@ end
 
 function K:Report()
 	local name = ns.Selection:GetPrimary()
-	local n = ns.Hall.shown or K.MAX_SLOTS
+	-- LA MISMA TRAMPA QUE EN `Slots`, y aqui dolia mas: con varios cogidos la
+	-- sala esta en el estado B, `shown` vale 0, y cero es CIERTO en Lua -- asi
+	-- que el diagnostico decia "0 huecos" y no listaba ninguno, justo en el caso
+	-- en el que se abre para averiguar por que un boton no hace nada.
+	local n = ns.Hall.shown or 0
+	if n <= 0 then n = K.MAX_SLOTS end
 	local slots = self:Slots(name, n)
 	ns.Print(("habilidades de |cff33ccff%s|r: %d huecos%s"):format(
 		name, n, self:Pending(name) and " (pidiendo...)" or ""))

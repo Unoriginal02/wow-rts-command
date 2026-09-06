@@ -68,13 +68,65 @@ function M:Derived()
 	return sy / aspect, sy
 end
 
+-- Cuanto puede alejarse una calibracion de la escala DERIVADA antes de que sea
+-- basura. La derivada sale del FOV que publica el DLL y de la forma de la
+-- pantalla, o sea de geometria; una medida buena cae a un pelo de ella (1.1404
+-- medido contra 1.1473 derivado, un 0.6%). Un 25% no es un error de medida: es
+-- otra cosa.
+local OVERRIDE_TOL = 0.25
+
 -- Horizontal and vertical ndc scale actually used for projection.
 function M:Intrinsics()
+	-- UNA CALIBRACION GUARDADA SE COMPRUEBA ANTES DE CREERLA, y no al
+	-- guardarla: se guarda una vez y se lee treinta veces por segundo durante
+	-- meses, y el `Set` solo corre cuando el jugador teclea. Sexta vez en este
+	-- addon (`grow = 688`, `camHold`, `railCropGen`, la sala, `slots`).
+	--
+	-- Aqui hacia falta de verdad: `Markers:Calibrate` -- la tecla de calibrar --
+	-- resuelve la escala con UNA sola muestra, suponiendo que el cursor estaba
+	-- exactamente encima de la unidad seleccionada cuando se pulso. Si no lo
+	-- estaba, escribe una escala mala y la deja puesta PARA SIEMPRE, con
+	-- `forceScale` guardado. Reportado como *"pulse G para calibrar no se que y
+	-- algo se fue a la mierda"*, con la proyeccion desviada desde entonces.
+	--
+	-- No se puede comprobar al cargar porque la derivada necesita el FOV del
+	-- DLL, que llega despues. Se comprueba la primera vez que hay con que.
+	if not self.overrideChecked and not self.autoIntrinsics then
+		local dx, dy = self:Derived()
+		if dx and dy and dx > 0 and dy > 0 then
+			self.overrideChecked = true
+			local off = math.max(math.abs((self.SX or 0) / dx - 1),
+			                     math.abs((self.SY or 0) / dy - 1))
+			if off > OVERRIDE_TOL then
+				ns.Print(("|cffff8800proyeccion:|r la calibracion guardada se " ..
+				          "aparta un %d%% de la derivada del FOV. Descartada."):format(
+					math.floor(off * 100)))
+				ns.Print("|cff888888Era casi seguro un /rts cal o una tecla de " ..
+				         "calibrar con el cursor fuera de la unidad.|r")
+				self:UseDerived()
+			end
+		end
+	end
+
 	if self.autoIntrinsics then
 		local sx, sy = self:Derived()
 		if sx then return sx, sy end
 	end
 	return self.SX, self.SY
+end
+
+-- Volver a la escala derivada y olvidar la guardada. Un solo sitio, porque lo
+-- llaman la comprobacion de arriba, `/rts cal auto` y el rechazo de una
+-- calibracion imposible.
+function M:UseDerived()
+	self.autoIntrinsics = true
+	self.DEPTH_BIAS = 0
+	if RTSCommandDB then
+		RTSCommandDB.forceScale = nil
+		RTSCommandDB.DEPTH_BIAS = 0
+		RTSCommandDB.SX = nil
+		RTSCommandDB.SY = nil
+	end
 end
 
 M.RIGHT_SIGN = RIGHT_SIGN
@@ -333,15 +385,42 @@ function M:Calibrate()
 	local ndcx = ((mx / s) / w) * 2 - 1
 	local ndcy = ((my / s) / h) * 2 - 1
 
-	self.SX = ndcx / (rc / depth)
-	self.SY = ndcy / (uc / depth)
+	local sx = ndcx / (rc / depth)
+	local sy = ndcy / (uc / depth)
+
+	-- SE RECHAZA UNA MEDIDA IMPOSIBLE EN VEZ DE GUARDARLA.
+	--
+	-- Esto resuelve la escala con UNA muestra y supone que el cursor estaba
+	-- justo encima de la unidad al pulsar la tecla. Si no lo estaba -- que es lo
+	-- normal cuando la tecla se pulsa sin saber lo que hace -- el resultado es
+	-- basura, se guarda, y la proyeccion queda desviada hasta que alguien
+	-- adivine que fue eso. Ya paso.
+	--
+	-- La derivada del FOV es geometria y no depende de la punteria, asi que
+	-- sirve de arbitro: una medida buena cae a menos del 1% de ella.
+	local dx, dy = self:Derived()
+	if dx and dy and dx > 0 and dy > 0 then
+		local off = math.max(math.abs(sx / dx - 1), math.abs(sy / dy - 1))
+		if off > OVERRIDE_TOL then
+			ns.Print(("|cffff0000Calibrate:|r sale un %d%% de la escala derivada " ..
+			          "del FOV -- eso no es una medida, es el cursor fuera de %s."):format(
+				math.floor(off * 100), tostring(sel[1])))
+			ns.Print("|cff888888Nada guardado. Pon el cursor ENCIMA del modelo y " ..
+			         "vuelve a pulsar, o dejalo como esta.|r")
+			return
+		end
+	end
+
+	self.SX, self.SY = sx, sy
 	self.DEPTH_BIAS = 0        -- this is a pure-scale solve; drop any fitted bias
 	self.autoIntrinsics = false -- an explicit override of the derived scales
+	self.overrideChecked = true -- reciEn comprobada contra la derivada
 
 	RTSCommandDB.SX, RTSCommandDB.SY = self.SX, self.SY
 	RTSCommandDB.DEPTH_BIAS = 0
 	RTSCommandDB.forceScale = true
-	ns.Print(("|cff00ff00Calibrated|r SX=%.4f SY=%.4f (saved). Rings should sit on units now."):format(self.SX, self.SY))
+	ns.Print(("|cff00ff00Calibrated|r SX=%.4f SY=%.4f (guardado). " ..
+	          "|cffffff00/rts cal auto|r lo deshace."):format(self.SX, self.SY))
 end
 
 --- Marker pool -------------------------------------------------------------

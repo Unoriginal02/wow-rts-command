@@ -40,10 +40,17 @@
 	de areas, no solo su tamano -- que es exactamente por lo que `Bar:OnLayout`
 	existe y por lo que aqui hay otro.
 
-	SIN NADA SELECCIONADO LA SALA SE QUEDA EN EL ESTADO A, con el primario. No
-	se apaga: una consola que se vacia al soltar la seleccion es una consola que
-	parpadea, y el primario nunca es nil (`Selection:GetPrimary` cae a tu
-	personaje).
+	SIN NADA SELECCIONADO EL CENTRO SE VACIA, y eso es la vuelta atras del
+	2026-09-05. Hasta hoy caia al PRIMARIO, con el argumento de que una consola
+	que se vacia al soltar la seleccion parpadea. En pantalla no se lee asi: se
+	lee como que sigue habiendo alguien cogido, porque lo dibujado es
+	exactamente lo mismo que cuando lo hay. Un dato correcto puesto donde
+	significa otra cosa es el modo de fallo de siempre.
+
+	Se vacia el CENTRO, no la sala: la columna de la izquierda es el grupo y no
+	depende de la seleccion. Y el PRIMARIO sigue existiendo -- las teclas de
+	habilidad y `/rts skills` caen a el -- lo que deja de hacer es llenar la
+	sala el solo.
 
 	=== LOS QUE QUEPAN EN A, CUATRO EN B, Y SON LOS MISMOS ==================
 
@@ -266,11 +273,17 @@ function H:State()
 	return (ns.Selection:Count() >= 2) and "B" or "A"
 end
 
--- De quien es la fila de hechizos en el estado A. Con uno seleccionado es ese;
--- sin nada, el primario -- que es el concepto que `Selection` separo justamente
--- para que mirar las habilidades de alguien no obligue a soltar al grupo.
+-- De quien es la fila de hechizos en el estado A: el UNICO seleccionado, y nil
+-- si no hay ninguno. Sin dueno no hay marcos, ni huecos, ni macros, ni raya --
+-- `Recompute` no produce esas areas y `Layout` esconde sus marcos, que es el
+-- mismo camino por el que ya desaparecen al pasar al estado B.
+--
+-- NO CAE AL PRIMARIO, y ese es el cambio. `GetPrimary` se queda para las teclas
+-- y para `/rts skills`, que preguntan "de quien, si no lo dices" -- una
+-- pregunta distinta de "quien esta cogido ahora mismo", que es la que contesta
+-- la sala.
 function H:Subject()
-	return ns.Selection:Single() or ns.Selection:GetPrimary()
+	return ns.Selection:Single()
 end
 
 -- Los personajes cuyas columnas se dibujan en el estado B, en el orden de la
@@ -325,6 +338,11 @@ local function Recompute()
 	H.slotSide, H.macroW, H.macroH = 0, 0, MACRO_H
 	H.colSide, H.colW, H.colGridW = 0, 0, 0
 	H.cols = 0
+	-- `shown` Y `spellRowW` TAMBIEN. Se escribian solo mas abajo, asi que una
+	-- salida temprana los dejaba con los del reparto ANTERIOR: trece huecos
+	-- declarados sobre un area que ya no existe. Hoy no lo pinta nadie porque
+	-- el marco esta escondido, y ese "hoy" es justo lo que envejece mal.
+	H.shown, H.spellRowW = 0, 0
 	if w <= 0 or h <= 0 then return end
 
 	Rect("list", 0, 0, LIST_W, h)
@@ -340,6 +358,13 @@ local function Recompute()
 	local cx = LIST_W + GUTTER
 	local cw = w - cx - GUTTER
 	Rect("content", cx, 0, cw, h)
+
+	-- SIN NADIE COGIDO NO SE PRODUCE NI UN AREA DEL CENTRO, y con eso se vacia
+	-- solo: `Layout` esconde todo marco que este reparto no haya producido. No
+	-- hay que apagar nada a mano, que es lo que haria falta si cada panel
+	-- decidiera por su cuenta cuando esconderse -- y entonces el que se olvide
+	-- se queda dibujado encima de nada.
+	if H:State() == "A" and not H:Subject() then return end
 
 	if H:State() == "B" then
 		-- TODA la zona derecha son columnas. No hay banda de marcos: con varios
@@ -451,9 +476,36 @@ function H:Get(key)
 	return rects[key]
 end
 
+-- Colocar UN marco donde diga el reparto, o esconderlo si el reparto no lo
+-- produjo. Sale de `Layout` para que `Host` pueda llamarlo tambien; ver ahi por
+-- que hace falta.
+local function Place(key, f)
+	local r = rects[key]
+	if r and r.w > 0 and r.h > 0 then
+		f:SetWidth(r.w)
+		f:SetHeight(r.h)
+		f:ClearAllPoints()
+		f:SetPoint("TOPLEFT", host, "TOPLEFT", r.x, -r.y)
+		f:Show()
+	else
+		f:Hide()
+	end
+end
+
 -- El marco de un area. Se crean bajo demanda y no se destruyen -- pasar del
 -- estado B al A esconde las columnas en vez de borrarlas, para que volver no
 -- cree nada. Misma politica que las texturas repetidas de `Bar`.
+--
+-- SE COLOCA AL CREARLO, Y ESO ERA UN FALLO DE VERDAD. `Layout` reparte sobre
+-- los marcos QUE YA EXISTEN y avisa DESPUES; los de columna (`col1`..) solo los
+-- pide `Cast:LayoutB`, que corre dentro de ese aviso. O sea que la PRIMERA vez
+-- que se cogian varios, sus marcos nacian de 0x0 y sin anclar, con el reparto
+-- ya pasado: los botones colgaban de un marco sin sitio y no salia ni una
+-- columna. A la segunda ya existian y salia todo bien.
+--
+-- El sintoma era exactamente ese -- "la primera vez no se cargan; si cancelo y
+-- selecciono de nuevo, entonces si" -- y no se parecia a su causa: parece un
+-- refresco que falta, cuando lo que faltaba era el propio marco.
 function H:Host(key)
 	if not host then return nil end
 	local f = frames[key]
@@ -462,6 +514,7 @@ function H:Host(key)
 		f:SetFrameLevel(host:GetFrameLevel() + 2)
 		f:EnableMouse(false)
 		frames[key] = f
+		Place(key, f)
 	end
 	return f
 end
@@ -542,16 +595,7 @@ function H:Layout()
 	-- que este reparto no produjo se ESCONDE en vez de quedarse donde estaba:
 	-- pasar de B a A dejaria cinco columnas dibujadas encima de los marcos.
 	for key, f in pairs(frames) do
-		local r = rects[key]
-		if r and r.w > 0 and r.h > 0 then
-			f:SetWidth(r.w)
-			f:SetHeight(r.h)
-			f:ClearAllPoints()
-			f:SetPoint("TOPLEFT", host, "TOPLEFT", r.x, -r.y)
-			f:Show()
-		else
-			f:Hide()
-		end
+		Place(key, f)
 	end
 
 	-- LA RAYA BAJO LOS MARCOS. Es del boceto y no es adorno: separa lo que se
@@ -625,8 +669,15 @@ function H:Enter()
 			local st = H:State()
 			local n = (st == "B") and #H:Columns() or 0
 			local subj = H:Subject()
-			if st ~= H.lastState or n ~= H.lastCols then
-				H.lastState, H.lastCols, H.lastSubject = st, n, subj
+			-- HABER O NO HABER DUENO CAMBIA EL REPARTO, no solo el contenido:
+			-- sin nadie cogido el centro no produce areas. Sin esta tercera
+			-- comparacion, soltar la seleccion se quedaba en un aviso y las
+			-- areas seguian puestas con lo de antes dibujado dentro -- que es
+			-- justo el sintoma que se reporto.
+			local has = (subj ~= nil)
+			if st ~= H.lastState or n ~= H.lastCols or has ~= H.lastHas then
+				H.lastState, H.lastCols, H.lastHas = st, n, has
+				H.lastSubject = subj
 				H:Layout()
 			elseif subj ~= H.lastSubject then
 				-- Mismo reparto, otro dueno: basta con avisar.
@@ -712,6 +763,12 @@ function H:Report()
 			          "Ensancha con |cffffff00/rts bar grow|r."):format(
 				self.cols or 0, self.colW or 0))
 		end
+		return
+	end
+
+	if not self:Subject() then
+		ns.Print("  |cff888888nadie cogido: el centro esta vacio a proposito. " ..
+		         "Pincha a uno en la lista.|r")
 		return
 	end
 
