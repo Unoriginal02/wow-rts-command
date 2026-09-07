@@ -1,15 +1,38 @@
 --[[
 	Panel.lua -- la rejilla de ordenes, a la derecha de la sala.
 
-	Rejilla 4x4: quince ordenes AL GRUPO ENTERO y, en la casilla doce, salir
-	del modo RTS.
-	Celda 105, paso 113.
+	Rejilla 4x4. Celda 105, paso 113.
 
-	LA CUARTA FILA HA SIDO DOS COSAS Y AHORA ES LA BUENA. Durante una ronda
-	fueron los botones pequenos del cliente: funcionaban (PRUEBAS-13 A3/A4/A6) y
-	aun asi era el sitio equivocado, y se fueron a los railes verticales con toda
-	su maquinaria detras (Rails.lua). Lo que la ocupa ahora son cuatro ordenes
-	mas -- que es para lo que la rejilla crecio.
+	    Seguir   Quieto    Reunir    Atacar
+	    Control  A saco    Beber     Reset
+	    Tanque   Revivir   Formar    SALIR
+	    Bolsas   Misiones  Matar     Contro
+
+	LA CUARTA FILA HA SIDO TRES COSAS. Primero los botones pequenos del cliente
+	-- funcionaban (PRUEBAS-13 A3/A4/A6) y aun asi era el sitio equivocado, y se
+	fueron a los railes con su maquinaria detras (Rails.lua). Luego cuatro
+	ordenes mas, que es para lo que la rejilla crecio. Ahora, desde el
+	2026-09-06, **las dos ventanas propias y las dos marcas**: lo que no es una
+	orden, junto y abajo.
+
+	EL BOTON DE BOTIN SE FUE Y SE LLEVO UNA CASILLA CONSIGO. Ponia la estrategia
+	`ll all` a todo el grupo, y eso ya se hace **solo** al entrar en modo RTS
+	(`RTSMode:ApplyLootAll`, que no se ha tocado: el comportamiento sigue). El
+	boton era un "hazlo otra vez" para un ajuste que no se cae, o sea una casilla
+	gastada en repetir algo que ya paso.
+
+	Y CAZAR SE FUE PARA HACER SITIO A LA SEGUNDA VENTANA. De las dieciseis era la
+	unica que dejaba al grupo con un comportamiento propio que luego hay que
+	deshacer -- `grind` los manda a campar bichos por su cuenta -- y en una
+	consola cuyo asunto es dirigirlos, "id a vuestro aire" es lo mas lejos de lo
+	que la rejilla significa. Es una linea volver a ponerla si se echa de menos.
+
+	LAS DOS VENTANAS SON LAS QUE MAS FALTA HACIAN AQUI, y la razon no es que
+	fueran dificiles de abrir: es que **el modo RTS esconde el chat**. Una
+	funcion que solo se alcanza escribiendo un comando esta a un gesto de no
+	existir, por muy construida que este. `/rts npc` -- el entrenador y el
+	vendedor actuando como el primario -- sigue en ese estado, y es la siguiente
+	candidata el dia que se libere una casilla.
 
 	SALIR NO SE MUEVE DE LA CASILLA DOCE. Sigue al final de la tercera fila,
 	donde ha estado desde que existe, aunque ahora tenga una fila debajo: lo que
@@ -81,10 +104,21 @@ local I = {
 	form   = "Interface\\Icons\\Ability_Warrior_BattleShout",
 	rally  = "Interface\\Icons\\Ability_Warrior_Charge",
 	rage   = "Interface\\Icons\\Ability_Warrior_InnerRage",
-	grind  = "Interface\\Icons\\INV_Sword_04",
-	loot   = "Interface\\Icons\\INV_Misc_Bag_10",
 	revive = "Interface\\Icons\\Spell_Holy_Resurrection",
 	exit   = "Interface\\Icons\\Spell_ChargeNegative",
+
+	-- LAS DOS DE LAS VENTANAS SON DIBUJOS ENTEROS, NO ICONOS CON BORDE, asi que
+	-- van con `raw = true` igual que las marcas de banda: recortarlas les come
+	-- el filo.
+	--
+	-- Y NO ESTAN ESCRITAS DE MEMORIA. Una ruta de textura que no existe **no da
+	-- error, dibuja nada**, que es el fallo silencioso que este addon paga desde
+	-- la etapa 5i. Las dos salen de leer el FrameXML del propio cliente: la
+	-- mochila es la del boton de bolsas (`MainMenuBarBagButtons.xml`) y la
+	-- exclamacion es la que Blizzard pone sobre un PNJ con mision
+	-- (`GossipFrame.lua`, `QuestFrame.lua`).
+	bags   = "Interface\\Buttons\\Button-Backpack-Up",
+	quest  = "Interface\\GossipFrame\\AvailableQuestIcon",
 }
 
 --- Las marcas de banda ----------------------------------------------------
@@ -156,20 +190,6 @@ local CELLS = {
 	{ short = "Atacar",  icon = I.attack, tip = "Atacan tu objetivo.",
 	  fn = function() Dispatch("attack", "Atacan") end },
 
-	-- CONTROLAR A ESE COMPAÑERO. Dos formas, y la de mas peso va en el click
-	-- normal porque es la que pediste: control NATIVO.
-	--
-	--   izquierdo -> `/rts swap`: cambias de personaje de verdad. Sales del modo
-	--     RTS y pasas a SER ese personaje: sus barras de accion reales, su
-	--     libro, sus bolsas, hablar con PNJs, vendedor, entrenador, botin. Sin
-	--     pantalla de seleccion. Solo con personajes de TU cuenta.
-	--   derecho -> `/rts play`: posesion. Instantaneo y sin carga, pero solo
-	--     cambia quien te MUEVE: hablar con PNJs sigue yendo por tu heroe.
-	--
-	-- SUSTITUYE A "TRAER" por el mismo argumento con el que "Huir" dejo su
-	-- sitio: `pull` es una variante estrecha de atacar -- el bot va, pega, y el
-	-- bicho vuelve con el al grupo igual -- asi que costaba una casilla y no
-	-- daba una capacidad distinta.
 	{ short = "Control", icon = I.control, rmb = true,
 	  tip = "Click: te CONVIERTES en ese personaje. Su equipo, sus\n" ..
 	        "hechizos, sus bolsas. El que dejas se queda de bot.\n" ..
@@ -211,19 +231,9 @@ local CELLS = {
 	{ short = "A saco",  icon = I.rage,   tip = "Queman cooldowns.",
 	  fn = function() Dispatch("max dps", "A saco") end },
 
-	{ short = "Cazar",   icon = I.grind,  tip = "Campan bichos por la zona.",
-	  fn = function() Dispatch("grind", "A cazar") end },
+	{ short = "Beber",   icon = I.drink,  tip = "Se sientan a comer y beber.",
+	  fn = function() Dispatch("drink", "A recuperar") end },
 
-	-- HUIR SE FUE Y ESTE OCUPA SU SITIO. `PRUEBAS-20` 0.2: un bot con un rol
-	-- viejo pegado deja de atacar y no hay nada en pantalla que lo explique --
-	-- las estrategias de playerbots se guardan con el bot y sobreviven al
-	-- relogueo. Sin un boton de "olvida todo", la salida era adivinar cual de
-	-- las diez estaba de mas.
-	--
-	-- `flee` era el candidato a sustituir porque romper el combate ya se
-	-- consigue con "Quieto" o alejandolos, y porque en la practica un grupo que
-	-- huye a la vez se dispersa y hay que reagruparlo -- o sea que costaba mas
-	-- de lo que arreglaba.
 	{ short = "Reset",   icon = I.reset,
 	  tip = "Les devuelve el comportamiento de fabrica y vuelven a seguirte.\n" ..
 	        "Para un compañero que se ha quedado con un rol viejo puesto.",
@@ -245,15 +255,8 @@ local CELLS = {
 		end
 	  end },
 
-	-- BOTIN: `ll all` es la estrategia de botin "all" de playerbots
-	-- (LootStrategyValue.cpp), o sea recoger TODO, grises incluidos. Es un
-	-- ajuste por bot que vive en memoria del servidor, asi que hay que
-	-- repetirlo cuando entra un bot nuevo -- de eso se encarga RTSMode. Este
-	-- boton es el manual, para cuando se quiera forzar.
-	{ short = "Botin",   icon = I.loot,   global = true,
-	  tip = "Que todos recojan TODO, grises incluidos (`ll all`).\n" ..
-	        "Se aplica solo al entrar en modo RTS; esto lo repite.",
-	  fn = function() ns.RTSMode:ApplyLootAll() end },
+	{ short = "Tanque",  icon = I.taunt,  tip = "Que los tanques cojan tu objetivo.",
+	  fn = function() Dispatch("tank attack", "Tanques al objetivo") end },
 
 	{ short = "Revivir", icon = I.revive, global = true,
 	  tip = "Los muertos van al sanador de espiritus.",
@@ -268,10 +271,32 @@ local CELLS = {
 	  exit = true,
 	  fn = function() ns.RTSMode:Toggle() end },
 
-	-- --- cuarta fila -----------------------------------------------------
+	-- LAS DOS VENTANAS PROPIAS, ABAJO A LA IZQUIERDA.
+	--
+	-- Ocupan el sitio del boton de BOTIN, que se va: ponia la estrategia `ll all`
+	-- a todo el grupo, y eso ya se hace solo al entrar en modo RTS -- el boton era
+	-- un "hazlo otra vez" para un ajuste que no se cae. Un boton cuyo unico caso
+	-- es repetir algo que ya paso es una casilla mal gastada.
+	--
+	-- Y ESTAS DOS SON LAS QUE MAS FALTA HACEN AQUI, porque el modo RTS esconde el
+	-- chat: una funcion que solo se alcanza escribiendo un comando esta a un
+	-- gesto de distancia de no existir, por muy construida que este.
+	{ short = "Bolsas",  icon = I.bags,   raw = true, global = true,
+	  tip = "Abre las bolsas de TODO el grupo.\n" ..
+	        "Arrastra un objeto de una a otra para pasarlo.",
+	  fn = function() ns.Bags:Toggle() end },
 
-	{ short = "Tanque",  icon = I.taunt,  tip = "Que los tanques cojan tu objetivo.",
-	  fn = function() Dispatch("tank attack", "Tanques al objetivo") end },
+	-- LAS MISIONES NECESITAN UN PNJ, y por eso este boton mira tu objetivo en vez
+	-- de abrir una ventana vacia. Es el mismo camino que `/rts quests` sin
+	-- argumento; pinchar al PNJ en el mundo tambien la abre desde la etapa 7.
+	--
+	{ short = "Misiones", icon = I.quest, raw = true, global = true,
+	  tip = "Abre el registro de misiones de siempre.\n" ..
+	        "Su boton Compartir FUERZA la mision al grupo:\n" ..
+	        "les marca la cadena que les falte y se la da.",
+	  fn = function()
+		ns.Quests:Open()
+	  end },
 
 	{ short = "Matar",   icon = MarkIcon(8), raw = true, global = true,
 	  tip = "Poner el CRANEO en tu objetivo y mandar `rti`:\n" ..
@@ -282,9 +307,6 @@ local CELLS = {
 	  tip = "Poner la LUNA en tu objetivo y mandar `rti cc`:\n" ..
 	        "la IA lo deja fuera de combate cuando toque (oveja, miedo...).",
 	  fn = function() MarkAction(true) end },
-
-	{ short = "Beber",   icon = I.drink,  tip = "Se sientan a comer y beber.",
-	  fn = function() Dispatch("drink", "A recuperar") end },
 }
 
 --- Estado ----------------------------------------------------------------

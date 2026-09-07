@@ -42,9 +42,11 @@
 	El de `BAGS` se distingue por el NUMERO DE CAMPOS: la peticion es
 	`BAGS <nombre>` y la respuesta `BAGS <nombre> <trozo>`. El de `NPCQ`, por una
 	LETRA DE TIPO: la peticion es `NPCQ <guid>` y la respuesta
-	`NPCQ <guid> Q|S ...`. Cada verbo nuevo de doble sentido tiene que traer su
-	propio discriminante escrito, porque el generico -- "casa con un manejador"
-	-- vale para los dos sentidos por construccion.
+	`NPCQ <guid> Q|S ...`. El de `QWHO`, otra vez por el NUMERO DE CAMPOS:
+	peticion `QWHO <id>`, respuesta `QWHO <id> <lista>`. Cada verbo nuevo de
+	doble sentido tiene que traer su propio discriminante escrito, porque el
+	generico -- "casa con un manejador" -- vale para los dos sentidos por
+	construccion.
 
 	=== EL REPARTO: POR VERBO, NO POR EXPRESION REGULAR =====================
 

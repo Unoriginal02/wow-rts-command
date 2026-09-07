@@ -436,12 +436,12 @@ function R:OnLeftClick(sx, sy, shift, alt, hover)
 			return
 		end
 
-		-- Sin shift: preguntar sus misiones. No se comprueba antes si es un PNJ
-		-- amistoso -- el servidor contesta `NPCQEND <guid> 0` para un lobo y la
-		-- ventana no se abre. Mantener aqui una segunda clasificacion seria otra
-		-- cosa que puede discrepar de la del servidor, y esa discrepancia ya ha
-		-- costado rondas en este mismo gesto.
-		ns.Quests:Poke(hover.guid, hover.name)
+		-- Sin shift: nada nuestro. La ventana de misiones dejo de ser "lo que
+		-- ofrece este PNJ" para ser "lo que llevo YO y quien lo lleva conmigo",
+		-- asi que ya no tiene nada que ver con lo que haya bajo el cursor y se
+		-- abre con `/rts quests`. Lo que el PNJ ofrece se sigue leyendo -- es lo
+		-- que alimenta la entrega automatica -- pero en silencio y al cerrar la
+		-- conversacion, no al pinchar.
 		return
 	end
 
@@ -1103,6 +1103,46 @@ function R:ApplyLootAllSoon()
     end)
 end
 
+--- QUE LA IA NO TOQUE LAS MISIONES ------------------------------------------
+--
+-- Hermano del botin, y por la misma razon exacta: es estado de la IA de cada
+-- bot, vive en su memoria, y hay que reponerlo cuando el grupo cambia porque el
+-- que entra nace con la de fabrica.
+--
+-- Lo que apaga y por que -- la estrategia `quest` de mod-playerbots entrega
+-- sola al ABRIR la ventana de un PNJ, sin que pulses nada -- esta escrito
+-- entero en `mod-rts/src/RtsQuests.h`, con las lineas de playerbots delante.
+--
+-- NO HAY RESPALDO POR CHAT Y ES DELIBERADO. Seria `nc -quest` susurrado a cada
+-- bot, o sea cuatro lineas de chat cada vez que cambia el grupo, para tapar un
+-- defecto que solo se nota cuando hay servidor. Sin mod-rts esto no se aplica y
+-- la entrega automatica de playerbots vuelve -- que es exactamente lo que
+-- habia antes, no una regresion nueva.
+R.questAI = false
+
+function R:ApplyQuestAI()
+    if GetNumPartyMembers() == 0 and GetNumRaidMembers() == 0 then return end
+    if not ns.Orders:HasServer() then return end
+
+    -- SE AVISA AL ENTRAR Y NO SOLO AL FALLAR UN GESTO. Un verbo que el servidor
+    -- no conoce no da error: no contesta. Asi que un worldserver sin reiniciar
+    -- se ve igual que un addon roto, y eso ya costo una ronda entera.
+    if not ns.Link:ServerAtLeast(45) then
+        ns.Print(("|cffff0000RTS: mod-rts es %s; las misiones necesitan 0.45.0.|r"):format(
+            tostring(ns.Link.serverVersion)))
+        ns.Print("Reinicia el worldserver: hasta entonces los bots entregan solos.")
+        return
+    end
+
+    ns.SendServer(self.questAI and "QAI 1" or "QAI 0")
+end
+
+function R:ApplyQuestAISoon()
+    ns.Link:WhenServer(function()
+        if R.active then R:ApplyQuestAI() end
+    end)
+end
+
 function R:ToggleLootAll()
     self.lootAll = not self.lootAll
     RTSCommandDB.lootAll = self.lootAll
@@ -1180,8 +1220,31 @@ end
 --
 -- No estorba al loot manual: el click derecho va por mod-rts y acaba en
 -- SendLoot del servidor, que no sabe nada de estrategias.
-local function SelfLootStrategy(on)
-    SendChatMessage(on and "nc +loot,+gather" or "nc -loot,-gather",
+-- Y QUE TAMPOCO TOQUE TUS MISIONES, por lo mismo y con el mismo susurro.
+--
+-- "al hablar con el npc, me ha cogido la quest tal cual". La estrategia `quest`
+-- es la que responde al "gossip hello" que manda TU cliente al hablar con un
+-- PNJ, y con el selfbot puesto eso llega a tu propia IA. Lo que hace ahi es
+-- `TalkToQuestGiverAction`, que ENTREGA sola lo que tengas completado -- y elige
+-- la recompensa por ti cuando hay una sola -- sin que veas la ventana. O sea el
+-- mismo defecto que el loot, en la otra mitad del dialogo.
+--
+-- QUE ADEMAS SEA LA QUE ACEPTA NO ESTA DEMOSTRADO, y esta dicho asi en
+-- `Quests.lua`: leyendo, esa accion no acepta nada. Es el sospechoso con mas
+-- papeletas -- es la unica maquinaria de misiones que el modo RTS le engancha a
+-- tu personaje -- y quitarla es una palabra en un susurro que ya se manda. Si
+-- despues de esto la mision sigue entrando sola, el aviso de `Quests.lua` lo
+-- dira y el culpable esta en otro sitio.
+--
+-- EL SUSURRO SE QUEDA AUNQUE `QAI` HAGA LO MISMO, y no es duplicado por
+-- descuido: `QAI` necesita mod-rts, y este camino no. Lo que si hace falta es
+-- que los dos digan lo mismo, asi que respeta el interruptor de `/rts quests
+-- ai` en vez de apagarlo siempre -- si no, volver a encender la IA de misiones
+-- se la devolveria a los bots y no a ti, que es la clase de discrepancia que
+-- luego se lee como "a mi personaje le pasa otra cosa".
+local function SelfSoloStrategies(on)
+    local quest = (on or R.questAI) and "+quest" or "-quest"
+    SendChatMessage((on and "nc +loot,+gather," or "nc -loot,-gather,") .. quest,
                     "WHISPER", nil, ns.MyName())
 end
 
@@ -1191,8 +1254,8 @@ function R:SelfBotSet(want, quiet)
     self.selfBot.on = want
 
     -- Despues de encender: la IA acaba de nacer con sus estrategias por
-    -- defecto puestas, asi que hay que quitarle el loot ahora, no antes.
-    SelfLootStrategy(not want)
+    -- defecto puestas, asi que hay que quitarle el loot y las misiones ahora, no antes.
+    SelfSoloStrategies(not want)
     if not quiet then
         ns.Print("selfbot " .. (want and "|cff00ff00ON|r - tu personaje pelea solo"
                                      or "|cffff0000OFF|r - vuelves a llevarlo tu"))
@@ -1275,6 +1338,7 @@ function R:Toggle()
 		if self.selfBot.auto then self:SelfBotSet(true, true) end
 		self:ApplyFreeLoot(true)
 		self:ApplyLootAllSoon()
+		self:ApplyQuestAISoon()
 		-- El aspecto de los marcadores de ruta vive en el servidor y se pierde
 		-- al desconectar, asi que el addon -- que es donde persisten los
 		-- ajustes -- se lo recuerda. Con la misma espera que el botin y por el

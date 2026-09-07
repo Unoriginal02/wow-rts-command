@@ -296,6 +296,15 @@ end
 
 function F:Refresh()
 	if not self.active or not host then return end
+
+	-- LOS MARCOS LOS CREA `Layout`, NO ESTE. `host` existe en cuanto la sala
+	-- registra el modulo, pero los tres frames no nacen hasta la primera
+	-- distribucion -- asi que un refresco que llegue por delante (un evento de
+	-- unidad, el latido de 5 Hz) entraba en `Paint` con el marco a nil y
+	-- reventaba en la primera linea que lo indexa. Salia como
+	-- "Frames.lua:235: attempt to index local 'f' (a nil value)" al aceptar una
+	-- mision, que es donde menos se parece a lo que es: un orden de arranque.
+	if not marcos.self then return end
 	if ns.Hall:State() ~= "A" then
 		for _, f in pairs(marcos) do f:Hide() end
 		return

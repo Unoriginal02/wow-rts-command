@@ -450,6 +450,15 @@ local function Initialise()
 	RTSCommandDB.targetsOn = nil   -- si se pedia la lista TGTS al servidor
 	RTSCommandDB.focus     = nil   -- sitio del readout de foco
 
+	-- Y ESTA NO ES UN CAMBIO DE FORMATO: ES UN INTERRUPTOR QUE NUNCA SE PIDIO.
+	--
+	-- `questAuto` decidia si el grupo seguia al heroe al aceptar y entregar
+	-- misiones. Nadie lo pidio, y guardado en OFF de una ronda de pruebas vieja
+	-- bloqueaba el reparto entero con un `return` mudo -- tres vueltas buscando
+	-- el fallo en otro sitio. Borrado el interruptor, se tira la clave: dejarla
+	-- seria dejar el mismo cepo puesto para el dia que alguien vuelva a leerla.
+	RTSCommandDB.questAuto = nil
+
 	-- EL CANAL PRIMERO. Todo lo de debajo registra verbos en el (`ns.Link:On`) y
 	-- varios mandan su primera peticion desde su propio `Create`, asi que el
 	-- frame tiene que existir antes. Es la unica dependencia de orden de esta
@@ -628,17 +637,19 @@ local function Initialise()
 	ns.HUD:Create()
 	-- Skills se crea SIEMPRE, aunque nadie dibuje todavia sus huecos: registra
 	-- verbos en el canal y se suscribe a la seleccion, y las dos cosas tienen
-	-- que estar puestas antes del primer cambio de primario. Bags y Quests no
-	-- estan aqui a proposito: se crean la primera vez que se piden, porque su
-	-- ventana no hace falta hasta entonces.
+	-- que estar puestas antes del primer cambio de primario. Bags no esta aqui a
+	-- proposito: se crea la primera vez que se pide, porque su ventana no hace
+	-- falta hasta entonces.
 	ns.Skills:Create()
 	ns.Chain:Create()
 	ns.Possess:Create()
-	-- Quests se crea SIEMPRE, y no solo al pinchar un PNJ en modo RTS: el
-	-- seguimiento automatico (aceptar y entregar detras de ti) tiene que estar
-	-- enganchado mientras juegas NORMAL, que es cuando hablas con los PNJ. Con
-	-- la creacion perezosa habria hecho falta entrar en modo RTS una vez para
-	-- que empezara a funcionar, y eso no se adivina.
+	-- Quests se crea SIEMPRE y aqui, por dos motivos que apuntan al mismo sitio:
+	-- el seguimiento automatico (aceptar y entregar detras de ti) tiene que
+	-- estar enganchado mientras juegas NORMAL, que es cuando hablas con los
+	-- PNJ; y el boton de compartir del registro nativo se engancha una sola vez
+	-- al arrancar. Con creacion perezosa habria que abrir algo nuestro primero
+	-- para que el registro de Blizzard empezara a funcionar, y eso no se
+	-- adivina.
 	ns.Quests:Create()
 	if type(RTSCommandDB.selfBotAuto) == "boolean" then
 		ns.RTSMode.selfBot.auto = RTSCommandDB.selfBotAuto
@@ -648,6 +659,9 @@ local function Initialise()
 	end
 	if type(RTSCommandDB.lootAll) == "boolean" then
 		ns.RTSMode.lootAll = RTSCommandDB.lootAll
+	end
+	if type(RTSCommandDB.questAI) == "boolean" then
+		ns.RTSMode.questAI = RTSCommandDB.questAI
 	end
 	-- Umbral de "esto ha sido un giro de camara, no un click". Depende del raton
 	-- y de la sensibilidad del cliente, asi que se guarda por personaje en vez
@@ -785,7 +799,10 @@ f:SetScript("OnEvent", function(self, event)
 			-- vive en la memoria del bot, y uno que acaba de entrar nace con la
 			-- de fabrica.
 			ns.RTSMode:ApplyFreeLoot(true)
-			if ns.RTSMode.active then ns.RTSMode:ApplyLootAll(true) end
+			if ns.RTSMode.active then
+				ns.RTSMode:ApplyLootAll(true)
+				ns.RTSMode:ApplyQuestAI()
+			end
 			-- Un bot que entra o sale es una columna mas o una menos en la
 			-- ventana de bolsas. Solo hace algo si esta abierta.
 			ns.Bags:RosterChanged()
@@ -994,7 +1011,9 @@ local HELP = {
 	"|cffffff00/rts ui|r - que se esconde al entrar en modo RTS, y las medidas de la HUD",
 	"|cffffff00/rts art|r - visor de texturas del cliente (para vestir la HUD sin dibujar)",
 	"|cffffff00/rts bags|r - las bolsas de todo el grupo (tambien con su tecla)",
-	"|cffffff00/rts quests|r - las misiones del PNJ apuntado; |cffffff00auto|r sigue al heroe",
+	"|cffffff00/rts quests|r - abre el registro; su boton Compartir FUERZA la mision al grupo",
+	"|cffffff00/rts quests force|r - al entregar tu, el grupo completa y cobra tambien",
+	"|cffffff00/rts quests ai|r - devuelve (o quita) la entrega automatica de playerbots",
 	"|cffffff00/rts skills|r - las habilidades del primario (lo pone seleccionar a UNO)",
 	"|cffffff00/rts chain|r - la cadena de ataque; |cffffff00/rts chain off|r la limpia",
 	"|cffffff00/rts npc|r - entrenador y vendedor, actuando como el primario",
@@ -1492,19 +1511,35 @@ SlashCmdList["RTSCOMMAND"] = function(msg)
 
 	elseif cmd == "quests" or cmd == "misiones" then
 		local sub = (rest or ""):lower():match("^(%S*)") or ""
-		if sub == "auto" then
-			local on = not ns.Quests:Auto()
-			ns.Quests:Auto(on)
-			ns.Print("misiones: seguir al heroe en automatico " ..
+		if sub == "ai" or sub == "ia" then
+			-- El interruptor de la maquinaria de misiones de playerbots. Existe
+			-- para que apagarla no sea un cambio permanente y escondido: la
+			-- apagamos porque entrega sola al ABRIR la ventana de un PNJ, y eso
+			-- es una decision que el jugador tiene que poder deshacer.
+			local on = not ns.RTSMode.questAI
+			ns.RTSMode.questAI = on
+			RTSCommandDB.questAI = on
+			ns.RTSMode:ApplyQuestAI()
+			ns.Print("misiones: IA de misiones de los bots " ..
 				(on and "|cff00ff00ON|r" or "|cffff0000OFF|r"))
+			ns.Print(on
+				and "  vuelven a entregar solos al abrir la ventana de un PNJ."
+				or  "  solo entregan cuando pulsas tu el boton de completar.")
 			return
 		end
-		-- Sin argumento mira lo que tengas apuntado, que es el camino sin raton.
-		if UnitExists("target") then
-			ns.Quests:Poke(UnitGUID("target"), UnitName("target"))
-		else
-			ns.Print("misiones: apunta a un personaje, o pinchale en modo RTS.")
+		if sub == "force" or sub == "forzar" then
+			local on = not ns.Quests:Force()
+			ns.Quests:Force(on)
+			ns.Print("misiones: entrega FORZADA " ..
+				(on and "|cff00ff00ON|r" or "|cffff0000OFF|r"))
+			ns.Print(on
+				and "  al entregar tu, los demas completan y cobran aunque no la llevaran hecha."
+				or  "  al entregar tu, solo cobran los que ya la tuvieran lista.")
+			return
 		end
+		-- Sin argumento: MI registro. No hace falta apuntar a nadie ni estar
+		-- delante de un PNJ -- la pregunta es sobre lo que llevo yo.
+		ns.Quests:Open()
 
 	elseif cmd == "bags" or cmd == "bolsas" then
 		ns.Bags:Toggle()

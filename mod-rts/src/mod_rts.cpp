@@ -62,7 +62,7 @@ namespace
     // pieces in this project -- the DLL, this module, and the addon -- and only
     // the DLL had a version you could see, which made a server-side fix look
     // like nothing had happened. All three now report.
-    constexpr char const* kModVersion = "0.39.0";
+    constexpr char const* kModVersion = "0.45.0";
 
     std::string Upper(std::string s)
     {
@@ -580,14 +580,112 @@ namespace
             return true;
         }
 
+        // "QWHO <questId>" -> quien del grupo lleva ESA mision.
+        //
+        //     peticion:   QWHO <questId>
+        //     respuesta:  QWHO <questId> <nombre>:<estado>,<nombre>:<estado>
+        //
+        // EL DISCRIMINANTE DE LOS DOS SENTIDOS ES EL NUMERO DE CAMPOS, igual
+        // que en `BAGS`: la peticion trae uno y la respuesta dos. Cada verbo de
+        // doble sentido tiene que traer el suyo escrito, porque el generico --
+        // "casa con un manejador" -- vale para los dos lados por construccion.
+        if (verb == "QWHO")
+        {
+            std::istringstream in(rest);
+            uint32 questId = 0;
+            std::string extra;
+            if (!(in >> questId))
+                return false;
+            if (in >> extra)
+                return true;   // dos campos: es nuestro propio eco
+
+            std::vector<rts::quests::Member> who;
+            if (!rts::quests::Holders(player, questId, who))
+                return true;
+
+            std::string list;
+            for (auto const& m : who)
+            {
+                if (!list.empty())
+                    list += ",";
+                list += m.name + ":" + std::to_string(uint32(m.status));
+            }
+
+            SendAddon(player, "QWHO " + std::to_string(questId) + " " +
+                              (list.empty() ? std::string("-") : list));
+            return true;
+        }
+
+        // "QSHARE <questId> <nombre;nombre>" -> darles una de MIS misiones,
+        // poniendoles al dia la cadena por el camino. Un solo sentido.
+        if (verb == "QSHARE")
+        {
+            std::istringstream in(rest);
+            uint32 questId = 0;
+            std::string names;
+            if (!(in >> questId >> names))
+                return false;
+
+            int ok = 0, bad = 0;
+            std::string why;
+            std::vector<std::string> notes;
+
+            if (!rts::quests::Share(player, questId, SplitList(names, ';'), ok, bad, notes, &why))
+            {
+                SendAddon(player, "QERR " + std::to_string(questId) + " " + why);
+                return true;
+            }
+
+            for (std::string const& n : notes)
+                Reply(player, "RTS: " + n);
+
+            SendAddon(player, "QDONE S " + std::to_string(questId) + " " +
+                              std::to_string(ok) + " " + std::to_string(bad));
+
+            // Y los estados NUEVOS de esa mision, sin que nadie los pida. El
+            // cliente no puede deducirlos: sabe a quien se le mando, no a quien
+            // le entro -- eso depende de nivel, clase y hueco de registro, que
+            // solo se ven aqui.
+            std::vector<rts::quests::Member> who;
+            if (rts::quests::Holders(player, questId, who))
+            {
+                std::string list;
+                for (auto const& m : who)
+                {
+                    if (!list.empty())
+                        list += ",";
+                    list += m.name + ":" + std::to_string(uint32(m.status));
+                }
+                SendAddon(player, "QWHO " + std::to_string(questId) + " " +
+                                  (list.empty() ? std::string("-") : list));
+            }
+            return true;
+        }
+
         // "QACCEPT <npcGuidHex> <questId> <nombre;nombre>"
-        // "QTURN   <npcGuidHex> <questId> <recompensa> <nombre;nombre>"
-        if (verb == "QACCEPT" || verb == "QTURN")
+        // "QTURN   <npcGuidHex> <questId> <recompensa> <nombre;nombre> [1]"
+        // QCATCH comparte el analisis con QACCEPT: mismos tres campos y el
+        // mismo guid de PNJ. Separar la rama habria duplicado el unico trozo
+        // delicado -- el hex de 64 bits -- por un `if` de una linea.
+        //
+        // EL `1` FINAL DE `QTURN` ES "FORZAR", Y VA DETRAS A PROPOSITO. La
+        // regla de este canal es que los campos nuevos van DELANTE, pero esa
+        // regla protege al TITULO de una mision, que lleva espacios y es el
+        // resto de la linea por definicion. Aqui el ultimo campo es la lista de
+        // nombres separados por `;`, sin un solo espacio, asi que `>>` la corta
+        // entera y deja el flag detras.
+        //
+        // Y detras es donde tiene que ir para que las dos direcciones degraden:
+        // un addon viejo no lo manda y el servidor lee `force = false`, que es
+        // el comportamiento de siempre. Delante, un mensaje viejo habria metido
+        // los NOMBRES en el flag.
+        if (verb == "QACCEPT" || verb == "QTURN" || verb == "QCATCH")
         {
             std::istringstream in(rest);
             std::string guidHex;
             uint32 questId = 0, reward = 0;
             std::string names;
+            int forceFlag = 0;
 
             if (!(in >> guidHex >> questId))
                 return false;
@@ -595,6 +693,8 @@ namespace
                 return false;
             if (!(in >> names))
                 return false;
+            if (verb == "QTURN")
+                in >> forceFlag;   // opcional: ver arriba
 
             uint64 raw = 0;
             { std::istringstream hx(guidHex); hx >> std::hex >> raw; }
@@ -606,10 +706,15 @@ namespace
             std::string why;
             bool ran;
 
+            std::vector<std::string> notes;
+
             if (verb == "QACCEPT")
                 ran = rts::quests::Accept(player, ObjectGuid(raw), questId, list, ok, bad, &why);
+            else if (verb == "QCATCH")
+                ran = rts::quests::CatchUp(player, ObjectGuid(raw), questId, list, ok, bad, notes, &why);
             else
-                ran = rts::quests::TurnIn(player, ObjectGuid(raw), questId, reward, list, ok, bad, &why);
+                ran = rts::quests::TurnIn(player, ObjectGuid(raw), questId, reward, list,
+                                          ok, bad, notes, forceFlag != 0, &why);
 
             if (!ran)
             {
@@ -617,7 +722,16 @@ namespace
                 return true;
             }
 
-            SendAddon(player, "QDONE " + std::string(verb == "QACCEPT" ? "A" : "T") + " " +
+            // UNA LINEA POR COMPANERO, y no un recuento. "2 bien, 1 mal" no
+            // dice cual ni por que, y aqui el por que es la mitad del valor: a
+            // uno le puede faltar la cadena (que esto arregla) y a otro el
+            // nivel (que no). Van por `Reply` y no por el canal de addon porque
+            // son para leer, no para dibujar.
+            for (std::string const& n : notes)
+                Reply(player, "RTS: " + n);
+
+            SendAddon(player, "QDONE " +
+                              std::string(verb == "QACCEPT" ? "A" : verb == "QCATCH" ? "C" : "T") + " " +
                               std::to_string(questId) + " " + std::to_string(ok) + " " +
                               std::to_string(bad));
 
@@ -1198,6 +1312,52 @@ namespace
             bool const all = rest.empty() || rest[0] != '0';
             int const n = rts::orders::SetGroupLoot(player, all);
             SendAddon(player, "DID LOOT " + std::to_string(n) + (all ? " 1" : " 0"));
+            return true;
+        }
+
+        // "QAI 0|1" -- apagar (0) o devolver (1) la maquinaria de misiones de la
+        // IA de cada bot. El porque entero, con las lineas de mod-playerbots,
+        // esta en `RtsQuests.h`: en una palabra, la estrategia `quest` entrega
+        // sola al ABRIR la ventana del PNJ, y lo que se pidio es que espere a
+        // que pulses.
+        //
+        // Va por el mismo camino que `LOOT` y por el mismo motivo: es estado de
+        // la IA de cada bot, vive en su memoria, y hay que reponerlo cuando el
+        // grupo cambia porque el que entra nace con la de fabrica.
+        // "QDROP <questId> <nombre;nombre>" -- abandonarla por el grupo. Un solo
+        // sentido. Va aqui y no en la familia de `QACCEPT` porque no lleva PNJ:
+        // tirar una mision no se hace delante de nadie.
+        if (verb == "QDROP")
+        {
+            std::istringstream in(rest);
+            uint32 questId = 0;
+            std::string names;
+            if (!(in >> questId >> names))
+                return false;
+
+            int ok = 0, bad = 0;
+            std::string why;
+            std::vector<std::string> notes;
+
+            if (!rts::quests::Drop(player, questId, SplitList(names, ';'), ok, bad, notes, &why))
+            {
+                SendAddon(player, "QERR " + std::to_string(questId) + " " + why);
+                return true;
+            }
+
+            for (std::string const& n : notes)
+                Reply(player, "RTS: " + n);
+
+            SendAddon(player, "QDONE D " + std::to_string(questId) + " " +
+                              std::to_string(ok) + " " + std::to_string(bad));
+            return true;
+        }
+
+        if (verb == "QAI")
+        {
+            bool const on = !rest.empty() && rest[0] == '1';
+            int const n = rts::quests::SetGroupAI(player, on);
+            SendAddon(player, "DID QAI " + std::to_string(n) + (on ? " 1" : " 0"));
             return true;
         }
 
