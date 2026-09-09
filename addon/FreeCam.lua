@@ -343,9 +343,20 @@ function F:Step(dt)
 	local mouseLeft, mouseRight = MouseButtons()
 
 	-- --- giro ---------------------------------------------------------
+	-- Q y E VAN AL REVES QUE ANTES, a peticion del jugador (2026-09-10).
+	--
+	-- Se invierte AQUI y no cambiando el defecto de `yawSign`, que era lo obvio
+	-- y no habria hecho nada: ese ajuste ya esta guardado a 1 en las
+	-- SavedVariables, y lo guardado gana al defecto. Cambiar un valor por
+	-- defecto solo alcanza a quien todavia no lo tiene escrito -- la misma
+	-- trampa que dejo el `pitch` sin efecto cuando cambio de significado.
+	--
+	-- `yawSign` sigue significando lo mismo (**-1 si te sale al reves**), asi
+	-- que el mando no cambia de sentido bajo los pies de nadie: lo que cambia es
+	-- hacia donde gira el sentido "normal".
 	local turn = 0
-	if input.yawL then turn = turn - 1 end
-	if input.yawR then turn = turn + 1 end
+	if input.yawL then turn = turn + 1 end
+	if input.yawR then turn = turn - 1 end
 	if turn ~= 0 then
 		st.yaw = (st.yaw + turn * c.yawSign * c.turn * dt) % 360
 	end

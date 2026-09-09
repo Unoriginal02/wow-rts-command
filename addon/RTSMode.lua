@@ -1073,34 +1073,28 @@ end
 R.lootAll = true
 
 function R:CameraOn()
-	-- EL PUPPET VUELVE, Y NO COMO CAMARA: COMO *ACTIVE MOVER*.
-	--
-	-- Es la respuesta al heroe invisible, y sale de una evidencia del propio
-	-- jugador: con la camara Puppet SE VEIA. `CLAUDE.md:515` -- *"WASD flies it,
-	-- Q/E rotate, character rooted below"* -- y `PRUEBAS-5` D2 lo explica:
-	-- *"tu personaje no es el active mover, asi que el cliente calcula las
-	-- interacciones contra la camara y no contra ti"*.
-	--
-	-- O sea que nunca se arreglo: salia gratis. **El cliente esconde a quien es
-	-- su active mover**, y con el Puppet ese era la criatura invisible, asi que
-	-- tu cuerpo era una unidad mas y se dibujaba. Con la camara de comentarista
-	-- el mover vuelves a ser tu, y te esconde.
-	--
-	-- Ese filtro -- *"¿por que con el Puppet SI se veia?"* -- descarta de un
-	-- golpe los cinco candidatos que probe antes (el bit 0x800, los bits 17 de
-	-- +0x0D8 y +0x1A8, la distancia, el modo, el objetivo de camara): ninguno
-	-- podia explicarlo.
-	--
-	-- Y LAS DOS COSAS YA NO SE PELEAN, que es lo que hace esto posible ahora y
-	-- no antes. El choque era por WASD: el Puppet se posee, asi que el cliente
-	-- conducia la criatura con WASD y la camara libre queria las mismas teclas.
-	-- Desde que `FreeCam` las coge con botones propios, **el cliente no ve WASD
-	-- en absoluto**. La criatura solo tiene que existir y ser el mover; la vista
-	-- la pone la camara de comentarista, que llega despues y gana.
-	--
-	-- Va PRIMERO por eso: el mover tiene que haber cambiado antes de que el
-	-- cliente decida a quien no dibuja.
-	ns.Camera:On()
+	-- EL PUPPET YA NO SE ENCIENDE, y aqui esta por que estuvo encendido.
+
+	-- Se prendia como *active mover*, no como camara: **el cliente esconde a
+	-- quien es su active mover**, asi que con la criatura invisible haciendo de
+	-- mover tu cuerpo era una unidad mas y se dibujaba. Era el tercero de los
+	-- tres apaños del heroe invisible, y el unico que llego a estar puesto.
+
+	-- Sobra desde que el problema esta resuelto de raiz: `SelfShow.cpp` parchea
+	-- los cinco bytes de `0x006E085C` y se arma solo con los flags, o sea que te
+	-- ve dibujado sin necesidad de que otro sea el mover. Quitarlo se dejo para
+	-- un paso propio (2026-09-10) en vez de hacerlo a la vez que la restauracion:
+	-- un fallo con dos causas posibles no se diagnostica, se adivina.
+
+	-- Lo que sostiene que se pueda quitar es la TERCERA CONDICION de
+	-- `rts::orders::MoveSelf`. Las dos primeras preguntan por una posesion, que
+	-- es como el Puppet cumplia el requisito; la camara de comentarista no posee
+	-- nada y quita el control por el otro camino, asi que sin
+	-- `camera::IsSpectating` en esa guarda tu propio heroe se queda inordenable.
+	-- Esa linea entro con la restauracion y por eso esto es seguro hoy y no antes.
+
+	-- `CameraOff` SI sigue llamando a `ns.Camera:Off()`: el Puppet se puede haber
+	-- encendido a mano con `/rts cam on`, y la salida tiene que devolverlo igual.
 
 	-- Los flags primero: tardan un tick de mundo en llegar al cliente, y hasta
 	-- que llegan la API de la camara libre no responde. Se espera a que el
@@ -1115,8 +1109,11 @@ function R:CameraOn()
 	if not ns.Link:ServerAtLeast(46) then
 		ns.Print(("|cffff0000camara:|r la camara libre necesita mod-rts 0.46.0 y hay %s.")
 			:format(tostring(ns.Link.serverVersion or "ninguno")))
-		ns.Print("  Reinicia el worldserver. Mientras te quedas con la camara de siempre,")
-		ns.Print("  que ya esta puesta: `ns.Camera:On()` corre unas lineas mas arriba.")
+		-- Y SE CAE AL PUPPET, que desde hoy no se enciende solo. Sin esta linea
+		-- el modo RTS con un servidor viejo se quedaria **sin camara ninguna**:
+		-- la libre no puede armarse y la de siempre ya no viene puesta de antes.
+		ns.Print("  Reinicia el worldserver. Mientras, la camara de siempre.")
+		ns.Camera:On()
 		return
 	end
 
@@ -1128,8 +1125,15 @@ function R:CameraOn()
 				-- dibuja desde memoria vieja: la primera vez salio en otro
 				-- continente y por debajo del suelo.
 				if not ns.FreeCam:Start() then
-					ns.Print("|cffff8800camara:|r sin camara libre; " ..
-						"|cffffff00/rts cam on|r usa la de siempre.")
+					-- SE DESHACE LO PEDIDO Y SE CAE AL PUPPET. Los flags ya estan
+					-- puestos a estas alturas, y dejarlos con la camara sin armar es
+					-- quedarse en tierra de nadie: sin camara libre y con el estado de
+					-- espectador encendido. Desde que el Puppet no viene puesto de
+					-- antes, este camino tiene que traerselo el.
+					ns.Print("|cffff8800camara:|r no pude arrancar la camara libre; " ..
+						"me quedo con la de siempre.")
+					ns.Camera:Spectate(false)
+					ns.Camera:On()
 					return
 				end
 				-- El modelo lo pide `FreeCam:Start` por su cuenta: colgarlo de
@@ -1140,6 +1144,11 @@ function R:CameraOn()
 			function()
 				ns.Print("|cffff0000camara:|r el cliente no abrio la camara libre.")
 				ns.Print("  |cffffff00/rts cam probe|r dice en que paso se queda.")
+				-- Igual que arriba: quitar los flags y traerse el Puppet. Antes esta
+				-- rama se podia permitir solo quejarse porque la camara de siempre ya
+				-- estaba encendida desde el principio de `CameraOn`.
+				ns.Camera:Spectate(false)
+				ns.Camera:On()
 			end)
 	end)
 end
