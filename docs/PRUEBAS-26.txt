@@ -1,0 +1,324 @@
+PRUEBAS-26 -- LA SONDA DEL CUERPO
+==================================
+
+Estado al cerrar la sesion del 2026-09-09.
+Addon 1.5.0, rts_core 0.15.0, mod-rts 0.45.0 (SIN TOCAR: NO hay que reiniciar
+el servidor).
+DLL COMPILADO Y ADDON DESPLEGADO. **HAY QUE REINYECTAR EL DLL** -- o sea cerrar
+el cliente y abrirlo con `2-Jugar.bat`.
+
+Esto NO es una funcion. Es un instrumento que contesta UNA pregunta: por que el
+heroe se vuelve invisible con la camara de comentarista. La respuesta decide la
+forma de la cura, y hasta tenerla no se escribe ni una linea de la camara.
+
+Nada de esto cambia el juego mientras no se teclee un comando. Si al entrar
+notas algo distinto SIN haber tecleado nada, eso es un fallo y hay que decirlo.
+
+
+LO QUE SE HA ENCONTRADO, Y POR QUE ESTA SONDA Y NO OTRA
+--------------------------------------------------------
+
+Desensamblado de este Wow.exe, no recordado ni supuesto:
+
+  * `0x006DE980` es "¿este jugador es espectador?", `__thiscall(player)`. Mira
+    el bit 19 (`PLAYER_FLAGS_UBER`, obligatorio) y el bit 22
+    (`PLAYER_FLAGS_COMMENTATOR2`, el que salta el requisito de arena). Son los
+    dos flags que la camara libre necesitaba.
+
+  * **Tiene DIECIOCHO llamantes, enumerados uno a uno.** Por eso forzarlo a
+    `mov eax,1 / ret` el 2026-09-08 no dejo ver a NADIE: se le dijo al cliente
+    entero que todo jugador era espectador.
+
+  * **Uno de los dieciocho es el que esconde el modelo.** Esta en
+    `0x0073A890`, un "emite esta unidad" por unidad, y su cola dice:
+
+        0073AA9F  shr edx,4 ; test dl,1   ; TYPEMASK_PLAYER
+        0073AAA7  mov ecx, edi            ; ESTE jugador
+        0073AAA9  call 0x006DE980         ; ¿es espectador?
+        0073AAAE  test al, al
+        0073AAB0  jne 0x0073AB17          ; SI -> no lo emite   <-- dos bytes
+        0073AAB5  lea ecx, [edi+0x788]
+        0073AABB  call 0x006EF230         ; NO -> lo emite
+
+    Se pregunta POR JUGADOR. Solo el tuyo lleva los flags, asi que solo el tuyo
+    se salta -- que es exactamente el sintoma, heroe no y bots si.
+
+Esta ronda comprueba las dos mitades de esa lectura por separado.
+
+
+LAS PRUEBAS, EN ESTE ORDEN
+---------------------------
+
+Empieza en juego normal, SIN modo RTS y SIN camara libre (que ya no existe).
+Ponte en tercera persona, con tu personaje a la vista.
+
+A1 [ ] `/rts body` imprime el estado y dice "DLL inyectado" en verde.
+       notas:
+       Si dice DLL AUSENTE, para aqui: el resto de la ronda no mide nada. Se
+       arregla cerrando el cliente y abriendo con 2-Jugar.bat.
+
+A2 [ ] `/rts body log on` -- no pasa nada en pantalla, y `rts_core.log` empieza
+       a escribir una linea por segundo con los flags.
+       notas:
+       Es el detector de la basura del 2026-09-08: si esa linea dice
+       `uber=1` ANTES de tocar nada, tu personaje tiene los flags guardados en
+       la base de datos de aquellas sesiones y hay que limpiarlos con el UPDATE
+       que esta en CLAUDE.md. Lo normal es que diga uber=0 commentator=0.
+
+A3 [ ] `/rts body flags on` -- **se espera que TU MODELO DESAPAREZCA**, ahi
+       mismo, sin camara de comentarista y sin que el servidor sepa nada.
+       notas:
+       Este es el experimento. Si desaparece, los flags son la causa y todo lo
+       que sigue tiene sentido. Si NO desaparece, mi lectura esta mal, la causa
+       es otra, y los pasos B sobran -- decirlo tal cual, que ese negativo vale
+       tanto como el positivo.
+       Efecto secundario esperado y NO es un fallo: mientras los flags esten
+       puestos no se ilumina nada al pasar el raton ni puedes apuntar. Es el
+       bit 19 y esta documentado (predicado 0x00729740, 28 llamantes).
+
+A4 [ ] `/rts body flags off` -- vuelves a verte, y el raton vuelve a apuntar.
+       notas:
+       Si te ves otra vez, la sonda escribe y borra bien. Si te quedas
+       invisible, el DLL escribe donde no es y hay que mirar el log.
+
+B1 [ ] Con los flags PUESTOS otra vez (`/rts body flags on`, invisible),
+       teclea `/rts body skip on`.
+       **¿REAPARECES?**
+       notas:
+       ESTA ES LA PREGUNTA DE LA RONDA. Si reapareces con los flags todavia
+       puestos, la cura del heroe invisible son DOS BYTES en un solo sitio de
+       llamada, y la camara libre se puede reconstruir entera sin ese defecto.
+       Si NO reapareces, el modelo se esconde en algun otro de los diecisiete
+       llamantes o por otro camino, y hay que seguir buscando -- pero ya con
+       diecisiete descartados de dieciocho.
+
+B2 [ ] Con `skip on` puesto, mira a un bot del grupo y a un bicho cualquiera.
+       ¿Se siguen viendo con normalidad?
+       notas:
+       El parche solo puede afectar a quien lleve los flags, o sea a ti. Si
+       desaparece alguien mas, o si algo parpadea, el salto que anulo hace mas
+       cosas de las que creo y hay que quitarlo.
+
+B3 [ ] `/rts body skip off` y luego `/rts body reset`. Todo vuelve a como
+       estaba: te ves, apuntas, y el log deja de escribir.
+       notas:
+       Si algo no vuelve, el problema es el deshacer y es mas importante que la
+       funcion. El parche tambien se quita solo al cerrar el cliente.
+
+B4 [ ] Cierra el cliente y vuelve a entrar SIN tocar nada.
+       ¿Te ves con normalidad y apuntas con el raton?
+       notas:
+       La sonda se apaga sola al entrar al mundo y los flags viven solo en la
+       copia del cliente, asi que no deberia quedar rastro. Si arrancas
+       invisible, algo se ha escrito donde persiste y eso hay que saberlo antes
+       de construir nada encima.
+
+
+LO QUE DECIDE CADA RESULTADO
+-----------------------------
+
+  A3 si + B1 si  -> la cura son dos bytes. Se reconstruye la camara libre
+                    (`docs/CAMARA-LIBRE.md` la tiene entera y confirmada en
+                    juego) con el heroe visible, y ademas se prueba la otra
+                    cura -- poner y quitar los flags dentro del mismo frame --
+                    que devolveria tambien el raton.
+
+  A3 si + B1 no  -> los flags son la causa pero el escondite esta en otro
+                    llamante. Quedan diecisiete, seis de ellos en la banda de
+                    la interfaz y siete en la del comentarista, o sea que los
+                    candidatos de verdad son pocos.
+
+  A3 no          -> la causa no son los flags. Se tira esta rama entera y se
+                    vuelve al gancho dentro del frame de render, que es lo que
+                    la sonda de identidad del 2026-09-08 dejo apuntado.
+
+
+================================================================================
+RONDA DEL 2026-09-09 -- LO QUE DIJO EL JUEGO, Y DONDE SE REANUDA
+================================================================================
+
+Addon 1.8.0, rts_core 0.16.0. DLL COMPILADO Y ADDON DESPLEGADO.
+HAY QUE REINYECTAR (2-Jugar.bat). El servidor NO se toca.
+
+RESULTADOS OBTENIDOS
+--------------------
+
+[x] A1  Con `flags on` el modelo del heroe DESAPARECE y queda el aro en el
+        suelo. LOS FLAGS SON LA CAUSA, confirmado.
+
+[!] A2  Con `skip on` encima (modo 5) el modelo NO vuelve. Confirmado en el log
+        dos veces, con el parche puesto:
+          [08:24:59] body: salto de 0073AAB0 anulado (jne -> nop nop)
+          [08:25:49] body: salto de 0073AAB0 anulado (jne -> nop nop)
+        LA CURA DE DOS BYTES ESTA DESCARTADA.
+
+LO SIGUIENTE, Y ES UN SOLO COMANDO
+-----------------------------------
+
+[ ] B1  /rts body flags on   y luego   /rts body invert on
+        MIRAR A LOS BOTS, no al heroe. Fuerza el salto (jne -> jmp) para TODAS
+        las unidades.
+          desaparecen  -> 0x0073A890 ES la emision del modelo y el salto ES su
+                          puerta; al heroe lo esconde ADEMAS algo mas, y se
+                          busca la segunda puerta.
+          no pasa nada -> esa funcion no dibuja el modelo. La lectura estatica
+                          entera esta mal y se empieza en otro sitio.
+        Sin este dato las dos explicaciones de A2 se ven IGUAL desde el heroe.
+
+DOS COSAS QUE SE ARREGLARON POR EL CAMINO
+------------------------------------------
+
+1. `/rts body reset` NO BORRABA LOS FLAGS. El modo 0 significa "no toques los
+   flags", asi que reset devolvia el parche de bytes y dejaba los bits puestos:
+   seguias en modo espectador. Y el paso 3 de la ayuda decia que lo dejaba todo
+   como estaba. Ahora reset PIDE BORRAR y luego se queda neutro, y al cargar
+   tambien borra -- un /reload no limpia la memoria del cliente.
+
+2. LA PRUEBA ERA IMPOSIBLE DE MIRAR. Con los flags puestos el cliente se cree
+   espectador y la camara se va a la posicion del estado de comentarista, que
+   nadie ha escrito nunca. Medido con /rts native:
+     heroe  10325.78, 829.92, 1326.37   (Teldrassil)
+     camara 35.2, -15.2, 32.5           (~el origen del mapa, 10.300 yardas)
+   O sea que "¿ha desaparecido mi modelo?" no se podia contestar: no habia
+   nadie delante para verlo. `/rts body flags on` aparca ahora la camara sobre
+   el heroe (`CommentatorSetCamera`, que los flags justamente habilitan; Lua
+   corriente, sin recompilar), y `/rts body look` la vuelve a aparcar.
+
+   Y UN ERROR DE DIAGNOSTICO MIO QUE COSTO DOS VUELTAS: di por hecho que la
+   camara estaba cerca porque el HUD decia "Cañada Umbria" y esa es una subzona
+   de Teldrassil (area 188, mapa 1, padre 141 -- comprobado en AreaTable.dbc).
+   El nombre de zona y el rastreador de misiones salen de la posicion del
+   PERSONAJE, no de la camara, asi que no dicen nada sobre donde esta la
+   camara. Es el TESTIGO EQUIVOCADO otra vez, y encima lo defendi dos veces
+   contra lo que el jugador estaba viendo en pantalla. El testigo bueno era
+   `/rts native`, que estaba a un comando desde el principio.
+
+
+================================================================================
+RONDA DEL 2026-09-09, SEGUNDA VUELTA -- B1 CONTESTADO
+================================================================================
+
+[!] B1  Con `flags on` + `invert on` NO DESAPARECE NADIE, ni los bots ni nadie.
+        El instrumento SI corrio, y esta en el log:
+          [20:13:22] circle: [0..4] guid 0x409..0x40D   <- cinco bots delante
+          [20:13:41] body: modo 17 (flagsOn=1 skip=0 invert=1)
+          [20:13:41] body: salto de 0073AAB0 FORZADO (jne -> jmp) -- se saltan TODAS
+        Sin ningun "devuelto" detras, o sea que el parche seguia puesto.
+
+LO QUE ESO CIERRA, Y ES MAS DE LO QUE PARECE
+---------------------------------------------
+
+Entre A2 y B1 esa rama se ha forzado EN LAS DOS DIRECCIONES:
+
+  A2  nop nop  -> no salta NADIE  -> no cambia nada
+  B1  jmp      -> saltan TODOS    -> no cambia nada
+
+Son los dos unicos caminos posibles por ese `jne`. Ninguno mueve un pixel, en
+nadie. **La rama de 0x0073AAB0 no decide si se dibuja un modelo.** Medido dos
+veces y en sentidos opuestos, que es lo que lo separa de una casualidad.
+
+Y con ella se cae la cadena entera 0x0073A890 -> 0x006DE980 como escondite:
+enumerados los 18 llamantes del predicado, **solo UNO esta en la banda del
+render** (0x0073A890, el que acabamos de descartar). Los demas son la banda del
+comentarista (0x00569B50-0x0056B8A0, que son las propias funciones de la API) y
+la de interfaz (0x005FA6B0-0x005FBE10).
+
+Lo que NO se cae: A1 sigue en pie. Los flags son la causa. Solo que no por ahi.
+
+LO SIGUIENTE: PARTIR LOS FLAGS EN DOS
+--------------------------------------
+
+`flags on` pone los DOS bits a la vez, asi que A1 no dice CUAL de los dos
+esconde el modelo -- y eso decide donde se busca:
+
+  bit 19  PLAYER_FLAGS_UBER          ya tiene un segundo consumidor conocido,
+                                     0x00729740, el predicado de 28 llamantes
+                                     que mata el mouseover (HISTORIA.md:5151)
+  bit 22  PLAYER_FLAGS_COMMENTATOR2  solo lo mira la banda del comentarista
+
+Son dos busquedas distintas y ahora mismo no sabemos cual toca.
+
+LO MEJOR DE ESTA PRUEBA: NO NECESITA LA CAMARA. Un bit solo no abre la puerta
+del comentarista, asi que la camara no se despega, no hay que aparcar nada y te
+miras en tercera persona como siempre.
+
+[ ] C1  /rts body flags uber      -> ¿desapareces?
+[ ] C2  /rts body flags comm      -> ¿desapareces?
+        notas: el bit contrario se BORRA, no se deja puesto -- si se dejara, un
+        heroe que viene de `flags on` mediria otra vez los dos juntos sin
+        decirlo. Entre C1 y C2, `/rts body flags off`.
+
+        los dos que no    -> la causa no es un bit suelto sino los dos juntos,
+                             y eso apunta al estado de espectador entero, no a
+                             un predicado.
+        C1 si             -> se buscan los llamantes de 0x00729740 en la banda
+                             del render. Ya hay uno: 0x0073DAB0. (Mirado: su
+                             bloque es un parpadeo de 500 ms sobre [esi+0xa30],
+                             no la emision -- asi que habria que seguir, pero
+                             con el binario ya acotado a un predicado.)
+        C2 si             -> es del comentarista, y entonces la cura probable
+                             es la ventana de flags (ponerlos y quitarlos
+                             dentro del mismo frame) que quedo sin probar.
+
+Requiere rts_core 0.17.0: HAY QUE RECOMPILAR EL DLL Y REINYECTAR. El servidor no.
+
+
+================================================================================
+2026-09-09, TERCERA VUELTA -- ENCONTRADO
+================================================================================
+
+[x] Control  Con los DOS flags puestos el heroe desaparece. modo 9, 20:56:49.
+             (Con uber solo o comm solo NO desaparece -- pero eso no dice cual
+             de los dos bits manda: el predicado exige los DOS fuera de arena,
+             asi que ninguno de los dos casos podia esconder nada. C1/C2 fueron
+             una prueba mal diseñada, negativa por construccion.)
+
+[x] D1  `flags on` + `sites all` (los 18 llamantes del predicado apagados a la
+        vez) -> EL MODELO VUELVE. modo 8073, 20:57:01.
+        O sea: el predicado 0x006DE980 SI es el mecanismo, y el escondite esta
+        entre sus dieciocho llamantes.
+
+[x] D2  De uno en uno, con los flags puestos todo el rato:
+        **EL SITIO 16 = 0x006E085C DEVUELVE EL MODELO.** 21:01:59.
+
+        006E0855  call 0x730F30              ; calcula el valor
+        006E085C  call 0x006DE980            ; ¿espectador?
+        006E0863  je   0x006E0871            ; no -> sigue evaluando
+        006E0866  mov  dword ptr [ebx], 1    ; SI -> fuerza el resultado a 1
+
+        `ebx` es el tercer argumento, un int* de salida. 0x006E0840 es VIRTUAL
+        (cero `call rel32` apuntandole), y por eso la lectura estatica no
+        llegaba: se busco "quien esconde un modelo" y aqui no se esconde nada,
+        se contesta 1.
+
+UNA TRAMPA QUE SE COMIO UNA VUELTA ENTERA
+------------------------------------------
+
+Entre D1 y D2 un `reset` dejo los flags neutros y los sitios 11..18 se probaron
+SIN los flags puestos (log: `flagsOn=0 sitio=11` a las 20:57:59). Sin los flags
+el predicado contesta false en todas partes, o sea que eres visible igual y
+CUALQUIER sitio parece devolverte el modelo: dieciocho falsos positivos
+seguidos, todos convincentes. El comando obedecia y no medía nada.
+
+Tapado: `B:Sites` ahora se niega en rojo si FLAGS_ON no esta puesto. Y el codigo
+de sitio no toca los flags a proposito, asi que se ponen UNA vez y luego se
+camina por los sitios.
+
+LO SIGUIENTE
+------------
+
+[ ] E1  La prueba que cierra el tema, porque es el objetivo de todo esto:
+          /rts body flags on
+          /rts body site 16
+          /rts body look
+        La camara de comentarista aparcada sobre el cuerpo, con el sitio 16
+        apagado. ¿SE VE EL HEROE DESDE LA CAMARA LIBRE?
+        Ojo: `site 16` no toca los sitios 3..9, que son los porteros de
+        CommentatorSetCamera/GetCamera, asi que la camara sigue disponible --
+        cosa que `sites all` si cerraba.
+
+          se ve  -> resuelto. La camara libre de `docs/CAMARA-LIBRE.md` se
+                    reconstruye con el heroe visible, y el parche es UN sitio
+                    de llamada de cinco bytes.
+          no se ve -> hay un segundo escondite que solo se arma con la camara
+                    puesta, y se repite la caminata con la camara activa.

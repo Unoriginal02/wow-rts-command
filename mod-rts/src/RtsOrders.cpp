@@ -1,5 +1,7 @@
 #include "RtsOrders.h"
 
+#include "RtsCamera.h"   // camera::IsSpectating, para la guarda de MoveSelf
+
 #include "RtsBotApi.h"   // la unica puerta a mod-playerbots
 #include "RtsCommandMode.h"   // ActionBarSpells, para la barra de posesion
 
@@ -545,7 +547,14 @@ bool rts::orders::MoveSelf(Player* player, float x, float y, float z, std::strin
     // Only while something else holds client control -- the RTS camera. If the
     // client is still driving this character, a server-side move would be
     // yanked straight back by the next movement packet it sends.
-    if (!player->GetCharm() && !player->GetViewpoint())
+    //
+    // LA TERCERA CONDICION ES LA CAMARA LIBRE, y faltaba. Las dos primeras
+    // preguntan por una POSESION, que es como el Puppet cumplia esto; la camara
+    // de comentarista no posee nada, asi que le quita el control al cliente por
+    // el otro camino (`camera::Spectate` -> `SetClientControl(player, false)`).
+    // Sin esta linea, jubilar el Puppet dejaba a tu propio heroe inordenable.
+    if (!player->GetCharm() && !player->GetViewpoint() &&
+        !rts::camera::IsSpectating(player))
         return fail("the RTS camera is not holding control");
 
     // UNIT_FLAG_DISABLE_MOVE has to come off, and this is the fix for the body

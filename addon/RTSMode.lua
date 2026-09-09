@@ -32,6 +32,7 @@ local R = {}
 ns.RTSMode = R
 
 R.active = false
+R.held = {}
 
 local CLICK_SLOP = 6          -- px; drag beyond this is a box, not a click
 
@@ -914,6 +915,15 @@ local function EnsureFrames()
     -- HookScript, not SetScript: WorldFrame's own mouse handling is what drives
     -- camera look and the client's unit clicks, and replacing it would break
     -- both. We only want to observe.
+    -- LOS DOS BOTONES, PARA EL GESTO DE AVANZAR. `down` solo guarda UNO -- el
+    -- que abrio el gesto -- y izquierdo+derecho necesita saber de los dos a la
+    -- vez. Se apuntan aqui, que es donde el cliente los entrega, y no
+    -- preguntando a `IsMouseButtonDown`: ese devuelve NO mientras el cliente
+    -- tiene el raton cogido en su propio arrastre (medido con `/rts fc mouse`).
+    WorldFrame:HookScript("OnMouseDown", function(_, button)
+        if R.active then R.held[button] = true end
+    end)
+
     WorldFrame:HookScript("OnMouseDown", function(_, button)
         if R.active then BeginGesture(button) end
     end)
@@ -1061,6 +1071,87 @@ end
 -- en la memoria de cada bot y uno que entra despues nace con la de fabrica.
 -- Eso no es un apano: es lo mismo que hace el metodo de botin del grupo.
 R.lootAll = true
+
+function R:CameraOn()
+	-- EL PUPPET VUELVE, Y NO COMO CAMARA: COMO *ACTIVE MOVER*.
+	--
+	-- Es la respuesta al heroe invisible, y sale de una evidencia del propio
+	-- jugador: con la camara Puppet SE VEIA. `CLAUDE.md:515` -- *"WASD flies it,
+	-- Q/E rotate, character rooted below"* -- y `PRUEBAS-5` D2 lo explica:
+	-- *"tu personaje no es el active mover, asi que el cliente calcula las
+	-- interacciones contra la camara y no contra ti"*.
+	--
+	-- O sea que nunca se arreglo: salia gratis. **El cliente esconde a quien es
+	-- su active mover**, y con el Puppet ese era la criatura invisible, asi que
+	-- tu cuerpo era una unidad mas y se dibujaba. Con la camara de comentarista
+	-- el mover vuelves a ser tu, y te esconde.
+	--
+	-- Ese filtro -- *"¿por que con el Puppet SI se veia?"* -- descarta de un
+	-- golpe los cinco candidatos que probe antes (el bit 0x800, los bits 17 de
+	-- +0x0D8 y +0x1A8, la distancia, el modo, el objetivo de camara): ninguno
+	-- podia explicarlo.
+	--
+	-- Y LAS DOS COSAS YA NO SE PELEAN, que es lo que hace esto posible ahora y
+	-- no antes. El choque era por WASD: el Puppet se posee, asi que el cliente
+	-- conducia la criatura con WASD y la camara libre queria las mismas teclas.
+	-- Desde que `FreeCam` las coge con botones propios, **el cliente no ve WASD
+	-- en absoluto**. La criatura solo tiene que existir y ser el mover; la vista
+	-- la pone la camara de comentarista, que llega despues y gana.
+	--
+	-- Va PRIMERO por eso: el mover tiene que haber cambiado antes de que el
+	-- cliente decida a quien no dibuja.
+	ns.Camera:On()
+
+	-- Los flags primero: tardan un tick de mundo en llegar al cliente, y hasta
+	-- que llegan la API de la camara libre no responde. Se espera a que el
+	-- CLIENTE lo confirme en vez de adivinar un retraso -- `WaitGate` sondea
+	-- `CommentatorGetCamera`, que contesta en cuanto la puerta se abre.
+	--
+	-- EL GATE VA ANTES DE PEDIR NADA, y no es prudencia: `CAM SPEC` contra un
+	-- mod-rts viejo **no da error, no contesta**, asi que la secuencia se queda
+	-- colgada en `WaitGate` y acaba diciendo "el cliente no abrio la camara
+	-- libre" -- culpando al cliente de que el worldserver no se ha reiniciado.
+	-- Un diagnostico que apunta al sitio equivocado cuesta la ronda entera.
+	if not ns.Link:ServerAtLeast(46) then
+		ns.Print(("|cffff0000camara:|r la camara libre necesita mod-rts 0.46.0 y hay %s.")
+			:format(tostring(ns.Link.serverVersion or "ninguno")))
+		ns.Print("  Reinicia el worldserver. Mientras te quedas con la camara de siempre,")
+		ns.Print("  que ya esta puesta: `ns.Camera:On()` corre unas lineas mas arriba.")
+		return
+	end
+
+	ns.Camera:Spectate(true, function()
+		ns.Camera:WaitGate(12,
+			function()
+				-- Coloca ANTES de armar. El estado de esa camara empieza sin
+				-- inicializar, asi que armar el modo sin haberla colocado
+				-- dibuja desde memoria vieja: la primera vez salio en otro
+				-- continente y por debajo del suelo.
+				if not ns.FreeCam:Start() then
+					ns.Print("|cffff8800camara:|r sin camara libre; " ..
+						"|cffffff00/rts cam on|r usa la de siempre.")
+					return
+				end
+				-- El modelo lo pide `FreeCam:Start` por su cuenta: colgarlo de
+				-- esta respuesta lo dejaba invisible para siempre con un
+				-- mod-rts que no conociera `SPECARM`, sin decir nada.
+				ns.Camera:Arm(true)
+			end,
+			function()
+				ns.Print("|cffff0000camara:|r el cliente no abrio la camara libre.")
+				ns.Print("  |cffffff00/rts cam probe|r dice en que paso se queda.")
+			end)
+	end)
+end
+
+function R:CameraOff()
+	ns.FreeCam:Stop()
+	-- `Spectate(false)` quita los flags Y manda el paquete de modo normal, asi
+	-- que es la salida completa aunque el armado se hubiera quedado a medias.
+	ns.Camera:Spectate(false)
+	-- Y la camara de siempre, por si estaba puesta a mano con `/rts cam on`.
+	ns.Camera:Off()
+end
 
 function R:ApplyLootAll(quiet)
     if not self.lootAll then return end
@@ -1297,7 +1388,7 @@ function R:Toggle()
 		ns.Standby:Hide()
 		catcher:Show()
 		catcher:EnableMouse(false)
-		ns.Camera:On()
+		self:CameraOn()
 		ns.Print("|cff00ff00Modo RTS ON|r - el raton va normal: pasar por encima ilumina,")
 		ns.Print("click selecciona, |cffffff00doble click|r selecciona a todos, click derecho ordena.")
 		ns.Print("|cffffff00Ctrl + arrastrar|r = caja de seleccion.")
@@ -1407,7 +1498,7 @@ function R:LeaveWorld()
 	-- Devolver el personaje ANTES de soltar la camara, para que no quede un
 	-- instante en el que la IA lo lleva y tu ya has vuelto a el.
 	self:SelfBotSet(false, true)
-	ns.Camera:Off()
+	self:CameraOff()
 end
 
 local regen

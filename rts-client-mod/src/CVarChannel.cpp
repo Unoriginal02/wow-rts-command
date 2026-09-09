@@ -30,7 +30,13 @@ struct Cached {
     uint32_t obj;
     uint32_t nextTry;    // GetTickCount() before which a miss is not retried
 };
-constexpr int kMaxCached = 4;
+// SUBE DE 4 A 8. Con la cache llena un nombre nuevo sigue resolviendo -- se le
+// hace la busqueda cada vez -- asi que no era un fallo, pero si una busqueda por
+// tick a 67 Hz para el ultimo canal que entrara. Cuatro se quedo corto en cuanto
+// hubo `enablePVPNotifyAFK`, `rtsFov` y `rtsBody`. Se queda en 8 aunque el
+// corte seccional -- el cuarto canal que lo motivo -- se haya descartado: el
+// hueco no cuesta nada y volver a subirlo si costaria otro ciclo de cliente.
+constexpr int kMaxCached = 8;
 constexpr uint32_t kRetryMs = 1000;
 Cached g_cache[kMaxCached] = {};
 int g_cacheCount = 0;

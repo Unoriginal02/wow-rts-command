@@ -138,6 +138,96 @@ namespace rts
         // the implementation.
         void Rescue(Player* player);
 
+        // === EL SONDEO DE LA CAMARA LIBRE DEL CLIENTE ======================
+        //
+        // Abre (o cierra) la camara de COMENTARISTA del cliente, que es una
+        // camara libre con API de Lua que este `Wow.exe` ya trae hecha:
+        //
+        //     CommentatorSetCamera(x, y, z, yaw, pitch, fov)   0x0056A0F0
+        //     CommentatorSetCameraCollision(bool)              0x0056AB70
+        //     CommentatorFollowPlayer(faction, index)          0x00569B50
+        //     CommentatorSetTargetHeightOffset(float)
+        //     CommentatorSetMoveSpeed(speed)
+        //
+        // POR QUE IMPORTA. Todo lo que la camara de HOY no puede hacer sale de
+        // una sola causa: es una criatura del servidor que el jugador POSEE, o
+        // sea que el CLIENTE es dueño de su posicion y desde aqui solo se la
+        // puede mover con `NearTeleportTo` -- que CANCELA el movimiento que el
+        // cliente esta aplicando. De ahi salen, con la misma causa, que no se
+        // pueda avanzar y subir a la vez (ver `SetVertical`) y que la altura
+        // sobre el terreno se construyera por los dos caminos y se borrara el
+        // 2026-08-23 (ver el bloque NO GROUND HOLD de arriba).
+        //
+        // Si el cliente dibuja desde la camara de comentarista en mundo
+        // abierto, eso se cae entero: el cliente pasa a ser dueño de la camara
+        // y nosotros solo del objetivo, que es aritmetica en Lua a frame rate.
+        //
+        // === LA PUERTA SON DOS FLAGS Y LOS PONEMOS NOSOTROS ================
+        //
+        // El predicado del cliente en `0x006DE980`, desensamblado de ESTE
+        // binario (MD5 45892BDEDD0AD70AED4CCD22D9FB5984):
+        //
+        //     mov ecx, [player + 0x1008]
+        //     mov ecx, [ecx + 8]
+        //     shr edx, 0x13 ; test bit 19  -> APAGADO: return false
+        //     shr ecx, 0x16 ; test bit 22  -> ENCENDIDO: return true, y ya
+        //                                  ; si no: hace falta mapa tipo 4
+        //
+        // Bit 19 y bit 22 son `PLAYER_FLAGS_UBER` (0x00080000) y
+        // `PLAYER_FLAGS_COMMENTATOR2` (0x00400000) -- comprobados contra el
+        // enum del propio nucleo (`Player.h:478,481`) y no de memoria. El 22
+        // solo es lo que SALTA el requisito de estar en una arena; el 19 es
+        // obligatorio. Y el nucleo ya trae el setter del 22:
+        // `Player::SetCommentator(bool)` (`Player.h:1169`).
+        //
+        // === Y EL MODO LO ARBITRA EL SERVIDOR, QUE SOMOS NOSOTROS ==========
+        //
+        // `CommentatorToggleMode` manda `CMSG_COMMENTATOR_ENABLE` (0x3B5) y
+        // espera `SMSG_COMMENTATOR_STATE_CHANGED` (0x3B6). Su manejador en el
+        // cliente (`0x0056B8A0`) lee `uint64 guid` + `uint8 enable`, exige que
+        // el guid sea el del receptor, vuelve a pasar por el mismo predicado, y
+        // entonces mete la camara activa en modo comentarista.
+        //
+        // NO HACE FALTA QUE EL CLIENTE LO PIDA, y de hecho no se puede
+        // escuchar: `CMSG_COMMENTATOR_ENABLE` es `STATUS_NEVER` +
+        // `Handle_NULL` (`Opcodes.cpp:1080`), y `STATUS_NEVER` ni llega a
+        // `CanPacketReceive` -- su `case` solo hace `LOG_ERROR` y `break`. Asi
+        // que el addon lo pide por su canal y el 0x3B6 lo mandamos aqui. Que
+        // ese opcode este declarado `STATUS_NEVER` tampoco impide MANDARLO:
+        // `WorldSession::SendPacket` solo rechaza `NULL_OPCODE`.
+        //
+        // === LOS FLAGS SE DEVUELVEN, QUE ES LA REGLA DURA ==================
+        //
+        // `PLAYER_FLAGS_UBER` puesto y olvidado es estado del jugador que
+        // sobrevive a la sesion. Se quitan en `Spectate(false)`, en el logout y
+        // en `Abandon`, igual que `Camera.lua` hace con sus CVars.
+        //
+        // ESTO ES UN SONDEO. No cambia nada del camino del Puppet: la camara
+        // de siempre sigue funcionando igual mientras esto se prueba.
+        //
+        // === Y VA EN DOS MITADES, QUE ES LO QUE COSTO LA PRIMERA PASADA =====
+        //
+        // `Spectate` pone los flags y NADA MAS. `Arm` manda el paquete. La
+        // primera version hacia las dos cosas de golpe y era una carrera:
+        // `SetPlayerFlag` solo marca el campo sucio -- la actualizacion sale en
+        // el siguiente flush, ~100 ms despues -- mientras que `SendPacket` sale
+        // ya. El paquete llegaba primero, el predicado leia los flags viejos, y
+        // **la rama de puerta cerrada no es un no-op**: cae en la misma que
+        // `enable == 0` y mete la camara en modo 1 con el estado que hubiera.
+        // En pantalla, la camara se fue lejisimo y bajo el suelo.
+        //
+        // Quien decide cuando armar es el CLIENTE: el addon sondea
+        // `CommentatorGetCamera()`, que devuelve seis numeros en cuanto la
+        // puerta esta abierta, y solo entonces pide `Arm`. Misma leccion que
+        // `HasServer()` y que el `PORTED` del cambio de personaje.
+        bool Spectate(Player* player, bool on);
+        bool Arm(Player* player, bool on);
+
+        // ¿Esta este jugador en la camara libre? Lo pregunta `orders::MoveSelf`
+        // para saber si puede mover el cuerpo: con la camara libre el cliente
+        // ya no conduce al personaje, aunque no haya ninguna posesion.
+        bool IsSpectating(Player const* player);
+
     }
 }
 

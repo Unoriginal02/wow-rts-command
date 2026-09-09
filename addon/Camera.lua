@@ -80,6 +80,15 @@ C.active = false
 -- nativo bajo los pies, que ya existe (etapa 5e) y admite color por unidad.
 local FOV_CVAR = "rtsFov"
 
+-- El canal de experimentos del modelo del heroe. Existe por la misma razon que
+-- `rtsFov`: el canal empaquetado no tiene bits libres y esto necesita un NUMERO.
+-- Ver `/rts fc poke` y `camera::Poke` en el DLL.
+-- El canal de experimentos de CAMARA: offset en bytes y valor, en dos CVars
+-- separados a proposito. Meter los dos en un entero obliga a desplazar el signo
+-- para poder mandar negativos, y ahi es donde se equivocan estas cosas: un
+-- `-1.5` que llega como `+1.5` se lee como "el candidato no era" cuando lo que
+-- fallo fue el transporte. El DLL lee el float que el propio CVar guarda.
+
 local CVARS = {
 	"cameraSmoothStyle", "cameraDistanceMaxFactor", "cameraDistanceMax",
 	FOV_CVAR, "shadowLevel",
@@ -111,10 +120,21 @@ local CVARS = {
 -- Se llama desde `Create` y NO en el ambito del fichero, aunque ahi seria mas
 -- corto: `ns.Print` todavia no existe cuando este fichero carga. Lo canto
 -- `sim/load_order.py` antes de compilar, que es justo para lo que esta.
+--
+-- CADA CVar SE MIRA POR SU CUENTA, y eso arregla un fallo latente. La version
+-- anterior registraba `rtsPoke` DENTRO del `if` de `rtsFov`, asi que en cuanto
+-- el primero existia (queda escrito en Config.wtf) el segundo ya no se
+-- registraba nunca. Funcionaba de casualidad, porque el segundo tambien queda
+-- escrito -- pero un CVar nuevo anadido a la lista mas tarde no se habria
+-- creado jamas en un cliente que ya tuviera el primero, y `SetCVar` sobre lo
+-- que no existe **no da error**: no hace nada.
+local OURS = { FOV_CVAR }
+
 local function EnsureFovCVar()
-	if GetCVar(FOV_CVAR) ~= nil then return true end
 	if type(RegisterCVar) == "function" then
-		RegisterCVar(FOV_CVAR, "0")
+		for _, cv in ipairs(OURS) do
+			if GetCVar(cv) == nil then RegisterCVar(cv, "0") end
+		end
 	end
 	if GetCVar(FOV_CVAR) ~= nil then return true end
 	-- Si ni asi, se dice: es la diferencia entre "el FOV no se aplica" y una
@@ -217,6 +237,15 @@ function RTSCommand_CameraPivotRight(_, _, down)
 end
 
 local function GrabTurnKeys()
+	-- NO SI LA CAMARA LIBRE YA TIENE LAS TECLAS. Las dos usan `saved` para
+	-- devolver lo que habia, asi que si la segunda captura por encima de la
+	-- primera se apunta como "original" el binding de la primera -- y al salir
+	-- el jugador se queda con ESPACIO haciendo de camara para siempre. Esa
+	-- corrupcion no da ningun error: solo teclas que ya no son suyas.
+	if ns.FreeCam and ns.FreeCam.active then
+		ns.Print("|cffff8800camara:|r la camara libre ya tiene las teclas.")
+		return false
+	end
 	if InCombatLockdown() then
 		ns.Print("|cffffff00Teclas de camara no disponibles en combate|r - la camara sigue yendo.")
 		return
@@ -837,6 +866,17 @@ function C:SetFrame(key, value)
 		-- justamente lo que se quiere ver.
 		cfg.fov = (n <= 0) and 0 or math.max(5, math.min(140, n))
 		HoldCamera({ [FOV_CVAR] = tostring(math.floor(cfg.fov * 10)) })
+		-- Y SI ESTAMOS EN LA CAMARA LIBRE, EL FOV VA POR OTRO CAMINO.
+		--
+		-- En modo comentarista el FOV lo tiene el estado de esa camara
+		-- (`0x00ACE4E4`) y lo repone el cliente, asi que el CVar que lee el DLL
+		-- pierde la pelea -- que es exactamente lo que se vio: `/rts cam fov`
+		-- no hacia nada con la camara libre puesta. `SpecApply` lo manda por
+		-- `CommentatorSetCamera`, que es quien es dueño de ese campo ahora.
+		if C.place and C.place.x then
+			C.place.fov = nil            -- que lo recalcule desde `cfg.fov`
+			C:SpecApply()
+		end
 		if cfg.fov == 0 then
 			ns.Print("fov override |cffff0000off|r - the client's own 90 degrees.")
 		else
@@ -893,6 +933,530 @@ function C:SaveFrame()
 	local f = self.frame
 	RTSCommandDB.camFrame = { tilt = f.tilt, zoom = f.zoom, fov = f.fov,
 	                          shadow = f.shadow }
+end
+
+--- EL SONDEO DE LA CAMARA LIBRE DEL CLIENTE ---------------------------------
+--
+-- Este cliente trae una camara libre COMPLETA con API de Lua -- la de
+-- comentarista de arenas -- y esta seccion existe para averiguar en juego si se
+-- puede usar en mundo abierto. El porque entero, con las direcciones
+-- desensambladas de este `Wow.exe` y las lineas del nucleo, esta en
+-- `mod-rts/src/RtsCamera.h`, en `Spectate`.
+--
+-- POR QUE IMPORTA: la camara de hoy es una criatura del servidor que posees, o
+-- sea que el CLIENTE es dueño de su posicion y el servidor solo la mueve con
+-- `NearTeleportTo` -- que cancela el movimiento que el cliente esta aplicando.
+-- De esa unica causa salen "no se puede avanzar y subir a la vez" y la altura
+-- sobre el terreno que se construyo por los dos caminos y se borro el
+-- 2026-08-23 (ver el aviso de arriba, donde estaba el codigo). Si el cliente
+-- dibuja desde su camara de comentarista, eso se cae entero.
+--
+-- ESTO NO CONSTRUYE NADA. Es un sondeo, y esta escrito como un sondeo: cada
+-- paso dice lo que significa que falle, porque un resultado malo tiene que
+-- estrechar el problema y no solo reportarlo.
+--
+-- === LOS DOS TESTIGOS, Y POR QUE NO SIRVE EL OBVIO ========================
+--
+-- `CommentatorGetCamera()` NO vale para saber si la camara se movio: lee la
+-- posicion de los globales del estado de comentarista (`0x00ACE4B4/B8/BC`), o
+-- sea **lo que le pediste**, no donde esta la camara de verdad. Un lector que
+-- devuelve tu propia peticion es el modo de fallo que este proyecto lleva
+-- persiguiendo desde el `C:Report()` que imprimia el FOV que no se aplicaba.
+--
+-- El testigo honesto es `RTS_CamX/Y/Z`, que el DLL saca del campo de posicion
+-- de la camara ACTIVA (`cam+0x08`) sin pasar por Lua. Sin DLL inyectado el
+-- sondeo lo dice y pide mirar la pantalla, que es la degradacion correcta.
+--
+-- Para lo que SI vale `CommentatorGetCamera` es para el paso 1: devuelve SEIS
+-- numeros si la puerta esta abierta y NADA si esta cerrada (`0x0056A2A0`, la
+-- rama de gate cerrado sale sin apilar nada). Es una lectura pura, cero riesgo.
+--
+-- Y de paso dejo apuntado lo que salio de desensamblarla, porque el DLL no lo
+-- tiene y le hace falta si algun dia se va por el camino B: lee los angulos de
+-- **`cam+0x11C` (yaw) y `cam+0x120` (pitch)**, en radianes, sobre la camara
+-- activa. `Offsets.h` dice hoy que no conoce ningun campo de pitch ni yaw.
+
+local SPEC_FNS = {
+	"CommentatorSetCamera", "CommentatorGetCamera",
+	"CommentatorSetCameraCollision", "CommentatorSetMoveSpeed",
+	"CommentatorFollowPlayer", "CommentatorSetTargetHeightOffset",
+	"CommentatorZoomIn", "CommentatorZoomOut",
+}
+
+-- Todo lo de esta seccion pasa por aqui. Ninguna de estas funciones se ha
+-- llamado nunca en este proyecto, asi que se llaman con `pcall` y se comprueba
+-- que existan: una funcion que no esta da un error de Lua que abortaria el
+-- sondeo entero en su primer paso, y entonces no se sabria nada de los demas.
+local function Try(name, ...)
+	local fn = _G[name]
+	if type(fn) ~= "function" then return false, "no existe" end
+	local ok, a, b, c, d, e, f = pcall(fn, ...)
+	if not ok then return false, tostring(a) end
+	return true, a, b, c, d, e, f
+end
+
+-- ¿Esta abierta la puerta? Seis numeros = si.
+local function GateOpen()
+	local ok, x = Try("CommentatorGetCamera")
+	return ok and type(x) == "number", x
+end
+
+-- === EL FOV DE `SetCamera` NO ADMITE 0, Y ESO COSTO UNA PASADA ============
+--
+-- Visto en juego el 2026-09-07: la camara se colocaba bien y la pantalla era
+-- una mancha morada -- *"como si tuviera el FOV mas estrecho posible"*, y era
+-- exactamente eso: **un grado**.
+--
+-- `CommentatorSetCamera` toma el sexto argumento en GRADOS y lo acota entre
+-- `[0x009E2B40]` y `[0x00A0FF40]`, que leidos del binario valen 0.01745329 y
+-- 2.09439516 radianes -- o sea **1 y 120 grados**. Y el suelo no es un valor
+-- cualquiera: `0.01745329` ES `DEG2RAD`, la misma constante con la que
+-- convierte. Pasar 0 da `0 <= DEG2RAD`, gana el suelo, y te quedas con 1 grado
+-- de campo de vision, que es un teleobjetivo absurdo.
+--
+-- EL FALLO DE FONDO NO FUE EL NUMERO: fue traerme una convencion de otro canal.
+-- En `rtsFov` -- el CVar que lee el DLL -- 0 significa *"no toques el FOV"*, y
+-- lo escribi aqui como si fuera una propiedad del FOV y no de ese canal. Dos
+-- caminos que llevan al mismo campo (`cam+0x40`) con dos convenciones
+-- distintas para el mismo valor.
+--
+-- Asi que aqui no hay "no lo toques": SIEMPRE se manda un FOV valido. El del
+-- encuadre si esta puesto, y 90 -- el propio de WoW -- si no.
+local SPEC_FOV_MIN, SPEC_FOV_MAX = 1, 120
+local SPEC_FOV_DEFAULT = 90
+
+local function SpecFov()
+	local f = tonumber(C.frame and C.frame.fov) or 0
+	if f <= 0 then f = SPEC_FOV_DEFAULT end
+	if f < SPEC_FOV_MIN then f = SPEC_FOV_MIN end
+	if f > SPEC_FOV_MAX then f = SPEC_FOV_MAX end
+	return f
+end
+
+local function CamWitness()
+	if RTS_Ready ~= 1 or RTS_HasCam ~= 1 then return nil end
+	return RTS_CamX, RTS_CamY, RTS_CamZ
+end
+
+local function Moved(ax, ay, az, bx, by, bz)
+	if not ax or not bx then return nil end
+	local dx, dy, dz = bx - ax, by - ay, bz - az
+	return math.sqrt(dx * dx + dy * dy + dz * dz)
+end
+
+-- === LAS DOS MITADES, Y POR QUE NO PUEDEN IR JUNTAS =======================
+--
+-- Visto en juego el 2026-09-07, primera pasada: los flags y el paquete del modo
+-- salian del servidor de golpe, y era una carrera. `SetPlayerFlag` no manda
+-- nada -- marca el campo sucio, y la actualizacion sale en el siguiente flush,
+-- unos 100 ms despues -- mientras que el paquete sale ya. Asi que el paquete
+-- llegaba PRIMERO, el predicado del cliente leia los flags viejos, y la puerta
+-- estaba cerrada.
+--
+-- Y LA RAMA DE PUERTA CERRADA NO ES UN NO-OP, que es lo que lo hizo caro: cae
+-- en la misma que `enable == 0` y mete la camara en modo 1 con el estado que
+-- hubiera. En pantalla, la camara se fue lejisimo y por debajo del suelo. Un
+-- intento fallido que no deja las cosas como estaban es la peor forma de
+-- fallar.
+--
+-- Asi que el retraso no se adivina: `CommentatorGetCamera()` contesta seis
+-- numeros en cuanto los flags han llegado y nada mientras no, o sea que **el
+-- cliente dice cuando se puede armar**. Se sondea hasta que conteste y solo
+-- entonces se pide el modo. Es la leccion de `HasServer()` y del `PORTED` del
+-- cambio de personaje: un estado que viaja no es un estado que ya llego.
+--- LOS FLAGS DE ESPECTADOR SE MANDAN SIEMPRE.
+---
+--- Hubo un intento (2026-09-08) de no ponerlos cuando el DLL estuviera
+--- inyectado, parcheando las dos puertas del cliente que los exigen, para
+--- recuperar el mouseover que `PLAYER_FLAGS_UBER` mata. **Salio mal en juego:
+--- desaparecieron todos los modelos, no solo el heroe, y el cliente entraba en
+--- camara de espectador en juego normal.** El porque -- `0x006DE980` no es la
+--- puerta del modo, es un "¿soy espectador?" con dieciocho llamantes -- esta en
+--- `rts-client-mod/src/Camera.h`. Borrado de los dos lados.
+function C:Spectate(on, after)
+	self.specWait = after
+	Send("CAM SPEC " .. (on and "1" or "0"))
+end
+
+function C:Arm(on, after)
+	self.armWait = after
+	Send("CAM SPECARM " .. (on and "1" or "0"))
+end
+
+-- === LA COLOCACION SE GUARDA, Y NO ES SOLO ORDEN =========================
+--
+-- `CommentatorSetCamera` toma los seis valores de golpe, asi que cambiar SOLO
+-- el FOV significa volver a mandar posicion y angulos. Sin guardarlos, un
+-- `/rts cam fov 60` tendria que inventarselos -- y meteria la camara en otro
+-- sitio como efecto secundario de tocar el FOV.
+--
+-- Es tambien la semilla del controlador de verdad: la capa C del brief (el
+-- solver) calcula estos seis numeros y esta funcion es la unica que los aplica.
+--
+-- SE LLAMA `place` Y NO `spec` POR UN FALLO QUE YA COSTO UNA PASADA. La primera
+-- version la llamaba `C.spec`, y `OnSpec` hacia `self.spec = on` -- un booleano
+-- encima de la tabla. La respuesta del servidor llega ANTES de colocar la
+-- camara, asi que cuando `SpecApply` corria la tabla ya era `true` y reventaba
+-- con *"attempt to index local 's' (a boolean value)"*, dejando la camara sin
+-- colocar en otro continente.
+--
+-- Es EXACTAMENTE el fallo que este fichero ya documenta veinte lineas mas
+-- abajo, en `Create`: `self.frame = f` guardaba el widget de eventos encima de
+-- `C.frame`, que es la tabla de encuadre, y se comio el FOV durante cuatro
+-- etapas. Mismo fichero, misma clase de error, y la nota estaba escrita. El
+-- estado de encendido es `C.specOn`; los nombres se separan a proposito.
+C.place = { x = nil, y = nil, z = nil, yaw = 0, pitch = -45, fov = nil }
+
+-- LA VELOCIDAD DE LA CAMARA LIBRE, y sus unidades NO son yardas/segundo.
+--
+-- `CommentatorSetMoveSpeed` escribe un campo del objeto de la camara de
+-- comentarista (`0x00568300` sobre `0x00ACE4A8`) y lo que signifique el numero
+-- no se puede leer del binario. Lo que si se sabe es empirico y basta: **20
+-- manda la camara a otro continente en dos segundos**. Asi que se guarda por
+-- personaje y se ajusta a ojo, que es lo unico honesto con una unidad
+-- desconocida -- igual que los siete encuadres del retrato o las cinco ventanas
+-- de recorte de los railes.
+local SPEC_SPEED_DEFAULT = 1.0
+
+function C:SpecSpeed(n)
+	if n ~= nil then
+		n = tonumber(n)
+		if not n or n <= 0 or n > 20 then
+			ns.Print("|cffff0000sspeed:|r un numero entre 0 y 20. 20 se va de la zona.")
+			return RTSCommandDB.camSpecSpeed or SPEC_SPEED_DEFAULT
+		end
+		RTSCommandDB.camSpecSpeed = n
+		Try("CommentatorSetMoveSpeed", n)
+		ns.Print(("|cff33ccffsspeed:|r velocidad de la camara libre = %.2f"):format(n))
+	end
+	return RTSCommandDB.camSpecSpeed or SPEC_SPEED_DEFAULT
+end
+
+function C:SpecPlace(x, y, z, yaw, pitch, fov)
+	local s = self.place
+	if x then s.x, s.y, s.z = x, y, z end
+	if yaw then s.yaw = yaw end
+	if pitch then s.pitch = pitch end
+	if fov then s.fov = fov end
+	return self:SpecApply()
+end
+
+function C:SpecApply()
+	local s = self.place
+	if not s.x then return false, "sin sitio todavia" end
+	-- El FOV SIEMPRE valido: ver el bloque de `SpecFov`. Un 0 aqui son 1 grado.
+	--
+	-- Y SI SE ACOTA, SE DICE. `/rts cam fov` admite hasta 140 porque el DLL
+	-- llega ahi; esta camara topa en 120, que es del cliente y no se negocia.
+	-- Dos topes distintos para el mismo numero es un tope que se olvida -- ya
+	-- paso con el suelo del FOV, que estaba a 20 en dos sitios.
+	local want = tonumber(s.fov) or SpecFov()
+	local fov = math.max(SPEC_FOV_MIN, math.min(SPEC_FOV_MAX, want))
+	if math.abs(fov - want) > 0.01 then
+		ns.Print(("|cffffd100fov:|r pediste %.0f y la camara libre topa en %d; " ..
+		          "aplicado %.0f."):format(want, SPEC_FOV_MAX, fov))
+	end
+	s.fov = fov
+	local ok, err = Try("CommentatorSetCamera", s.x, s.y, s.z, s.yaw, s.pitch, fov)
+	return ok, err
+end
+
+function C:OnSpec(on)
+	self.specOn = on
+	local after = self.specWait
+	self.specWait = nil
+	ns.Print("|cff33ccffspec:|r flags " .. (on and "ON" or "OFF"))
+	if after then after() end
+end
+
+function C:OnArm(on)
+	local after = self.armWait
+	self.armWait = nil
+	ns.Print("|cff33ccffspec:|r modo " .. (on and "LIBRE (6)" or "normal (1)"))
+	if after then after() end
+end
+
+-- Espera a que la puerta se abra, sondeando. `tries` a 4 Hz.
+--
+-- El plazo existe porque un fallo tiene que ACABAR: sin el, una puerta que no
+-- se abre nunca deja el sondeo colgado sin decir nada, que es indistinguible de
+-- que el comando no hiciera nada.
+function C:WaitGate(tries, ok, fail)
+	if GateOpen() then ok() return end
+	if tries <= 0 then fail() return end
+	self:After(0.25, function() C:WaitGate(tries - 1, ok, fail) end)
+end
+
+-- El paso 5, suelto: apagar la colision de camara. Es la opcion A del §9 del
+-- brief -- la camara deja de empujarse contra techos y paredes -- y es una
+-- llamada, asi que no necesita el resto del sondeo para probarse.
+-- UN NUMERO, NO UN BOOLEANO, aunque su propio texto de uso diga "bool".
+--
+-- Visto en juego: pasarle `true` contesta
+-- *"Usage: CommentatorSetCameraCollision(bool enable)"*. La funcion valida su
+-- argumento con la misma llamada que `SetCamera` usa para los seis suyos
+-- (`0x0084DF20`, o sea `lua_isnumber`), asi que un booleano no pasa el filtro.
+-- El texto de uso describe la INTENCION; el filtro describe lo que acepta, y
+-- cuando discrepan manda el filtro.
+function C:CameraCut(on)
+	local ok, err = Try("CommentatorSetCameraCollision", on and 1 or 0)
+	if not ok then
+		ns.Print("|cffff0000cut:|r " .. tostring(err))
+		ns.Print("  si dice 'no existe', este cliente no es el que se analizo.")
+		return
+	end
+	ns.Print("|cff33ccffcut:|r colision de camara " ..
+		(on and "|cffff0000ON|r (normal)" or "|cff00ff00OFF|r (atraviesa)"))
+	ns.Print("  metete en una cueva y mira si la camara deja de empujarse.")
+end
+
+-- El paso 6: inventario de lo que el binario tiene para esconder geometria.
+--
+-- SOLO LECTURA Y A PROPOSITO. El §10/§11 del brief pide un corte seccional por
+-- shader, que en un cliente cerrado sin fuentes no es alcanzable; lo que SI hay
+-- dentro del binario es `CClipVolume`, `M2UseClipPlanes`, `glClipPlane`,
+-- `farClipOverride` y varios interruptores de categorias enteras de geometria.
+-- Esto averigua cuales de ellos son CVars, que es lo unico que Lua alcanza.
+--
+-- UN `nil` SIGNIFICA "no es un CVar", NO "no existe". Varios de esos nombres
+-- salen de `World.cpp` del cliente, o sea que son comandos de consola -- y la
+-- consola de desarrollo esta encendida en este cliente (`showToolsUI "1"` en
+-- `Config.wtf`), asi que lo que no salga aqui se prueba alli.
+local GEO_CVARS = {
+	"farClipOverride", "M2UseClipPlanes", "showCull", "shadowCull",
+	"antiportal", "minimapPortalMax", "horizonFarclipScale",
+	"horizonNearclipScale", "farclip", "nearclip",
+}
+
+function C:Geo()
+	ns.Print("|cff33ccffgeo:|r lo que este cliente expone para esconder geometria")
+	for _, name in ipairs(GEO_CVARS) do
+		local v = GetCVar(name)
+		if v == nil then
+			ns.Print("  " .. name .. ": |cff9a9a9ano es CVar|r")
+		else
+			ns.Print("  " .. name .. ": |cff00ff00" .. tostring(v) .. "|r")
+		end
+	end
+	for _, name in ipairs({ "TogglePortals", "SetFarclip", "GetFarclip" }) do
+		ns.Print("  " .. name .. "(): |cffffd100" .. type(_G[name]) .. "|r")
+	end
+	ns.Print("  Lo que salga nil se prueba en la consola (Ctrl+Alt+F o ~).")
+	ns.Print("  Es un INVENTARIO, no una funcion: sirve para disenar, no para usar.")
+end
+
+-- El sondeo, en orden, parando en el primero que no conteste.
+function C:Probe()
+	ns.Print("|cff33ccff=== sondeo de la camara libre del cliente ===|r")
+
+	-- Paso 0: ¿estan las funciones?
+	local missing = {}
+	for _, n in ipairs(SPEC_FNS) do
+		if type(_G[n]) ~= "function" then table.insert(missing, n) end
+	end
+	if #missing > 0 then
+		ns.Print("|cffff00001)|r faltan " .. #missing .. " funciones: " ..
+			table.concat(missing, ", "))
+		ns.Print("   SIGNIFICA: este cliente no es el que se analizo. Para el sondeo.")
+		return
+	end
+	ns.Print("|cff00ff001)|r las " .. #SPEC_FNS .. " funciones existen.")
+
+	-- Paso 1: la puerta.
+	if GateOpen() then
+		ns.Print("|cff00ff002)|r la puerta ya estaba ABIERTA.")
+		self:ProbeStep2()
+		return
+	end
+
+	ns.Print("|cffffd1002)|r puerta cerrada; pidiendo los flags al servidor...")
+	if not ns.Link:HasServer() then
+		ns.Print("   |cffff0000sin mod-rts|r: nadie puede poner los flags. Para el sondeo.")
+		return
+	end
+
+	-- Los flags tardan un tick de mundo en llegar, asi que se ESPERA a que el
+	-- cliente lo confirme en vez de suponerlo. Tres segundos a 4 Hz.
+	self:Spectate(true, function()
+		C:WaitGate(12,
+			function()
+				ns.Print("|cff00ff002b)|r puerta ABIERTA.")
+				C:ProbeStep2()
+			end,
+			function()
+				ns.Print("|cffff00002b)|r la puerta SIGUE cerrada tras 3 s.")
+				ns.Print("   SIGNIFICA: los flags no llegaron, o el predicado")
+				ns.Print("   quiere algo mas que los dos bits. Mirar PLAYER_FLAGS")
+				ns.Print("   en el jugador antes que cualquier otra cosa.")
+			end)
+	end)
+end
+
+-- Paso 3 y 4: ¿dibuja desde ella, y se queda?
+function C:ProbeStep2()
+	local ax, ay, az = CamWitness()
+	if not ax then
+		ns.Print("|cffffd1003)|r sin rts_core inyectado: no hay testigo objetivo.")
+		ns.Print("   Se coloca la camara igual; MIRA LA PANTALLA y dime si salta.")
+	end
+
+	-- `UnitPosition` NO EXISTE en 3.3.5a, asi que no se intenta: Lua no tiene
+	-- coordenadas de mundo en este cliente y esa es la razon de que el DLL
+	-- exista. La posicion sale de `RTS_PX/PY/PZ`, y si no hay DLL se parte de
+	-- donde esta la camara ahora -- peor punto de partida, pero no es nada.
+	local px, py, pz
+	if RTS_Ready == 1 and RTS_HasPos == 1 then
+		px, py, pz = RTS_PX, RTS_PY, RTS_PZ
+	elseif ax then
+		px, py, pz = ax, ay, az
+	else
+		ns.Print("|cffff00003)|r sin rts_core no hay coordenadas de mundo en Lua,")
+		ns.Print("   asi que no se puede pedir un sitio concreto. Abre con")
+		ns.Print("   |cffffff002-Jugar.bat|r para que el DLL entre y repite.")
+		return
+	end
+
+	-- SE COLOCA ANTES DE ARMAR, Y ESE ORDEN ES EL ARREGLO DE LA PRIMERA PASADA.
+	--
+	-- El estado de la camara de comentarista (`0x00ACE4B4/B8/BC`) empieza sin
+	-- inicializar, asi que entrar en el modo 6 sin haberla colocado primero
+	-- dibuja desde donde estuviera esa memoria: lejisimo y por debajo del
+	-- suelo, que es literalmente lo que se vio. `SetCamera` no necesita el modo
+	-- -- escribe en ese estado y le hace falta solo la puerta, que ya esta
+	-- abierta aqui -- asi que colocar primero es gratis y quita el salto.
+	--
+	-- 30 yardas por encima y mirando 45 grados abajo: si esto se aplica se ve
+	-- sin ninguna duda. El FOV lo pone `SpecApply` y NUNCA es 0 -- ver su
+	-- bloque: un 0 aqui no significa "dejalo", significa un grado.
+	local ok, err = C:SpecPlace(px, py, pz + 30, 0, -45, nil)
+	if not ok then
+		ns.Print("|cffff00003)|r SetCamera fallo: " .. tostring(err))
+		return
+	end
+	ns.Print("|cff33ccff3)|r camara colocada en " ..
+		string.format("%.1f %.1f %.1f", px, py, pz + 30) ..
+		", pitch -45, fov " .. tostring(C.place.fov) .. ".")
+
+	-- Y AHORA el modo. Si esto se manda antes, el paso 4 mide un salto que no
+	-- es el que se pidio.
+	C:Arm(true)
+
+	-- Medio segundo: suficiente para que el frame siguiente la publique, corto
+	-- para no confundirlo con una deriva.
+	-- === EL TESTIGO ES "ESTA DONDE LA PUSE", NO "SE MOVIO" ================
+	--
+	-- La primera version medía el DESPLAZAMIENTO, y dio un falso negativo en la
+	-- segunda pasada: los flags y el modo siguen puestos entre pruebas, asi que
+	-- la camara YA estaba en el sitio pedido y colocarla otra vez movio 0.00
+	-- yardas. El sondeo lo leyo como *"el modo 6 no se arma fuera de una
+	-- arena. Camino A muerto"* -- una conclusion fuerte y falsa, sobre algo que
+	-- habia funcionado en la pasada anterior.
+	--
+	-- "No se movio" y "no funciona" solo son lo mismo si la camara empezaba en
+	-- otro sitio, y eso deja de ser cierto en cuanto el sondeo se repite. La
+	-- pregunta de verdad -- *¿esta la camara donde la puse?* -- no depende de
+	-- donde estuviera antes, y se contesta comparando la posicion publicada
+	-- contra la pedida.
+	--
+	-- Es la misma leccion que `C:Report()` imprimiendo el FOV que no se
+	-- aplicaba, solo que este mintio en la direccion alarmante: manda a
+	-- arreglar algo que no esta roto.
+	C:After(0.5, function()
+		local bx, by, bz = CamWitness()
+		local sp = C.place
+		local d = Moved(ax, ay, az, bx, by, bz)          -- informativo
+		local off = Moved(sp.x, sp.y, sp.z, bx, by, bz)  -- el veredicto
+
+		if off == nil then
+			ns.Print("   sin testigo: contesta tu si la vista salto.")
+		elseif off < 5 then
+			ns.Print(("|cff00ff004)|r LA CAMARA ESTA DONDE SE PIDIO (%.2f yardas " ..
+				"de error, se movio %.1f)."):format(off, d or 0))
+			ns.Print("   SIGNIFICA: el cliente dibuja desde la camara de")
+			ns.Print("   comentarista en mundo abierto. Camino A viable.")
+		else
+			ns.Print(("|cffff00004)|r la camara esta a %.1f yardas de donde se " ..
+				"pidio."):format(off))
+			ns.Print("   SIGNIFICA: el modo 6 no se arma aqui, o algo la mueve.")
+			ns.Print("   Camino A en duda; el B es el DLL escribiendo cam+0x08.")
+			return
+		end
+
+		-- ¿Se queda, o la repone el cliente? Es la misma pregunta que el FOV
+		-- ya contesto por su lado: ese campo lo reescribe el cliente, asi que
+		-- hay que escribirlo cada tick. Si esta se queda, se conduce solo al
+		-- cambiar y sale mucho mas barata.
+		local cx, cy, cz = bx, by, bz
+		C:After(3.0, function()
+			local ex, ey, ez = CamWitness()
+			local drift = Moved(cx, cy, cz, ex, ey, ez)
+			if drift == nil then
+				ns.Print("   (sin testigo para la deriva)")
+			elseif drift < 2 then
+				ns.Print("|cff00ff005)|r SE QUEDA (deriva " ..
+					string.format("%.2f", drift) .. "). Se conduce al cambiar.")
+			else
+				ns.Print("|cffffd1005)|r vuelve sola (deriva " ..
+					string.format("%.1f", drift) .. "). Hay que reponerla cada tick,")
+				ns.Print("   igual que el FOV. Es viable, solo mas caro.")
+			end
+			-- PASO 6, YA CONTESTADO EN JUEGO EL 2026-09-07, y por eso aqui ya
+			-- no se prueba: se APAGA.
+			--
+			-- Con `SetMoveSpeed(20)` la camara avanza con W y **el personaje no
+			-- se mueve** -- misma posicion publicada antes y despues, al
+			-- centimetro. O sea que el cliente desvia WASD a la camara de
+			-- comentarista, que es la buena noticia: un solo dueño de la tecla.
+			--
+			-- Y AUN ASI NO QUEREMOS SU MOVIMIENTO. Sus unidades no son
+			-- yardas/segundo en ningun sentido util (20 manda la camara a otro
+			-- continente en dos segundos) y, sobre todo, dejarselo al cliente
+			-- devuelve la XY a su dueño mientras nosotros llevamos la Z -- que
+			-- es la forma exacta del fallo que mato la retencion de altura:
+			-- corregir cada tick lo que otro escribe cada tick. Un dueño.
+			--
+			-- PERO NO SE DEJA EN 0 TODAVIA, Y ESO SE VIO EN JUEGO.
+			--
+			-- El modo 6 se queda WASD **y no se lo devuelve al personaje**, asi
+			-- que con la velocidad a 0 no se mueve nada: ni la camara ni tu.
+			-- *"Estamos donde toca pero no me puedo mover."*
+			--
+			-- 0 es lo correcto el dia que el controlador lea WASD por su cuenta
+			-- -- por el mismo camino que ya usan ESPACIO/C, botones propios con
+			-- `SetBindingClick` -- porque entonces el dueño somos nosotros. Hasta
+			-- ese dia, apagarlo deja una camara que no sirve para nada, y una
+			-- pieza a medias que no se puede probar no ayuda a construir la
+			-- siguiente. `/rts cam sspeed <n>` lo ajusta.
+			Try("CommentatorSetMoveSpeed", C:SpecSpeed())
+			ns.Print(("|cff33ccff6)|r WASD mueve la CAMARA (no tu personaje), " ..
+				"velocidad %s."):format(tostring(C:SpecSpeed())))
+			ns.Print("   |cff888888Provisional: el controlador la conducira el.|r")
+			ns.Print("   Luego: |cffffff00/rts cam fov 60|r, |cffffff00/rts cam cut|r, " ..
+				"|cffffff00/rts cam geo|r.")
+			ns.Print("   Para salir: |cffffff00/rts cam spec 0|r.")
+		end)
+	end)
+end
+
+-- Un temporizador de una vez. `C_Timer` no existe en 3.3.5a.
+--
+-- UN FRAME POR LLAMADA, y no uno compartido, porque el sondeo se ANIDA: el paso
+-- de la deriva se programa desde dentro del callback del paso anterior. Con un
+-- frame unico eso funciona por accidente -- solo porque el de fuera ya se ha
+-- borrado el script cuando el de dentro lo pone -- y deja de funcionar en
+-- cuanto dos esperas se solapen, sin dar ningun error. Son tres frames en toda
+-- la sesion de un sondeo; no vale la pena la trampa.
+function C:After(delay, fn)
+	local f = CreateFrame("Frame")
+	local left = delay
+	f:SetScript("OnUpdate", function(self2, e)
+		left = left - e
+		if left <= 0 then
+			self2:SetScript("OnUpdate", nil)
+			local ok, err = pcall(fn)
+			if not ok then ns.Print("|cffff0000sondeo:|r " .. tostring(err)) end
+		end
+	end)
 end
 
 function C:Create()
@@ -963,6 +1527,20 @@ function C:Create()
 		if pback then C:OnOffset(tonumber(pback) or 0, tonumber(pup) or 12) end
 	end)
 
+	-- La confirmacion del sondeo. Es de UN SOLO SENTIDO -- lo que manda el
+	-- addon es `CAM SPEC 1`, o sea el verbo `CAM` -- asi que esta en
+	-- `REPLY_ONLY` y no necesita discriminante de formato como `CAM`. Se valida
+	-- igualmente el digito, que cuesta una linea.
+	ns.Link:On("SPEC", function(rest)
+		local state = rest:match("^([01])$")
+		if state then C:OnSpec(state == "1") end
+	end)
+
+	ns.Link:On("SPECARM", function(rest)
+		local state = rest:match("^([01])$")
+		if state then C:OnArm(state == "1") end
+	end)
+
 	-- `self.events`, NO `self.frame`. `C.frame` es la tabla de ENCUADRE
 	-- (tilt, zoom, fov, shadow, los dos topes de zoom) que se declara arriba y
 	-- que este mismo `Create` acaba de rellenar desde las SavedVariables --
@@ -996,6 +1574,18 @@ function C:Create()
 	-- siempre. Misma leccion que el `grow = 688` de la etapa 5j: lo guardado se
 	-- revisa AL LEERLO, no solo al escribirlo.
 	if RTSCommandDB then RTSCommandDB.camHold = nil end
+
+	-- PURGA NUMERO DIEZ: `cut` y `cutz`, el corte seccional, descartado el
+	-- 2026-09-10. Vivieron un dia y llegaron a disco (`cut = 15`, `cutz = 4`).
+	--
+	-- `SaveFrame` reescribe `camFrame` entera, asi que las claves caerian solas
+	-- la proxima vez que el jugador toque el encuadre -- pero "solas" y "cuando
+	-- toque algo" no es una purga: si no vuelve a tocarlo, se quedan para
+	-- siempre. Las SavedVariables no olvidan ninguna clave.
+	if RTSCommandDB and RTSCommandDB.camFrame then
+		RTSCommandDB.camFrame.cut  = nil
+		RTSCommandDB.camFrame.cutz = nil
+	end
 
 	-- Every frame: the camera position it watches is republished every frame,
 	-- and a grace period measured in tens of milliseconds cannot be tracked on

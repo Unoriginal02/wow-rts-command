@@ -7,6 +7,7 @@
 #include <windows.h>
 
 #include "Circle.h"
+#include "SelfShow.h"
 #include "Log.h"
 #include "MainThreadHook.h"
 #include "ObjectManager.h"
@@ -70,6 +71,7 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID) {
             // main thread is not still being poked into code that is about to
             // be rewritten under it.
             mainthread::Remove();
+            selfshow::Shutdown();
             circle::Remove();
             rtslog::Shutdown();
             break;

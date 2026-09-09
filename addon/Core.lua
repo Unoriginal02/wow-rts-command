@@ -633,6 +633,7 @@ local function Initialise()
 	ns.Marks:Create()
 	ns.Channel:Create()
 	ns.Camera:Create()
+	ns.FreeCam:Create()
 	ns.Chrome:Create()
 	ns.HUD:Create()
 	-- Skills se crea SIEMPRE, aunque nadie dibuje todavia sus huecos: registra
@@ -996,6 +997,9 @@ local HELP = {
 	"|cffffff00/rts cam frame|r - re-apply it; |cffffff00tilt|r / |cffffff00zoom|r / |cffffff00fov <deg>|r nudge; |cffffff00clear|r forgets it",
 	"|cffffff00/rts cam fly|r / |cffffff00fly 0|r - forward follows your view, or runs flat (RTS)",
 	"|cffffff00/rts cam here|r - recentre over your character; |cffffff00mouse|r toggles mouse steering",
+	"|cffffff00/rts fc|r - ajustes de la camara libre (velocidad, altura, suavizado, giro)",
+	"|cffffff00/rts cam probe|r - SONDEO: ¿sirve la camara libre del cliente? (|cffffff00spec 0|r sale)",
+	"|cffffff00/rts cam colision|r - la camara atraviesa geometria (cuevas); |cffffff00geo|r inventaria el resto",
 	"|cffffff00/rts cam speed <n>|r - how fast it flies",
 	"|cffffff00/rts cam shadow <0-5>|r - sombra bajo los personajes (-1 no tocarla)",
 	"|cffffff00/rts rails|r - los botones pequenos del cliente en los railes; |cffffff00scale <k>|r su tamano, |cffffff00crop|r la ventana del glifo",
@@ -1188,6 +1192,18 @@ SlashCmdList["RTSCOMMAND"] = function(msg)
 			ns.Camera:ClearPreset()
 		elseif sub == "tilt" or sub == "zoom" or sub == "fov" or sub == "shadow" then
 			ns.Camera:SetFrame(sub, arg)
+		-- El sondeo de la camara libre del cliente. Son comandos de diagnostico,
+		-- no funciones: ver el final de `Camera.lua`.
+		elseif sub == "probe" or sub == "sondeo" then
+			ns.Camera:Probe()
+		elseif sub == "spec" then
+			ns.Camera:Spectate(arg ~= "0" and arg ~= "off")
+		elseif sub == "colision" or sub == "collision" then
+			ns.Camera:CameraCut(arg == "1" or arg == "on")
+		elseif sub == "geo" then
+			ns.Camera:Geo()
+		elseif sub == "sspeed" then
+			ns.Camera:SpecSpeed(arg)
 		elseif sub == "mouse" or sub == "mouselook" then
 			ns.Camera:ToggleMouselook()
 		elseif sub == "here" or sub == "recenter" then
@@ -1257,6 +1273,22 @@ SlashCmdList["RTSCOMMAND"] = function(msg)
 
 	elseif cmd == "panel" then
 		ns.Panel:Status()
+
+	elseif cmd == "fc" or cmd == "freecam" then
+		-- Se corta la primera palabra y el RESTO se deja entero en vez de exigir
+		-- dos palabras justas: un patron `^(%S*)%s*(%S*)$` devuelve nil en cuanto
+		-- llega un argumento de mas, y entonces el comando cae en el informe y
+		-- **parece no hacer nada** -- el peor sintoma posible para un ajuste.
+		local sub, tail = rest:match("^(%S*)%s*(.-)%s*$")
+		sub = (sub or ""):lower()
+		local arg = (tail or ""):match("^(%S*)")
+		if sub == "" or sub == "show" or sub == "status" then
+			ns.FreeCam:Report()
+		elseif sub == "mouse" or sub == "raton" then
+			ns.FreeCam:Mouse()
+		else
+			ns.FreeCam:Set(sub, arg)
+		end
 
 	elseif cmd == "rails" or cmd == "railes" then
 		-- Los botones pequenos DE BLIZZARD alojados en las dos barras
@@ -1753,6 +1785,38 @@ SlashCmdList["RTSCOMMAND"] = function(msg)
 		else
 			ns.RTSMode:PickReport()
 		end
+
+	elseif cmd == "body" or cmd == "cuerpo" then
+		local a, b = rest:match("^(%S*)%s*(%S*)$")
+		a = (a or ""):lower()
+		b = (b or ""):lower()
+		if a == "" or a == "status" then ns.Body:Report()
+		elseif a == "help" or a == "ayuda" then ns.Body:Help()
+		elseif a == "flags" then
+			if b == "auto" then ns.Body:FlagsAuto()
+			elseif b == "uber" then ns.Body:OneBit("uber")
+			elseif b == "comm" or b == "commentator" then ns.Body:OneBit("comm")
+			else ns.Body:Flags(b ~= "off" and b ~= "no") end
+		elseif a == "skip" or a == "salto" then
+			ns.Body:Skip(b ~= "off" and b ~= "no")
+		elseif a == "log" then
+			ns.Body:Log(b ~= "off" and b ~= "no")
+		elseif a == "look" or a == "mirar" or a == "cam" then ns.Body:Look()
+		elseif a == "invert" or a == "todos" then
+			ns.Body:Invert(b ~= "off" and b ~= "no")
+		elseif a == "nofix" then
+			ns.Body:NoFix(b ~= "off" and b ~= "no")
+		elseif a == "blink" or a == "parpadeo" then
+			ns.Body:Blink(b ~= "off" and b ~= "no")
+		elseif a == "sites" or a == "sitios" then
+			if b == "all" or b == "todos" then ns.Body:Sites(63)
+			else ns.Body:Sites(0) end
+		elseif a == "site" or a == "sitio" then
+			local n = tonumber(b)
+			if n and n >= 0 and n <= 17 then ns.Body:Sites(n + 1)
+			else ns.Print("|cffff0000body:|r |cffffff00/rts body site 0..17|r") end
+		elseif a == "reset" or a == "off" then ns.Body:Off()
+		else ns.Body:Help() end
 
 	elseif cmd == "debug" then
 		ns.Link.debug = not ns.Link.debug

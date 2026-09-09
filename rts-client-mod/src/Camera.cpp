@@ -50,6 +50,21 @@ bool SetFov(float radians) {
     return mem::Write<float>(cam + off::kCam_Fov, radians);
 }
 
+// EL CORTE SECCIONAL VIVIO AQUI Y SE FUE ENTERO EL 2026-09-10, con lo aprendido
+// escrito en `Publisher.cpp`. Lo que queda por si vuelve a hacer falta, para no
+// volver a buscarlo:
+//
+//   * El plano cercano de verdad es el GLOBAL `0x00ADEED4`, no el struct de la
+//     camara. La proyeccion (0x00606B30) lo lee al rehacer el frustum.
+//   * `cam+0x38` y `cam+0x3C` son una COPIA que nadie lee para dibujar: se
+//     escriben, se quedan escritas y no recortan nada. Probado en las dos
+//     direcciones antes de creerlo.
+//   * `cam+0x3C` sigue al CVar `farclip` del cliente, asi que sirve de testigo
+//     para localizar campos: mover el mando y buscar el numero.
+//
+// Con `Pointer()`, `ReadClip()`, `SetNearClip()` y `FindValue()` se fue tambien
+// el ultimo lector de esos dos offsets.
+
 bool Get(Camera* out) {
     // *(kWorldFrameBase) -> world frame; +kCameraPtrOffset -> active camera.
     uint32_t wf = 0;

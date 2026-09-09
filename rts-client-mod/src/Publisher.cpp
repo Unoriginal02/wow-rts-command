@@ -7,6 +7,7 @@
 #include "CVarChannel.h"
 #include "Camera.h"
 #include "Circle.h"
+#include "SelfShow.h"
 #include "CursorRay.h"
 #include "Highlight.h"
 #include "Log.h"
@@ -17,7 +18,11 @@
 
 namespace {
 
-constexpr const char* kVersion = "0.14.0";
+// 0.24.0 = sin corte seccional. La version SUBE al quitarlo, no baja: un
+// numero que retrocede haria que un addon que pregunta "¿tienes al menos
+// 0.23?" creyera que habla con un DLL viejo, cuando lo que pasa es que la
+// funcion ya no existe. Hacia atras no se vuelve, se avanza quitando.
+constexpr const char* kVersion = "0.24.0";
 constexpr int kProtocol = 3;
 
 // Every published unit costs ~110 bytes of Lua source that the client parses on
@@ -59,6 +64,29 @@ constexpr const char* kFovCVar = "rtsFov";
 // un tope que se olvida.
 constexpr float kFovMinDeg = 5.0f;
 constexpr float kFovMaxDeg = 140.0f;
+
+// EL CORTE SECCIONAL ESTUVO AQUI Y SE FUE ENTERO EL 2026-09-10.
+//
+// Movia el plano cercano (el global `0x00ADEED4`) para que la camara se comiera
+// techos y tejados. FUNCIONABA -- recorto en juego -- y aun asi se descarta: lo
+// que un plano cercano hace es cortar TODA la escena a una distancia, y el tajo
+// resultante se lleva por delante medio mundo (mira la captura del 09-10: la
+// mitad de abajo de la pantalla es el vacio). No es un corte de arquitecto, es
+// un frustum mas corto.
+//
+// Y DEJO UNA DEUDA QUE ES LA LECCION DE VERDAD: `0 = no tocar` NO ES APAGAR.
+// Con el CVar a 0 el DLL simplemente dejaba de escribir, asi que las 15 yardas
+// se quedaban puestas en el global y NADIE las devolvia -- el addon decia
+// "corte apagado" mientras el cliente seguia cortando. Un valor que dice "no
+// toques" tiene que venir con quien devuelva lo que ya se toco, y aqui la regla
+// de capturar y devolver no se aplico al global porque no parecia un CVar.
+// Mismo modo de fallo que los PLAYER_FLAGS_UBER: el codigo se revierte y el
+// estado se queda puesto.
+//
+// Si algun dia vuelve la idea, lo que hace falta NO es esto: es esconder objeto
+// por objeto en el recorrido de render, o un plano de recorte propio -- y el
+// cliente no usa ninguno (cero llamadas a SetClipPlane en todo el .text,
+// comprobado por bytes).
 
 void ApplyFovOverride() {
     int32_t tenths = 0;
@@ -252,18 +280,44 @@ void PublishCameraOnly() {
         return;
     }
 
-    char code[512];
+    // EL SUELO BAJO LA CAMARA, y va en el tick de CAMARA a proposito.
+    //
+    // El unico suelo que se publicaba (`RTS_GroundZ`) esta bajo el PERSONAJE, y
+    // en una camara RTS la camara pasa la mayor parte del tiempo donde el
+    // personaje no esta -- que es justo cuando hace falta. El controlador lo
+    // consume por frame: la altura se corrige contra el suelo de DONDE ESTA la
+    // camara ahora, no de donde estaba hace 30 ms.
+    //
+    // Empieza 5 yd ARRIBA porque la camara puede estar por debajo del terreno un
+    // instante mientras el suavizado la sube, y un rayo que arranca dentro del
+    // suelo no lo encuentra. Y baja 1000 porque el techo de altura lo pone el
+    // jugador: un rayo corto deja de contestar justo al subir, lo que se ve como
+    // que la correccion de altura "se apaga sola a cierta altura".
+    //
+    // Todavia no lo lee nadie: es el paso 2 de `docs/CAMARA-LIBRE.md` §10 y lo
+    // gasta FreeCam, que viene detras. Va ahora para no pagar otro ciclo de
+    // cerrar el cliente, y se dice aqui para que no parezca codigo huerfano.
+    constexpr float kCamGroundUp   = 5.0f;
+    constexpr float kCamGroundDown = 1000.0f;
+    world::Vec3 const gs = {cam.pos[0], cam.pos[1], cam.pos[2] + kCamGroundUp};
+    world::Vec3 const ge = {cam.pos[0], cam.pos[1], cam.pos[2] - kCamGroundDown};
+    world::Vec3 ghit = {0, 0, 0};
+    bool const camGroundHit = world::Raycast(gs, ge, &ghit, nullptr);
+
+    char code[640];
     int n = _snprintf_s(code, sizeof(code), _TRUNCATE,
         "RTS_HasCam=1;RTS_CamX=%.3f;RTS_CamY=%.3f;RTS_CamZ=%.3f;"
         "RTS_CamFwdX=%.4f;RTS_CamFwdY=%.4f;RTS_CamFwdZ=%.4f;"
         "RTS_CamRightX=%.4f;RTS_CamRightY=%.4f;RTS_CamRightZ=%.4f;"
         "RTS_CamUpX=%.4f;RTS_CamUpY=%.4f;RTS_CamUpZ=%.4f;"
-        "RTS_CamFov=%.5f;RTS_CamAspect=%.5f",
+        "RTS_CamFov=%.5f;RTS_CamAspect=%.5f;"
+        "RTS_CamGroundHit=%d;RTS_CamGroundZ=%.3f",
         cam.pos[0], cam.pos[1], cam.pos[2],
         cam.mat[0], cam.mat[1], cam.mat[2],
         cam.mat[3], cam.mat[4], cam.mat[5],
         cam.mat[6], cam.mat[7], cam.mat[8],
-        cam.fov, cam.aspect);
+        cam.fov, cam.aspect,
+        camGroundHit ? 1 : 0, camGroundHit ? ghit.z : 0.0f);
     if (n <= 0) return;
 
     __try {
@@ -293,6 +347,13 @@ void Publish() {
         circle::Install();
     } __except (EXCEPTION_EXECUTE_HANDLER) {
         RTS_LOG("circle: install faulted -- ground circles unavailable");
+    }
+
+    // La sonda del cuerpo. Inerte mientras su CVar valga 0, que es de fabrica.
+    __try {
+        selfshow::Tick();
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        RTS_LOG("body: tick faulted -- sonda desactivada este tick");
     }
 
     // Virtual-vs-raw position check. This used to run once a SECOND, forever,

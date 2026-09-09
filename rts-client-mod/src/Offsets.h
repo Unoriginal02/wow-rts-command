@@ -358,4 +358,197 @@ constexpr uint32_t kCam_Mat    = 0x14;   // 3x3, rows at +0x14/+0x20/+0x2C
 constexpr uint32_t kCam_Fov    = 0x40;   // float, radians
 constexpr uint32_t kCam_Aspect = 0x44;   // float
 
+// ================== CAMINO DESCARTADO: EL CORTE SECCIONAL ==================
+//
+// DESCARTADO EL 2026-09-10 y sin un solo lector en el arbol: mover el plano
+// cercano recorta TODA la escena a una distancia, y el tajo se lleva medio
+// mundo por delante en vez de un techo. Estas direcciones se quedan porque este
+// fichero guarda cada camino descartado CON SU EVIDENCIA -- son horas de
+// analisis y ninguna de ellas hace nada por si sola. Si alguien vuelve por
+// aqui, que lea antes el porque en `Publisher.cpp` y `Camera.cpp`.
+//
+// EL PLANO CERCANO ES UN GLOBAL, NO UN CAMPO DE LA CAMARA.
+//
+// Y ese es todo el fallo de las dos primeras rondas. El struct de camara SI
+// tiene un par que parece cerca/lejos -- del volcado en juego:
+//
+//   +0x30:   0.00000    1.00000    0.20000  791.66669
+//   +0x40:   1.57080    1.60000        FOV      aspect
+//
+// +0x38 = 0.20 y +0x3C = 791.67, pegados al FOV y al aspect. Parecia de manual.
+// Es una COPIA: `+0x3C` sigue al CVar `farclip` (medido con el buscador: 300 y
+// 700 aparecen ahi y en ningun otro sitio del struct), pero escribirlo no mueve
+// el horizonte -- probado en las dos direcciones y con el valor confirmado
+// escrito y persistente en el log. Nadie lee esa copia para dibujar.
+//
+// La proyeccion se construye en 0x00606B30 leyendo DOS GLOBALES:
+//
+//   00606B41  fld dword ptr [0x00CD7748]   ; lejos
+//   00606B4B  fld dword ptr [0x00ADEED4]   ; cerca
+//   00606B54  call 0x00607C20              ; construye el frustum
+//
+// Se leen cada vez que se construye, asi que basta con reescribir el global
+// cada tick, igual que el FOV. Nada de banderas ni de invalidar.
+//
+// Y hay un CVar `nearclip` REGISTRADO -- descripcion "Near clip plane distance",
+// por defecto 0.2 -- que **es inerte**: su manejador (0x0077F490) ignora el
+// argumento y escribe la constante 0.2 pase lo que pase. `SetCVar("nearclip")`
+// no habria hecho nada nunca, y habria parecido que el cliente no lo soporta.
+// Es el mismo modo de fallo que `guildMemberNotify`, pero al reves: la cadena
+// existe, el CVar existe, y lo que no hace nada es el manejador.
+//
+//   0077F490  fld  dword ptr [0x009E8D84]   ; 0.2, la constante
+//   0077F496  fstp dword ptr [0x00ADEED4]
+//   0077F49C  ret
+//
+// Ojo: el setter de `farclip` (0x00780800) tambien reinicia el cercano a 0.2 al
+// acabar. Da igual mientras se reescriba cada tick, pero explica por que un
+// cambio de distancia de vision "apagaria" el corte si esto fuera una sola
+// escritura.
+constexpr uint32_t kNearClipGlobal = 0x00ADEED4;   // float, yardas
+constexpr uint32_t kFarClipGlobal  = 0x00CD7748;   // float, yardas (no se toca)
+
+// Los dos de la camara se quedan SOLO para leerlos: son la copia que sigue al
+// CVar y sirven de diagnostico, no de mando.
+constexpr uint32_t kCam_NearClip = 0x38;  // float, yardas
+constexpr uint32_t kCam_FarClip  = 0x3C;  // float, yardas (no se toca)
+
+
+// ---------------------------------------------------------------------------
+// "Am I a spectator?" -- the gate that hides YOUR OWN model.  (sonda del cuerpo)
+//
+// 0x006DE980 es __thiscall(player) y contesta "este jugador es espectador":
+//
+//   006DE9A6  mov ecx, [player + 0x1008]   ; bloque de campos PLAYER
+//   006DE9AC  mov ecx, [ecx + 8]           ; PLAYER_FLAGS
+//   006DE9B1  shr edx, 0x13 ; test dl,1    ; bit 19 APAGADO -> false
+//   006DE9B9  shr ecx, 0x16 ; test cl,1    ; bit 22 ENCENDIDO -> true, y ya
+//   006DE9C5  cmp [eax + 8], 4             ; si no, hace falta un mapa de arena
+//
+// Tiene DIECIOCHO llamantes -- enumerados, no supuestos -- y por eso forzarlo a
+// `mov eax,1 / ret` el 2026-09-08 no dejo ver a NADIE: se le estaba diciendo al
+// cliente entero que todo jugador era espectador. Lo que hay que tocar es UN
+// llamante, o los flags que lee.
+//
+// El llamante que esconde el modelo esta en 0x0073A890, un "prepara/emite esta
+// unidad" por unidad, y su cola es:
+//
+//   0073AA99  mov ecx, [edi + 8]     ; descriptores
+//   0073AA9C  mov edx, [ecx + 8]     ; OBJECT_FIELD_TYPE
+//   0073AA9F  shr edx, 4 ; test dl,1 ; TYPEMASK_PLAYER (0x10)
+//   0073AAA7  mov ecx, edi
+//   0073AAA9  call 0x006DE980        ; ¿este jugador es espectador?
+//   0073AAAE  test al, al
+//   0073AAB0  jne 0x0073AB17         ; SI -> se salta la emision   <-- AQUI
+//   0073AAB5  lea ecx, [edi + 0x788]
+//   0073AABB  call 0x006EF230        ; NO -> la emite
+//
+// Se le pregunta POR JUGADOR, asi que solo se salta el que tenga los flags --
+// que es exactamente el sintoma: tu heroe no, los bots si.
+constexpr uint32_t kIsSpectator      = 0x006DE980;
+constexpr uint32_t kSelfSubmitFn     = 0x0073A890;  // por unidad, para contexto
+constexpr uint32_t kSelfSkipJne      = 0x0073AAB0;  // los dos bytes del salto
+constexpr uint8_t  kSelfSkipBytes[2] = {0x75, 0x65};  // jne +0x65, verificado
+
+// LOS DIECIOCHO SITIOS DE LLAMADA DEL PREDICADO, PARA APAGARLOS DE UNO EN UNO.
+//
+// Medido, no supuesto: barrido de `call rel32` (0xE8) sobre todo el .text
+// quedandose con los que apuntan a 0x006DE980. Salen 18 en 17 funciones --
+// 0x005FBA60 llama dos veces.
+//
+// Por que de uno en uno y no forzando el predicado: forzarlo el 2026-09-08 le
+// dijo al cliente que TODO jugador era espectador y dejo la pantalla sin nadie.
+// Un sitio de llamada es cinco bytes, es local, y los otros diecisiete siguen
+// contestando la verdad. `call rel32` (5) -> `xor eax,eax` + 3 nop (2+3): mismo
+// tamano, y ESE llamante ve "no es espectador".
+//
+// Es el diagnostico por eliminacion, que aqui vale mas que seguir leyendo: con
+// los dos flags puestos el heroe SI desaparece (medido 2026-09-09 20:29), o sea
+// que el mecanismo esta vivo y se puede acorralar apagando mitades.
+constexpr uint32_t kSpecCallSites[] = {
+    0x004FA69D,  // [ 0]
+    0x00519039,  // [ 1]
+    0x005245B3,  // [ 2]
+    0x00569B7B,  // [ 3]  banda del comentarista: son las propias funciones de
+    0x00569CFB,  // [ 4]  la API (Follow, SetCamera, GetCamera, Collision...),
+    0x0056A11B,  // [ 5]  o sea sus porteros. Apagarlos CIERRA la camara libre.
+    0x0056A2C8,  // [ 6]
+    0x0056AB14,  // [ 7]
+    0x0056B83D,  // [ 8]
+    0x0056B919,  // [ 9]
+    0x005FA6F5,  // [10]  banda que ademas toquetea una palabra de flags de
+    0x005FA7D1,  // [11]  OBJETO (`or [esi+4], 0x80000` en 0x005FB1E9), asi que
+    0x005FB2AE,  // [12]  de "interfaz" tiene poco. Candidata de verdad.
+    0x005FBAC7,  // [13]
+    0x005FBC02,  // [14]
+    0x005FBEBA,  // [15]
+    0x006E085C,  // [16]
+    0x0073AAA9,  // [17]  el de la emision por unidad, ya descartado por B1
+};
+constexpr int kSpecCallSiteCount = 18;
+
+// EL ESCONDITE. Sitio [16] = 0x006E085C, dentro de 0x006E0840.
+//
+// Encontrado el 2026-09-09 POR ELIMINACION, no leyendo: con los dos flags
+// puestos se apagaron los dieciocho a la vez (vuelve el modelo -> el predicado
+// ES el mecanismo) y luego de uno en uno hasta que uno solo lo devolvio.
+//
+//   006E0855  call 0x730F30              ; calcula el valor
+//   006E085A  mov  ecx, esi
+//   006E085C  call 0x006DE980            ; ¿este jugador es espectador?
+//   006E0861  test al, al
+//   006E0863  je   0x006E0871            ; NO -> sigue evaluando
+//   006E0866  mov  dword ptr [ebx], 1    ; SI -> fuerza el resultado a 1
+//   006E086E  ret  0xc
+//
+//   006E0871  test dword ptr [esi+0xa30], 0x400000   ; la rama normal tiene
+//   006E087D  cmp  dword ptr [esi+0x18b8], 0         ; sus propias razones
+//   006E0884  jne  0x006E0865                        ; para el mismo *out = 1
+//
+// `ebx` es el tercer argumento, un int* de salida. Ser espectador entra por la
+// puerta de atras en un calculo que ya existia -- por eso no aparecia buscando
+// "quien esconde un modelo": aqui no se esconde nada, se contesta 1.
+//
+// 0x006E0840 no tiene NI UN `call rel32` que le apunte: es virtual, y se llama
+// por vtable. Por eso el camino estatico no llegaba, y por eso la enumeracion
+// por eliminacion valia mas que seguir desensamblando.
+//
+// El predicado pregunta por `esi`, o sea POR ESA UNIDAD, asi que apagar este
+// sitio solo cambia el resultado de quien lleve los flags -- que somos nosotros
+// y nadie mas.
+constexpr uint32_t kSelfHideCall = 0x006E085C;  // = kSpecCallSites[16]
+constexpr int      kSelfHideSite = 16;
+
+// EL PARPADEO, que es OTRA COSA y llega por el OTRO predicado.
+//
+// Con los flags puestos, el resalte del raton sobre otros jugadores y el
+// circulo de destino en el suelo parpadean, y el circulo ademas ALTERNA entre
+// dos posiciones. Visto en juego 2026-09-09 con el heroe ya visible.
+//
+// 0x0073DAB0 tiene exactamente esa forma -- un conmutador de 500 ms detras del
+// segundo predicado, 0x00729740:
+//
+//   0073DB42  call 0x00729740          ; el OTRO predicado (37 sitios)
+//   0073DB47  test al, al
+//   0073DB49  je   0x0073DBCA          ; false -> se salta todo el bloque
+//   0073DB50  or   dword ptr [esi+0xa30], 0x10
+//   0073DB5B  sub  edx, 0x1f4          ; 500 ms
+//   0073DB65  cmp  dword ptr [0xca12bc], eax
+//   0073DB6B  sete al
+//   0073DB6E  mov  dword ptr [0xca12bc], eax   ; conmuta 0/1 cada 500 ms
+//
+// Es un CANDIDATO medido en forma, no una conclusion: el ritmo cuadra y el
+// mecanismo cuadra. Se apaga con su interruptor y el juego contesta.
+constexpr uint32_t kBlinkPredicate = 0x00729740;
+constexpr uint32_t kBlinkCall      = 0x0073DB42;
+
+// PLAYER_FLAGS tal y como lo lee el predicado. NO es el array de descriptores
+// corriente (ese cuelga de +0x08); es un segundo bloque propio de CGPlayer_C.
+// Se escribe donde el predicado LEE, que es la unica direccion que garantiza
+// que lo vea.
+constexpr uint32_t kPlayer_FieldsPtr   = 0x1008;
+constexpr uint32_t kPlayerFields_Flags = 0x08;
+constexpr uint32_t kPlayerFlagUber        = 0x00080000;  // bit 19, obligatorio
+constexpr uint32_t kPlayerFlagCommentator = 0x00400000;  // bit 22, salta la arena
+
 }  // namespace off

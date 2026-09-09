@@ -9,10 +9,14 @@
 #include "Player.h"
 #include "SharedDefines.h"   // SUMMON_CATEGORY_PUPPET
 #include "TemporarySummon.h"
+#include "Opcodes.h"         // SMSG_COMMENTATOR_STATE_CHANGED, para Spectate
+#include "WorldPacket.h"
+#include "WorldSession.h"
 
 #include <algorithm>
 #include <cmath>
 #include <unordered_map>
+#include <unordered_set>
 
 namespace
 {
@@ -59,6 +63,10 @@ namespace
     // same arc whatever the tilt. So the focus is computed flat, at the
     // camera's own height, and the tilt takes care of itself.
     std::unordered_map<ObjectGuid, int> g_pivot;   // player -> -1 left, +1 right
+
+    // QUIEN ESTA EN LA CAMARA LIBRE. No es adorno: decide si el servidor puede
+    // mover el cuerpo del jugador. Ver `Spectate`.
+    std::unordered_set<ObjectGuid> g_spectating;
 
     constexpr float kDefaultPivotDist  = 12.0f;   // yards ahead of the camera
     constexpr float kDefaultPivotSpeed = 1.6f;    // radians per second
@@ -684,6 +692,23 @@ void rts::camera::Abandon(Player* player)
     if (!player)
         return;
 
+    // LOS FLAGS DEL SONDEO SE QUITAN AQUI Y SIN CONDICION, antes de mirar si
+    // habia camara. Son cosa aparte del Puppet -- se pueden haber puesto con
+    // `/rts cam spec` sin que la camara de siempre se encendiera nunca -- y
+    // `PLAYER_FLAGS_UBER` puesto y olvidado es estado del jugador que sobrevive
+    // a la sesion. Quitar de mas no cuesta nada; quitar de menos deja al
+    // personaje marcado para siempre. Ver `Spectate`.
+    player->RemovePlayerFlag(PLAYER_FLAGS_UBER);
+    player->RemovePlayerFlag(PLAYER_FLAGS_COMMENTATOR2);
+    Arm(player, false);   // y el modo, o el cliente se queda en el 6
+    if (g_spectating.erase(player->GetGUID()) > 0 && player->IsInWorld())
+    {
+        // Devolverle el control del cuerpo. Sin esto, un logout o un cambio de
+        // mapa con la camara libre puesta deja al jugador sin poder moverse al
+        // volver -- y nada lo relaciona con la camara.
+        player->SetClientControl(player, true);
+    }
+
     auto it = g_cameras.find(player->GetGUID());
     if (it == g_cameras.end())
         return;
@@ -698,4 +723,140 @@ void rts::camera::Abandon(Player* player)
         Release(player, cam);
 
     Despawn(cam);
+}
+
+// --- el sondeo de la camara libre del cliente -------------------------------
+//
+// El porque entero, con las direcciones desensambladas y las lineas del nucleo,
+// esta en la cabecera. Aqui solo las dos mitades que hacen falta: los flags que
+// abren la puerta, y el paquete que enciende el modo.
+// LAS DOS MITADES VAN SEPARADAS, Y LA PRIMERA VERSION LAS MANDABA JUNTAS.
+//
+// Era una carrera, vista en juego el 2026-09-07 en la primera pasada:
+// `SetPlayerFlag` NO manda nada, solo marca el campo como sucio -- la
+// actualizacion de `PLAYER_FLAGS` sale en el siguiente flush de
+// `Player::Update`, unos 100 ms despues. `SendPacket` sale AHORA. Asi que el
+// paquete llegaba primero, el predicado del cliente leia los flags VIEJOS, la
+// puerta estaba cerrada...
+//
+// ...y aqui esta lo que lo hizo caro: **la rama de puerta cerrada no es un
+// no-op.** El manejador (`0x0056B8A0`) salta al mismo sitio que `enable == 0` y
+// mete la camara en modo 1 con el estado que hubiera. En pantalla: la camara se
+// fue lejisimo y por debajo del suelo. O sea que un intento fallido no deja las
+// cosas como estaban, que es la peor forma de fallar.
+//
+// Asi que ya no se adivina el retraso: se ponen los flags, y **el cliente dice
+// cuando han llegado** -- el addon sondea `CommentatorGetCamera()`, que
+// devuelve seis numeros en cuanto la puerta esta abierta y nada mientras no lo
+// esta. Solo entonces se pide el modo con `Arm`. Es la misma leccion que
+// `HasServer()` y que el `PORTED` del cambio de personaje: **un estado que viaja
+// no es un estado que ya llego**, y el unico testigo que vale es el del otro
+// lado.
+bool rts::camera::Spectate(Player* player, bool on)
+{
+    if (!player || !player->GetSession())
+        return false;
+
+    // Los dos bits, por nombre del nucleo y no por su valor. Bit 19
+    // (PLAYER_FLAGS_UBER) es obligatorio; bit 22 (PLAYER_FLAGS_COMMENTATOR2)
+    // es lo unico que salta el requisito de estar en un mapa de arena.
+    if (on)
+    {
+        player->SetPlayerFlag(PLAYER_FLAGS_UBER);
+        player->SetPlayerFlag(PLAYER_FLAGS_COMMENTATOR2);
+    }
+    else
+    {
+        player->RemovePlayerFlag(PLAYER_FLAGS_UBER);
+        player->RemovePlayerFlag(PLAYER_FLAGS_COMMENTATOR2);
+
+        // APAGAR SI MANDA EL PAQUETE, Y TIENE QUE HACERLO AQUI. La rama de
+        // `enable == 0` del cliente no pasa por el predicado, asi que funciona
+        // con los flags ya quitados -- y es la unica salida que tiene el
+        // jugador si el modo se quedo armado. Si esto esperara a un `Arm`
+        // aparte, un fallo a medias dejaria la camara donde estuviera sin nada
+        // que pulsar.
+        Arm(player, false);
+    }
+
+    LOG_INFO("module.rts", "rts: spectate flags {} para {}", on ? "ON" : "OFF",
+        player->GetName());
+    return true;
+}
+
+bool rts::camera::IsSpectating(Player const* player)
+{
+    return player && g_spectating.count(player->GetGUID()) > 0;
+}
+
+bool rts::camera::Arm(Player* player, bool on)
+{
+    if (!player || !player->GetSession())
+        return false;
+
+    // Y AHORA LA MITAD QUE SE ME OLVIDO AL JUBILAR EL PUPPET.
+    //
+    // `orders::MoveSelf` se niega a mover tu propio cuerpo si nadie le ha
+    // quitado el control al cliente, y su comentario dice por que: *"si el
+    // cliente sigue conduciendo este personaje, un movimiento del servidor lo
+    // cancela el siguiente paquete de movimiento que manda"*. Eso lo hacia la
+    // POSESION del Puppet -- y al retirarlo se quedo sin nadie que lo hiciera,
+    // asi que ordenar a tu heroe empezo a contestar *"the RTS camera is not
+    // holding control"* y las rutas propias salian con "reached no bots".
+    //
+    // La razon de la guarda sigue siendo verdad; lo que estaba mal era suponer
+    // que la unica forma de cumplirla es poseer algo. `SetClientControl` con el
+    // propio jugador como objetivo manda `SMSG_CLIENT_CONTROL_UPDATE` y **no**
+    // toca el viewpoint (`Player.cpp:13171`, `if (this != target)`), asi que no
+    // deja ningun seer colgando -- que es justo el fallo que mato al cliente
+    // cuando esto se hizo a mano la primera vez.
+    //
+    // Es la separacion que el rediseno buscaba: **quien conduce el cuerpo** (el
+    // servidor) y **donde esta la camara** (el cliente) dejan de ser la misma
+    // decision. El Puppet las ataba porque era las dos cosas a la vez.
+    // SOLO SI NO HAY NADA POSEIDO, y esa condicion es el arreglo del heroe
+    // invisible.
+    //
+    // `SetClientControl(player, false)` no cambia el mover en el servidor -- el
+    // `SetMover` esta detras de `if (allowMove)` (`Player.cpp:13173`) -- pero
+    // MANDA `SMSG_CLIENT_CONTROL_UPDATE` con el guid del jugador, y eso es
+    // literalmente *"tu unidad activa es esta"*. El cliente lo recibia despues
+    // de la posesion del Puppet y volvia a hacerte el mover.
+    //
+    // Y el mover es quien el cliente NO DIBUJA. `PRUEBAS-5` D2 ya lo decia con
+    // la camara vieja: *"tu personaje no es el active mover, asi que el cliente
+    // calcula las interacciones contra la camara y no contra ti"* -- y por eso
+    // con el Puppet el heroe SE VEIA. Mi linea deshacia exactamente eso, un
+    // instante despues de ponerlo.
+    //
+    // Con el Puppet puesto no hace falta: la posesion ya le ha quitado el
+    // control al cliente por el camino bueno, y la guarda de `MoveSelf` la
+    // cumple `GetCharm()`. Sin Puppet -- `/rts cam spec 1` a mano -- se sigue
+    // necesitando, y de ahi la condicion en vez de borrarlo.
+    bool const possessing = player->GetCharm() != nullptr;
+    if (on)
+    {
+        g_spectating.insert(player->GetGUID());
+        if (!possessing)
+            player->SetClientControl(player, false);
+    }
+    else
+    {
+        g_spectating.erase(player->GetGUID());
+        if (!possessing)
+            player->SetClientControl(player, true);
+    }
+
+    // EL GUID VA EN EL PAQUETE Y TIENE QUE SER EL DEL RECEPTOR. El manejador
+    // del cliente (0x0056B8A0) lo compara contra el guid de su propio objeto de
+    // jugador y descarta el paquete si no cuadra -- en silencio, como todo lo
+    // demas de este camino.
+    WorldPacket data(SMSG_COMMENTATOR_STATE_CHANGED, 8 + 1);
+    data << player->GetGUID();          // los 8 bytes sin empaquetar, como SMSG_DESTROY_OBJECT
+    data << uint8(on ? 1 : 0);
+    player->GetSession()->SendPacket(&data);
+
+    LOG_INFO("module.rts", "rts: spectate modo {} para {}", on ? "6 (libre)" : "1 (normal)",
+        player->GetName());
+    return true;
 }

@@ -62,7 +62,11 @@ namespace
     // pieces in this project -- the DLL, this module, and the addon -- and only
     // the DLL had a version you could see, which made a server-side fix look
     // like nothing had happened. All three now report.
-    constexpr char const* kModVersion = "0.45.0";
+    // 0.46.0 = vuelve la camara de espectador (`CAM SPEC` / `CAM SPECARM`) y la
+    // tercera condicion de `MoveSelf`. El addon debe pedir `ServerAtLeast(46)`
+    // antes de usar esos verbos: un verbo que el servidor no conoce NO da error,
+    // no contesta, asi que un worldserver sin reiniciar se lee como un addon roto.
+    constexpr char const* kModVersion = "0.46.0";
 
     std::string Upper(std::string s)
     {
@@ -1858,6 +1862,51 @@ namespace
                     std::istringstream stream(value);
                     stream >> dir;
                     rts::camera::SetPivot(player, dir);
+                    return true;
+                }
+                // "CAM SPEC <0|1>" -- EL SONDEO de la camara libre del cliente.
+                //
+                // Pone los dos flags de jugador que abren la API de
+                // comentarista y manda el SMSG_COMMENTATOR_STATE_CHANGED que
+                // enciende el modo. Todo el porque -- con las direcciones
+                // desensambladas de este Wow.exe y las lineas del nucleo --
+                // esta en la cabecera de `RtsCamera.h`, en `Spectate`.
+                //
+                // NO TOCA la camara de siempre: el Puppet sigue igual, asi que
+                // esto se puede probar sin arriesgar nada de lo que ya funciona.
+                if (sub == "SPEC")
+                {
+                    bool const on = (value == "1" || value == "on" || value == "ON");
+                    if (!rts::camera::Spectate(player, on))
+                    {
+                        Reply(player, "RTS spec: no se pudo (sin sesion).");
+                        return true;
+                    }
+                    // Contesta por el canal del addon y no por el chat, porque
+                    // el sondeo NECESITA secuenciar: el paquete que enciende el
+                    // modo tiene que haber llegado antes de que Lua llame a
+                    // `CommentatorSetCamera`. Una linea de chat no le dice al
+                    // addon cuando puede seguir.
+                    SendAddon(player, on ? "SPEC 1" : "SPEC 0");
+                    return true;
+                }
+                // "CAM SPECARM <0|1>" -- la SEGUNDA mitad del sondeo: mete la
+                // camara en el modo libre (6) o la devuelve al normal (1).
+                //
+                // Va aparte de `SPEC` porque los flags tardan un tick en llegar
+                // al cliente y el paquete sale ya. Quien decide que ya se puede
+                // armar es el cliente, no un retraso adivinado: el addon sondea
+                // `CommentatorGetCamera()` y pide esto cuando contesta. El
+                // porque entero esta en `RtsCamera.h`.
+                if (sub == "SPECARM")
+                {
+                    bool const on = (value == "1" || value == "on" || value == "ON");
+                    if (!rts::camera::Arm(player, on))
+                    {
+                        Reply(player, "RTS spec: no se pudo armar (sin sesion).");
+                        return true;
+                    }
+                    SendAddon(player, on ? "SPECARM 1" : "SPECARM 0");
                     return true;
                 }
                 // "CAM FLY <0|1>" -- decides whether forward follows the view

@@ -31,6 +31,7 @@ add_library(rts_core SHARED
     src/CVarChannel.cpp
     src/Highlight.cpp
     src/Circle.cpp
+    src/SelfShow.cpp
 )
 target_include_directories(rts_core PRIVATE src)
 target_compile_definitions(rts_core PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
