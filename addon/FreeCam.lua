@@ -57,6 +57,36 @@
 	son entradas del mismo solver y se integran en el mismo frame, que es lo que
 	el brief pedia en su §7.
 
+	=== "EL SUELO" NO ES "LO PRIMERO QUE HAY DEBAJO" (2026-09-10) ============
+
+	Las dos cosas se dicen igual y solo son la misma en campo abierto. En
+	cuanto hay algo construido, lo primero que hay debajo de la camara al
+	acercarse a una casa es el TEJADO -- asi que la altura se corregia contra el
+	tejado, la camara subia sola y entrar era imposible. Un cartel de madera
+	hacia lo mismo en pequeno: un salto de seis yardas y vuelta.
+
+	El DLL publica desde 0.25.0 las DOS alturas -- `RTS_CamGroundZ` (todo) y
+	`RTS_CamLandZ` (solo terreno, otra mascara de banderas del mismo rayo del
+	cliente) -- y `floor` elige. Con `floor = 1` un tejado deja de ser suelo:
+	la camara pasa por encima sin inmutarse y puede bajar hasta DENTRO de la
+	casa, donde el cliente ademas dibuja el interior y recorta el exterior el
+	solo, que es la version buena del corte que se descarto esta misma manana.
+
+	=== Y UN ESCALON NO ES UNA CUESTA ======================================
+
+	Aunque no haya tejados, el terreno tambien tiene bordes. Un suavizado sobre
+	el error de la camara no puede distinguirlos, porque seis yardas de error
+	son las mismas en los dos casos. Lo que si los distingue es CUANTO CORRE EL
+	SUELO: una cuesta a toda velocidad son ~20 yd/s, el borde de un escalon son
+	seis yardas EN UN FRAME -- cientos.
+
+	Asi que hay un filtro DELANTE del suavizado, sobre la senal de suelo, con la
+	velocidad limitada y el limite bajando con el tamano del escalon pendiente
+	(`climb`, `soft`, `slow`). Una cuesta se sigue de cerca; un escalon apenas
+	se empieza, y si te quedas encima acabas subiendo. Cuanto mas alto el
+	escalon, mas despacio -- que es exactamente al reves de lo que hace un
+	suavizado normal, y es lo que se pidio.
+
 	=== SIN DLL ESTO NO ARRANCA, Y LO DICE ==================================
 
 	Necesita dos cosas que solo el DLL da: el vector de avance y el suelo bajo
@@ -85,6 +115,40 @@ local D = {
 	minH    = 4.0,    -- suelo del offset
 	maxH    = 300.0,  -- techo del offset
 	smoothZ = 8.0,    -- k del suavizado de altura (1/s); mas alto, mas seco
+	-- === EL SUELO NO ES LO PRIMERO QUE HAY DEBAJO ========================
+	--
+	-- `floor = 1` mide contra el TERRENO y nada mas: un tejado, un cartel o la
+	-- copa de un arbol dejan de contar como suelo, asi que la camara ni sube
+	-- sola al acercarse a una casa ni se queda fuera. `floor = 0` es lo de
+	-- antes -- lo primero que choque -- y sirve para sobrevolar un pueblo sin
+	-- meterse en ningun sitio.
+	floor   = 1,      -- 1 = solo terreno, 0 = lo primero que haya debajo
+	-- === Y LA CAMARA NO CHOCA CON NADA ===================================
+	--
+	-- La camara de comentarista SI colisiona de serie, y con las mismas
+	-- banderas que el rayo de suelo -- terreno, edificios y doodads. Es la
+	-- segunda mitad de "no puedo entrar en la casa": una la subia al tejado y
+	-- la otra la empujaba fuera de la pared.
+	--
+	-- Con `noclip = 1` se apaga ese rayo al entrar y se vuelve a encender al
+	-- salir, asi que lo unico que detiene a la camara es NUESTRO suelo. Todo lo
+	-- que hace falta para leer eso en el binario esta en `Camera:SetCollision`.
+	noclip  = 1,      -- 1 = atraviesa todo; 0 = colision del cliente, como antes
+	-- === Y EL ESCALON SE PERSIGUE DESPACIO, LA CUESTA NO =================
+	--
+	-- Estas tres son el filtro que separa una cuesta de un salto. La velocidad
+	-- con la que el suelo medido persigue al de verdad es
+	--
+	--     v = climb / (1 + (pendiente/soft)^2),  nunca menos de `slow`
+	--
+	-- o sea que cuanto MAS grande es el escalon que queda por subir, MAS
+	-- despacio se sube -- que es justo al reves de lo que hace un suavizado
+	-- normal, y es lo que pedia el jugador: pasar por encima de un cartel no
+	-- se nota, y si de verdad quieres subirte a el, esperas.
+	climb   = 60.0,   -- yd/s cuando la diferencia es minima (una cuesta)
+	soft    = 2.5,    -- yardas; el codo. Mas pequeno, mas quisquilloso
+	slow    = 6.0,    -- yd/s; el suelo de esa velocidad (si no, un acantilado
+	                  -- de verdad no se subiria nunca)
 	-- POSITIVO MIRA HACIA ABAJO, y lo dice el juego, no yo.
 	--
 	-- Lo puse a -45 razonando "abajo es negativo" y sale al contrario: con -45
@@ -151,6 +215,20 @@ local function Cfg()
 	if c.maxH   <= c.minH               then c.maxH   = D.maxH   end
 	if c.height < c.minH or c.height > c.maxH then c.height = D.height end
 	if c.smoothZ <= 0 or c.smoothZ > 60 then c.smoothZ = D.smoothZ end
+	-- `floor` es una eleccion, no una magnitud: cualquier otra cosa es basura y
+	-- vuelve al de fabrica en vez de recortarse. Y se compara con 0/1 y no con
+	-- `~= 1`, porque un `nil` de una version anterior ya lo ha resuelto el
+	-- bucle de arriba y lo que queda aqui es un numero cualquiera.
+	if c.floor ~= 0 and c.floor ~= 1 then c.floor = D.floor end
+	if c.noclip ~= 0 and c.noclip ~= 1 then c.noclip = D.noclip end
+	if c.climb <= 0 or c.climb > 500 then c.climb = D.climb end
+	if c.soft  <= 0 or c.soft  > 100 then c.soft  = D.soft  end
+	if c.slow  <  0 or c.slow  > 200 then c.slow  = D.slow  end
+	-- El suelo de la velocidad por encima del techo dejaria el codo sin efecto
+	-- y el ajuste `soft` sin nada que hacer -- un mando que gira sin conectar.
+	-- Se baja el SUELO y no se sube el techo: bajar `climb` es una intencion
+	-- clara ("que todo vaya despacio") y subirsela por detras seria desobedecer.
+	if c.slow > c.climb then c.slow = c.climb end
 	if c.pitch < -89 or c.pitch > 89    then c.pitch  = D.pitch  end
 	if c.clear < 0 or c.clear > 50      then c.clear  = D.clear  end
 	if c.yawSign ~= 1 and c.yawSign ~= -1 then c.yawSign = 1 end
@@ -242,7 +320,12 @@ end
 -- EL PITCH ES ESTADO, NO SOLO AJUSTE: el raton lo cambia (ver `AdoptLook`), asi
 -- que el valor de `Cfg().pitch` es solo con lo que se ENTRA.
 local st = { x = nil, y = nil, z = nil, yaw = 0, pitch = nil, offset = nil,
-             vx = 0, vy = 0 }
+             vx = 0, vy = 0,
+             -- `gz` es el suelo FILTRADO: el que la camara cree que tiene
+             -- debajo, que persigue al medido con una velocidad limitada. Es
+             -- estado y no una variable local del tick a proposito -- sin
+             -- memoria entre frames no hay filtro, solo un rebautizo del suelo.
+             gz = nil, gstep = 0 }
 
 -- Ninguna de las funciones de comentarista se habia llamado nunca en este
 -- proyecto, asi que todas pasan por aqui: si una no existe, el controlador
@@ -264,10 +347,43 @@ local function FlatForward()
 	return fx / len, fy / len
 end
 
-local function GroundUnderCamera()
-	if RTS_CamGroundHit == 1 and RTS_CamGroundZ then return RTS_CamGroundZ end
-	return nil
+-- EL SUELO, Y DE CUAL DE LOS DOS RAYOS SALE.
+--
+-- El DLL publica dos alturas bajo la camara y la diferencia entre ellas es
+-- todo el problema del tejado:
+--
+--   `RTS_CamGroundZ` -- lo PRIMERO que hay debajo. Un tejado, un cartel, la
+--                       copa de un arbol. Es la que habia, y es la buena para
+--                       sobrevolar un sitio sin meterse en nada.
+--   `RTS_CamLandZ`   -- solo el TERRENO. Lo construido deja de ser suelo, asi
+--                       que ni un tejado levanta la camara ni le impide bajar
+--                       hasta dentro de la casa.
+--
+-- Devuelve tambien de donde ha salido, porque "la camara sube sola" y "la
+-- camara no baja" son el mismo sintoma con las dos fuentes cambiadas, y
+-- distinguirlo mirando la pantalla cuesta una ronda.
+local function GroundUnderCamera(c)
+	local land  = (RTS_CamLandHit  == 1) and RTS_CamLandZ  or nil
+	local solid = (RTS_CamGroundHit == 1) and RTS_CamGroundZ or nil
+	if c.floor == 1 then
+		if land then return land, "terreno" end
+		-- CAER AL SOLIDO NO ES DEGRADARSE AQUI, ES ACERTAR. Dentro de una cueva
+		-- el ADT esta agujereado a proposito y el rayo de terreno NO CONTESTA:
+		-- el suelo bueno de ese sitio es justamente el solido -- el suelo de la
+		-- cueva. Es tambien lo que pasa con un DLL viejo, que no publica
+		-- `RTS_CamLandZ` en absoluto, y ahi la camara se porta como antes en vez
+		-- de quedarse sin altura.
+		if solid then return solid, "solido (sin terreno aqui)" end
+		return nil, nil
+	end
+	if solid then return solid, "solido" end
+	return nil, nil
 end
+
+-- Un cambio de suelo mas grande que esto NO es un escalon del mundo: es un
+-- teleport, un cambio de mapa o el primer frame. Filtrarlo a 6 yd/s dejaria la
+-- camara subiendo durante minuto y medio, asi que ahi se salta de golpe.
+local GROUND_SNAP = 300.0
 
 local function Try(name, ...)
 	local fn = _G[name]
@@ -423,10 +539,92 @@ function F:Step(dt)
 	end
 
 	-- --- el objetivo y el suavizado -----------------------------------
-	local ground = GroundUnderCamera()
+	local ground = GroundUnderCamera(c)
 	local targetZ
 	if ground then
-		targetZ = ground + st.offset
+		-- EL ESCALON SE FILTRA EN EL SUELO, NO EN LA CAMARA, y esa es la unica
+		-- razon de que esto sepa distinguir un cartel de una cuesta.
+		--
+		-- El suavizado de abajo trabaja sobre el ERROR de la camara, y un error
+		-- no dice de donde viene: seis yardas de error son las mismas subiendo
+		-- una loma que cruzando por encima de un poste. Lo que si los separa es
+		-- CUANTO CORRE EL SUELO: una cuesta a toda velocidad mueve el suelo unas
+		-- 20 yd/s, y el borde de un cartel lo mueve seis yardas EN UN FRAME --
+		-- cientos de yd/s. Dos ordenes de magnitud, no un matiz.
+		--
+		-- Asi que el suelo medido persigue al suelo real con una velocidad
+		-- limitada, y el limite BAJA con lo que quede por subir:
+		--
+		--     v = climb / (1 + (pendiente/soft)^2)
+		--
+		-- Una cuesta se queda a un par de yardas del suelo real y se sigue de
+		-- cerca; un escalon de seis apenas se empieza, y cuando el cartel ya ha
+		-- pasado el suelo real vuelve a bajar y la diferencia -- ahora minuscula
+		-- -- se cierra deprisa. Quedarse quieto encima del cartel si sube: la
+		-- velocidad nunca es cero, solo pequena. Eso es literalmente lo que se
+		-- pidio -- "si de verdad quiero subirme, solo tengo que esperar".
+		--
+		-- `slow` es el suelo de esa velocidad y no es cosmetico: sin el, un
+		-- acantilado de 60 yardas se subiria a 0.1 yd/s, o sea nunca.
+		local gz, pend = st.gz, st.gstep or 0
+		local d = gz and (ground - gz) or nil
+		if not d or d > GROUND_SNAP or d < -GROUND_SNAP then
+			gz, pend = ground, 0
+		else
+			local ad = (d >= 0) and d or -d
+			-- EL FRENO LO DECIDE EL TAMANO DEL ESCALON, NO LO QUE QUEDE DE EL.
+			--
+			-- Aqui iba `ad` directamente y el simulador lo tumbo en la primera
+			-- corrida: con la velocidad atada a lo que FALTA, cada subida se
+			-- acelera segun se acerca -- las ultimas dos yardas de un escalon de
+			-- quince se hacian a 25 yd/s, casi el doble de lo que sube el
+			-- jugador a mano con ESPACIO. O sea el latigazo que veniamos a
+			-- quitar, movido al final del recorrido, donde ademas se ve peor
+			-- porque llega despues de un tramo lento.
+			--
+			-- "Esto es un escalon" es una propiedad del SUCESO, no de la
+			-- distancia que queda ahora, asi que se recuerda: `pend` es el mayor
+			-- desnivel visto desde la ultima vez que el filtro se puso al dia, y
+			-- se borra justo al ponerse al dia. Una cuesta no lo levanta -- el
+			-- suelo se mueve unas yardas por SEGUNDO y el filtro va sobrado, asi
+			-- que el retraso se queda en la fraccion de yarda de un frame.
+			if ad > pend then pend = ad end
+			local q = pend / c.soft
+			local v = c.climb / (1 + q * q)
+			if v < c.slow then v = c.slow end
+			local step = v * dt
+			if ad <= step then
+				gz, pend = ground, 0
+			elseif d > 0 then
+				gz = gz + step
+			else
+				gz = gz - step
+			end
+			-- TOPE DE RETRASO HACIA ARRIBA, y no es un ajuste nuevo: SALE DEL
+			-- OFFSET. Si el suelo de verdad no debe acercarse a la camara mas de
+			-- `clear`, y la camara vuela a `offset` sobre el suelo filtrado,
+			-- entonces el filtrado no puede quedarse mas de `offset - clear` por
+			-- debajo del real. Ni una constante que inventar ni un mando que
+			-- explicar.
+			--
+			-- Es ademas lo que impide el unico caso feo que quedaba: un escalon
+			-- seguido de una cuesta larga deja el freno puesto -- `pend` sigue
+			-- alto -- y sin tope la camara se hundiria en la loma hasta que el
+			-- suelo duro la rescatara de un tiron. Con el tope no llega a pasar:
+			-- el limite se alcanza poco a poco y a partir de ahi el filtro sigue
+			-- al suelo a su misma velocidad.
+			--
+			-- SOLO HACIA ARRIBA. Hacia abajo el retraso no es peligroso, es la
+			-- vista: cuando el suelo se acaba, la camara baja despacio y el
+			-- terreno se abre debajo. Capar ese lado seria obligarla a caer.
+			if d > 0 then
+				local cap = st.offset - c.clear
+				if cap < 1 then cap = 1 end
+				if ground - gz > cap then gz = ground - cap end
+			end
+		end
+		st.gz, st.gstep = gz, pend
+		targetZ = gz + st.offset
 	else
 		-- SIN SUELO NO SE INVENTA UNO. El rayo puede no contestar dentro de una
 		-- cueva o sobre agua profunda; mantener la Z es lo unico que no pega un
@@ -434,12 +632,21 @@ function F:Step(dt)
 		-- la tentacion obvia: en una camara RTS ese punto puede estar a
 		-- cientos de yardas y en otra altura.
 		targetZ = st.z
+		-- Y el suelo filtrado se olvida: cuando el rayo vuelva a contestar sera
+		-- en otro sitio, y arrastrar el de antes lo haria parecer un escalon
+		-- gigante justo en el frame de la reaparicion.
+		st.gz, st.gstep = nil, 0
 	end
 
 	-- Suavizado exponencial independiente del frame rate. `1 - exp(-k*dt)` y no
 	-- una fraccion fija por frame: con una fraccion fija, a 144 fps la camara
 	-- llega tres veces mas rapido que a 45, o sea que el tacto cambiaria con el
 	-- rendimiento. Es la formula del §6 del brief.
+	--
+	-- Sigue estando DESPUES del filtro de suelo y no en su lugar: el limitador
+	-- de velocidad deja esquinas -- el frame en que deja de correr al tope se ve
+	-- como un tiron -- y esto las redondea. Cada uno hace una cosa: el de arriba
+	-- decide CUANTO se sube, este decide como se entra y se sale.
 	local alpha = 1 - math.exp(-c.smoothZ * dt)
 	st.z = st.z + (targetZ - st.z) * alpha
 
@@ -447,6 +654,16 @@ function F:Step(dt)
 	-- que la camara se meta dentro del terreno mientras persigue una subida
 	-- brusca -- que es el caso que el brief describe en su §8 y el unico en el
 	-- que el suavizado, por definicion, va por detras.
+	--
+	-- Y SE MIDE CONTRA EL SUELO DE VERDAD, no contra el filtrado: lo que no
+	-- puede pasar es que la camara se meta dentro de una loma REAL.
+	--
+	-- Que esto no sea el tiron de siempre otra vez lo garantiza el tope de
+	-- retraso de arriba, no la suerte: con el tope puesto, el suelo real nunca
+	-- puede acercarse a la camara mas de `clear`, asi que este `if` no llega a
+	-- dispararse mientras el filtro manda. Sin el tope los dos se pelearian cada
+	-- frame -- uno frenando y el otro empujando -- que es la forma exacta de
+	-- discusion que este proyecto ya ha perdido dos veces.
 	if ground and st.z < ground + c.clear then
 		st.z = ground + c.clear
 	end
@@ -501,6 +718,10 @@ function F:Start()
 	st.offset = c.height
 	st.x, st.y = px, py
 	st.z = pz + c.height
+	-- El suelo filtrado de la ULTIMA vez que se entro no vale: puede ser de
+	-- otro continente. A nil, que es lo que hace que el primer tick lo siembre
+	-- con la medida de aqui en vez de venir subiendo desde donde estuvieramos.
+	st.gz, st.gstep = nil, 0
 	-- El yaw arranca en 0 y NO se deriva del que tenga la camara: la convencion
 	-- de angulos de `CommentatorSetCamera` no se puede leer del binario, asi que
 	-- sembrarlo seria adivinar. El precio es un giro brusco al entrar; el
@@ -508,6 +729,20 @@ function F:Start()
 	-- depende del yaw para nada (sale del vector que publica el DLL).
 	st.yaw = 0
 	st.pitch = c.pitch
+
+	-- QUE NO CHOQUE CON NADA QUE NO SEA NUESTRO SUELO.
+	--
+	-- Va AQUI y no antes por una razon que no se ve: el manejador del cliente
+	-- exige los dos flags de jugador y, si faltan, retorna sin escribir y sin
+	-- error. A estas alturas la puerta ya esta abierta -- `WaitGate` ha dejado
+	-- pasar -- asi que los flags estan puestos. Llamarlo en `CameraOn`, antes de
+	-- `Spectate`, habria sido una llamada que parece funcionar y no hace nada.
+	--
+	-- Una vez basta: quien lo enciende es el init del objeto de comentarista, y
+	-- ese corre UNA VEZ en el arranque del cliente. Nadie lo reescribe por
+	-- detras, asi que no hay que refrescarlo cada tick -- que es la forma de
+	-- pelea que este proyecto ya ha perdido dos veces.
+	if c.noclip == 1 then ns.Camera:SetCollision(false) end
 
 	self.active = true
 	ns.Camera:SpecPlace(st.x, st.y, st.z, st.yaw, st.pitch, nil)
@@ -517,6 +752,15 @@ end
 function F:Stop()
 	if not self.active then return true end
 	self.active = false
+	-- CAPTURAR Y DEVOLVER, con la unica pega de que aqui no hay de donde
+	-- capturar: el cliente no publica un getter de esto. Asi que se devuelve al
+	-- valor MEDIDO, no supuesto -- `0x0056BC80` escribe 1 en ese campo al
+	-- arrancar el juego, o sea que 1 es como estaba antes de que lo tocaramos.
+	--
+	-- Y va antes de que nadie quite los flags: `R:CameraOff` llama a esto y solo
+	-- despues a `Spectate(false)`. Al reves, esta linea no escribiria nada y la
+	-- colision se quedaria apagada para el resto de la sesion.
+	ns.Camera:SetCollision(true)
 	-- Las teclas pueden no volver en combate; se avisa al llamante para que
 	-- pueda reintentarlo al salir de la pelea, igual que hace `Chrome`.
 	return ReleaseKeys()
@@ -541,6 +785,11 @@ local LABEL = {
 	minH = "altura minima (yd)",
 	maxH = "altura maxima (yd)",
 	smoothZ = "suavizado de altura (k)",
+	floor = "que cuenta como suelo: 1 = solo terreno, 0 = lo primero que haya",
+	noclip = "1 = la camara atraviesa todo; 0 = colision del cliente",
+	climb = "velocidad de seguimiento del suelo con poca diferencia (yd/s)",
+	soft = "el codo: a partir de estas yardas de escalon, se frena (yd)",
+	slow = "velocidad minima de seguimiento del suelo (yd/s)",
 	pitch = "inclinacion de entrada (grados, POSITIVO mira abajo)",
 	clear = "margen duro sobre el suelo (yd)",
 	yawSign = "signo del giro con Q/E (1 o -1)",
@@ -572,6 +821,13 @@ function F:Set(key, value)
 	-- `/rts fc pitch 60` no haria nada hasta la siguiente entrada al modo, que
 	-- se lee como que el ajuste no funciona.
 	if key == "pitch" then st.pitch = Cfg().pitch end
+	-- Igual que el pitch: es estado vivo. Sin esto `/rts fc noclip 0` no haria
+	-- nada hasta la siguiente entrada al modo, que se lee como que el ajuste no
+	-- funciona -- y aqui ademas el sintoma tardaria en verse, porque hay que ir
+	-- a buscar una pared.
+	if key == "noclip" and self.active then
+		ns.Camera:SetCollision(Cfg().noclip == 0)
+	end
 	ns.Print(("|cff33ccffcamara RTS:|r %s = %s"):format(key, tostring(Cfg()[key])))
 end
 
@@ -582,10 +838,37 @@ function F:Report()
 		ns.Print(("  pos %.1f %.1f %.1f   yaw %.0f   pitch %.0f   offset %.1f"):format(
 			st.x, st.y, st.z, st.yaw, st.pitch or 0, st.offset or 0))
 	end
-	local g = GroundUnderCamera()
+	-- LOS DOS RAYOS, SIEMPRE LOS DOS, y no solo el que este en uso.
+	--
+	-- La pregunta que se hace delante de una casa es "¿por que sube la camara?",
+	-- y se contesta sola en cuanto se ven los dos numeros juntos: si `solido`
+	-- esta quince yardas por encima de `terreno`, eso de debajo es un tejado.
+	-- Con un solo numero hay que adivinar cual de los dos se esta mirando.
+	local land  = (RTS_CamLandHit  == 1) and RTS_CamLandZ  or nil
+	local solid = (RTS_CamGroundHit == 1) and RTS_CamGroundZ or nil
+	ns.Print(("  suelo: terreno %s   solido %s   |cffffff00en uso: %s|r"):format(
+		land and ("%.1f"):format(land) or "|cffff8800--|r",
+		solid and ("%.1f"):format(solid) or "|cffff8800--|r",
+		c.floor == 1 and "terreno" or "solido"))
+	if land == nil and RTS_CamLandHit == nil then
+		-- Un DLL viejo no publica la variable EN ABSOLUTO, y eso no se parece en
+		-- nada a "el rayo no ha chocado". Sin esta linea, `floor 1` se comporta
+		-- exactamente como `floor 0` y parece que el ajuste no hace nada.
+		ns.Print("  |cffff8800Este rts_core no publica el terreno|r: hace falta " ..
+			"0.25.0 o mas nuevo (recompila e inyecta de nuevo).")
+	end
+	-- Y LA OTRA MITAD DE "NO PUEDO ENTRAR". Son dos causas distintas con el
+	-- mismo sintoma -- el suelo la sube al tejado, la colision la empuja fuera
+	-- de la pared -- y arreglada una sola, la pantalla se ve igual.
+	ns.Print(("  colision del cliente: %s"):format(
+		c.noclip == 1 and "|cff00ff00APAGADA|r (atraviesa todo)"
+		              or "|cffff8800encendida|r (choca con paredes y tejados)"))
+	local g, src = GroundUnderCamera(c)
 	if g then
-		ns.Print(("  suelo bajo la camara %.1f -> separacion %.1f yd"):format(
-			g, (st.z or g) - g))
+		ns.Print(("  suelo en uso %.1f (%s)   filtrado %s   separacion %.1f yd"):format(
+			g, src,
+			st.gz and ("%.1f"):format(st.gz) or "--",
+			(st.z or g) - (st.gz or g)))
 	else
 		ns.Print("  |cffff8800sin suelo|r: el rayo no contesta aqui (¿cueva, agua?).")
 	end

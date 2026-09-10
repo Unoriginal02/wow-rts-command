@@ -93,6 +93,33 @@ constexpr uint32_t kLua_PushString  = 0x0084E350;
 constexpr uint32_t kCGWorldFrame_Intersect = 0x0077F310;
 constexpr uint32_t kIntersectFlags         = 0x00100171;
 
+// EL SUELO SIN LOS EDIFICIOS -- las banderas que dejan SOLO el terreno.
+//
+// Sale del cuerpo de la funcion (0x007A3B70), que tiene exactamente DOS
+// mitades y cada una se enciende con su propia mascara:
+//
+//   007A3B8A  test eax, 0x40F300FF   -> call 0x007A30D0   ; objetos
+//   007A3C2E  test eax, 0x40F3010F   -> call 0x007A39F0   ; terreno
+//
+// Cual es cual no se supone, se lee en las dos: 0x007A30D0 mide el largo del
+// rayo, carga 6000 como tope y recorre una estructura espacial -- WMO y
+// doodads; 0x007A39F0 convierte las dos puntas a indices de casilla con
+// `fmul [0x00A3FDA0] / fistp` contra el global 0x009E2ACC, que es la rejilla
+// de ADT. Terreno.
+//
+// El bit 0x100 esta en la segunda mascara Y NO EN LA PRIMERA, asi que
+// `flags = 0x100` salta el bloque de objetos ENTERO -- no lo filtra despues,
+// no llega a entrar. Es la unica pareja de bits del juego que separa las dos
+// mitades limpiamente: 0x01..0x80 solo estan en la de objetos, y 0x0F y
+// 0x00F30000 estan en las dos (0x00100000, el que llevan las banderas de
+// arriba, es uno de esos: no distingue nada).
+//
+// Para que sirve: la camara libre medía su altura contra ESTO -- lo primero
+// que hay bajo ella -- y lo primero que hay bajo ella al acercarse a una casa
+// es el TEJADO, asi que la camara subia sola y no se podia entrar. Con el
+// terreno solo, un tejado deja de ser suelo.
+constexpr uint32_t kIntersectFlagsTerrain  = 0x00000100;
+
 // CGPlayer_C::ClickToMove(uint32 clickType, uint64* guid, Vec3* pos, float prec)
 // __thiscall (ecx = local player object). clickType 4 = "move to point",
 // confirmed from the in-game type-4 caller at 0x0072B71D. NOT CALLED YET --

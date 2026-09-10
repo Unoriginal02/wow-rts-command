@@ -22,7 +22,9 @@ namespace {
 // numero que retrocede haria que un addon que pregunta "¿tienes al menos
 // 0.23?" creyera que habla con un DLL viejo, cuando lo que pasa es que la
 // funcion ya no existe. Hacia atras no se vuelve, se avanza quitando.
-constexpr const char* kVersion = "0.24.0";
+//
+// 0.25.0 = el suelo bajo la camara se publica DOS VECES, con y sin edificios.
+constexpr const char* kVersion = "0.25.0";
 constexpr int kProtocol = 3;
 
 // Every published unit costs ~110 bytes of Lua source that the client parses on
@@ -304,20 +306,37 @@ void PublishCameraOnly() {
     world::Vec3 ghit = {0, 0, 0};
     bool const camGroundHit = world::Raycast(gs, ge, &ghit, nullptr);
 
-    char code[640];
+    // Y EL MISMO RAYO OTRA VEZ, SIN LOS EDIFICIOS.
+    //
+    // "Lo primero que hay debajo" deja de ser "el suelo" en cuanto hay algo
+    // construido: acercando la camara a una casa el primer choque es el
+    // TEJADO, asi que la altura se corregia contra el tejado y la camara subia
+    // sola -- imposible entrar. Un cartel de madera hacia lo mismo en pequeno.
+    //
+    // Se publican LAS DOS y elige el addon (`/rts fc floor`), en vez de
+    // cambiar la que ya habia: la de siempre sigue siendo la buena para
+    // sobrevolar sin meterse en nada, y sustituirla en silencio habria movido
+    // el tacto de la camara sin que nadie lo pidiera. Cuesta un rayo mas por
+    // frame de camara, que es la mitad barata del tick.
+    world::Vec3 lhit = {0, 0, 0};
+    bool const camLandHit = world::RaycastTerrain(gs, ge, &lhit, nullptr);
+
+    char code[768];
     int n = _snprintf_s(code, sizeof(code), _TRUNCATE,
         "RTS_HasCam=1;RTS_CamX=%.3f;RTS_CamY=%.3f;RTS_CamZ=%.3f;"
         "RTS_CamFwdX=%.4f;RTS_CamFwdY=%.4f;RTS_CamFwdZ=%.4f;"
         "RTS_CamRightX=%.4f;RTS_CamRightY=%.4f;RTS_CamRightZ=%.4f;"
         "RTS_CamUpX=%.4f;RTS_CamUpY=%.4f;RTS_CamUpZ=%.4f;"
         "RTS_CamFov=%.5f;RTS_CamAspect=%.5f;"
-        "RTS_CamGroundHit=%d;RTS_CamGroundZ=%.3f",
+        "RTS_CamGroundHit=%d;RTS_CamGroundZ=%.3f;"
+        "RTS_CamLandHit=%d;RTS_CamLandZ=%.3f",
         cam.pos[0], cam.pos[1], cam.pos[2],
         cam.mat[0], cam.mat[1], cam.mat[2],
         cam.mat[3], cam.mat[4], cam.mat[5],
         cam.mat[6], cam.mat[7], cam.mat[8],
         cam.fov, cam.aspect,
-        camGroundHit ? 1 : 0, camGroundHit ? ghit.z : 0.0f);
+        camGroundHit ? 1 : 0, camGroundHit ? ghit.z : 0.0f,
+        camLandHit ? 1 : 0, camLandHit ? lhit.z : 0.0f);
     if (n <= 0) return;
 
     __try {

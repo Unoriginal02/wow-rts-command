@@ -1,13 +1,17 @@
 # `sim/` — las pruebas que no necesitan el juego
 
-Dos guiones de Python que reproducen fuera del cliente la parte del addon que es
+Guiones de Python que reproducen fuera del cliente la parte del addon que es
 **aritmética pura**, y le pasan los casos que en juego cuestan una ronda de
 pruebas cada uno.
 
 ```
 python sim\bar_layout.py      el reparto de la barra: areas, celdas, desbordes
 python sim\route_advance.py   el avance de las rutas: indices, llegadas, plazos
+python sim\ground_filter.py   la altura de la camara libre: escalones y cuestas
 ```
+
+(La lista completa es el contenido de la carpeta; arriba están los tres que más
+se usan.)
 
 ## Por qué existen
 
@@ -24,14 +28,21 @@ Porque ya han pagado tres veces:
   que medía la llegada contra el punto anterior —donde estaba parado—, se daba
   por llegado y **se saltaba el punto nuevo entero**.
 
+- `ground_filter.py` tumbó **en la primera corrida** el filtro de altura que se
+  acababa de escribir: la velocidad de seguimiento dependía de *lo que quedaba*
+  del escalón, así que cada subida se aceleraba al final y las últimas dos
+  yardas de un escalón de quince se hacían a 25 yd/s — el mismo tirón que venía
+  a quitar, movido al final del recorrido. Y luego pidió el tope de retraso, al
+  no haber forma de pasar el perfil «una repisa y detrás una cuesta larga».
+
 ## Cómo se usan
 
 Se ejecutan **antes** de compilar o de desplegar, no después de que algo falle.
 Cuestan un segundo.
 
-Los dos llevan un interruptor para volver al comportamiento anterior y
-comprobar que la prueba tiene dientes — `SENT_GUARD = False` en
-`route_advance.py`. Una prueba que pasa con el código roto no es una prueba, y
+Llevan un interruptor para volver al comportamiento anterior y comprobar que la
+prueba tiene dientes — `SENT_GUARD = False` en `route_advance.py`, y
+`--sin-filtro` / `--sin-pendiente` / `--sin-tope` en `ground_filter.py`. Una prueba que pasa con el código roto no es una prueba, y
 la única forma de saberlo es romperlo a propósito una vez.
 
 ## Lo que NO cubren

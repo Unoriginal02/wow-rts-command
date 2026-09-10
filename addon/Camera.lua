@@ -1198,8 +1198,53 @@ end
 -- (`0x0084DF20`, o sea `lua_isnumber`), asi que un booleano no pasa el filtro.
 -- El texto de uso describe la INTENCION; el filtro describe lo que acepta, y
 -- cuando discrepan manda el filtro.
+-- LO QUE HACE DE VERDAD, LEIDO EN EL BINARIO EL 2026-09-10 -- porque hasta ese
+-- dia esto era una llamada suelta que nadie hacia y una suposicion razonable
+-- sobre lo que pasaria si alguien la hacia.
+--
+-- El manejador (`0x0056AB70`) escribe 1 o 0 en `0x00ACE4F0`, que es el campo
+-- `+0x48` del objeto de comentarista que vive en `0x00ACE4A8`. Y ese campo se
+-- LEE, en el recorrido de camara:
+--
+--   00568B31  cmp dword ptr [esi + 0x48], 0
+--   00568B43  je  0x568b69                  ; 0 -> se salta el rayo entero
+--   00568B49  push 0x100171                 ; 1 -> rayo contra terreno+WMO+M2
+--   00568B5B  call 0x77f310                 ; CGWorldFrame::Intersect
+--
+-- O sea que la camara de comentarista SI colisiona, y con las mismas banderas
+-- que nuestro rayo de suelo. Apagarlo no la hace "atravesar mejor": le quita el
+-- rayo de encima.
+--
+-- Y ARRANCA ENCENDIDO. El global esta a 0 en el fichero, pero `0x0056BC80` --
+-- el init del objeto -- escribe 1 en `+0x48`. Tiene UN solo llamante
+-- (`0x0056C150`), y ese esta dentro de la cadena de arranque del cliente
+-- (`0x0052B864`, entre otras quince llamadas de inicializacion), asi que corre
+-- UNA VEZ al abrir el juego. Por eso basta con apagarlo al entrar: nadie lo
+-- vuelve a encender por detras.
+--
+-- OJO CON EL MOMENTO: el manejador exige los DOS flags de jugador (bit 19 y bit
+-- 22) antes de escribir nada, y si no los tienes se va por `je 0x56ac01` y
+-- RETORNA SIN ESCRIBIR Y SIN ERROR. Llamarlo antes de armar es una llamada que
+-- parece funcionar y no hace nada.
+--
+-- UN NUMERO, NO UN BOOLEANO, aunque su propio texto de uso diga "bool".
+--
+-- Visto en juego: pasarle `true` contesta
+-- *"Usage: CommentatorSetCameraCollision(bool enable)"*. La funcion valida su
+-- argumento con la misma llamada que `SetCamera` usa para los seis suyos
+-- (`0x0084DF20`, o sea `lua_isnumber`), asi que un booleano no pasa el filtro.
+-- El texto de uso describe la INTENCION; el filtro describe lo que acepta, y
+-- cuando discrepan manda el filtro.
+--
+-- Callada y con una sola boca: la usan `FreeCam` al entrar y salir, y el
+-- comando de abajo. Dos caminos para lo mismo es como se acaba arreglando la
+-- mitad de un fallo.
+function C:SetCollision(on)
+	return Try("CommentatorSetCameraCollision", on and 1 or 0)
+end
+
 function C:CameraCut(on)
-	local ok, err = Try("CommentatorSetCameraCollision", on and 1 or 0)
+	local ok, err = self:SetCollision(on)
 	if not ok then
 		ns.Print("|cffff0000cut:|r " .. tostring(err))
 		ns.Print("  si dice 'no existe', este cliente no es el que se analizo.")
@@ -1207,7 +1252,12 @@ function C:CameraCut(on)
 	end
 	ns.Print("|cff33ccffcut:|r colision de camara " ..
 		(on and "|cffff0000ON|r (normal)" or "|cff00ff00OFF|r (atraviesa)"))
-	ns.Print("  metete en una cueva y mira si la camara deja de empujarse.")
+	if not GateOpen() then
+		-- El unico fallo posible aqui es silencioso, asi que se dice ANTES de
+		-- que el jugador se vaya a probarlo a una cueva.
+		ns.Print("  |cffff8800Sin modo espectador esto no ha escrito nada|r: " ..
+			"el manejador exige los dos flags y se calla si faltan.")
+	end
 end
 
 -- El paso 6: inventario de lo que el binario tiene para esconder geometria.

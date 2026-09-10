@@ -6,7 +6,9 @@
 
 namespace world {
 
-bool Raycast(const Vec3& start, const Vec3& end, Vec3* hit, float* frac) {
+namespace {
+
+bool Cast(const Vec3& start, const Vec3& end, Vec3* hit, float* frac, unsigned flags) {
     using Fn = int(__cdecl*)(const Vec3*, const Vec3*, Vec3*, float*, unsigned, unsigned);
 
     Vec3 out = {0.f, 0.f, 0.f};
@@ -15,7 +17,7 @@ bool Raycast(const Vec3& start, const Vec3& end, Vec3* hit, float* frac) {
 
     __try {
         result = reinterpret_cast<Fn>(off::kCGWorldFrame_Intersect)(
-            &start, &end, &out, &distance, off::kIntersectFlags, 0);
+            &start, &end, &out, &distance, flags, 0);
     } __except (EXCEPTION_EXECUTE_HANDLER) {
         return false;
     }
@@ -26,6 +28,16 @@ bool Raycast(const Vec3& start, const Vec3& end, Vec3* hit, float* frac) {
         return true;
     }
     return false;
+}
+
+}  // namespace
+
+bool Raycast(const Vec3& start, const Vec3& end, Vec3* hit, float* frac) {
+    return Cast(start, end, hit, frac, off::kIntersectFlags);
+}
+
+bool RaycastTerrain(const Vec3& start, const Vec3& end, Vec3* hit, float* frac) {
+    return Cast(start, end, hit, frac, off::kIntersectFlagsTerrain);
 }
 
 }  // namespace world
