@@ -643,7 +643,6 @@ local function Initialise()
 	-- falta hasta entonces.
 	ns.Skills:Create()
 	ns.Chain:Create()
-	ns.Possess:Create()
 	-- Quests se crea SIEMPRE y aqui, por dos motivos que apuntan al mismo sitio:
 	-- el seguimiento automatico (aceptar y entregar detras de ti) tiene que
 	-- estar enganchado mientras juegas NORMAL, que es cuando hablas con los
@@ -855,7 +854,6 @@ BINDING_HEADER_RTSCOMMAND_GROUPS = "RTS Command: Control groups"
 BINDING_NAME_RTSCOMMAND_GROUP1 = "Control group 1 (alt: store)"
 BINDING_NAME_RTSCOMMAND_GROUP2 = "Control group 2 (alt: store)"
 BINDING_NAME_RTSCOMMAND_BAGS = "Bolsas del grupo"
-BINDING_NAME_RTSCOMMAND_POSSESS = "Jugar como el seleccionado (y volver)"
 BINDING_HEADER_RTSCOMMAND_SKILLS = "RTS Command - habilidades"
 BINDING_NAME_RTSCOMMAND_SKILL1 = "Habilidad 1 (alt: sobre ti)"
 BINDING_NAME_RTSCOMMAND_SKILL2 = "Habilidad 2 (alt: sobre ti)"
@@ -933,12 +931,11 @@ function RTSCommand_ToggleBags()
 	ns.Bags:Toggle()
 end
 
--- Jugar como el compañero seleccionado, y volver. Una sola tecla para los dos
--- sentidos: es un cambio de sitio, y una tecla que solo va de ida deja al
--- jugador buscando la de vuelta justo cuando menos le apetece.
-function RTSCommand_TogglePossess()
-	ns.Possess:Toggle()
-end
+-- LA TECLA DE POSEER SE FUE CON LA POSESION, 2026-09-11. Ver el bloque de
+-- `RTSCommand_ReleasePossession` justo arriba: una tecla que llama a una
+-- funcion inexistente da un error de Lua en cada pulsacion, asi que sale de
+-- `Bindings.xml` en el mismo cambio -- y dejar la funcion como cascara vacia
+-- seria peor, porque responde y no hace nada.
 
 -- LA TECLA DE CICLAR EL PRIMARIO SE FUE, y el CONCEPTO se queda.
 --
@@ -1013,6 +1010,8 @@ local HELP = {
 	"|cffffff00/rts debug|r - echo every message to and from the server module",
 	"|cffffff00/rts native|r - rts_core.dll status + offset self-test",
 	"|cffffff00/rts ui|r - que se esconde al entrar en modo RTS, y las medidas de la HUD",
+	"|cffffff00/rts macros|r - crea los macros de mando a los bots (arrastralos a las barras de la derecha)",
+	"|cffffff00/rtscmd <cmd>|r - manda un comando de playerbots a los SELECCIONADOS; |cffffff00/rtsall|r al grupo",
 	"|cffffff00/rts art|r - visor de texturas del cliente (para vestir la HUD sin dibujar)",
 	"|cffffff00/rts bags|r - las bolsas de todo el grupo (tambien con su tecla)",
 	"|cffffff00/rts quests|r - abre el registro; su boton Compartir FUERZA la mision al grupo",
@@ -1021,7 +1020,6 @@ local HELP = {
 	"|cffffff00/rts skills|r - las habilidades del primario (lo pone seleccionar a UNO)",
 	"|cffffff00/rts chain|r - la cadena de ataque; |cffffff00/rts chain off|r la limpia",
 	"|cffffff00/rts npc|r - entrenador y vendedor, actuando como el primario",
-	"|cffffff00/rts play [nombre]|r - juegas como ese compañero; sin nombre, lo sueltas",
 	"|cffffff00/rts swap <nombre>|r - CAMBIAS a ese personaje de tu cuenta (con carga)",
 	"|cffffff00/rts win|r - las ventanas flotantes; |cffffff00/rts win reset|r las recentra",
 	"|cffffff00/rts skin|r - aspecto WC3 o plano; |cffffff00/rts skin wall <ruta>|r cambia una pieza",
@@ -1218,6 +1216,20 @@ SlashCmdList["RTSCOMMAND"] = function(msg)
 			ns.Camera:Toggle()
 		end
 
+	elseif cmd == "macros" or cmd == "macro" then
+		-- Los mandos que van a las dos barras verticales de la derecha, que el
+		-- modo RTS deja a la vista justo para esto. Ver Macros.lua.
+		local sub = (rest or ""):match("^(%S*)"):lower()
+		if sub == "" or sub == "build" or sub == "crear" then
+			ns.Macros:Build()
+		elseif sub == "list" or sub == "lista" then
+			ns.Macros:List()
+		elseif sub == "clear" or sub == "borrar" then
+			ns.Macros:Clear()
+		else
+			ns.Macros:Status()
+		end
+
 	elseif cmd == "ui" then
 		-- El interruptor de la opcion B del estudio: ocultado selectivo, mas
 		-- las medidas del prototipo de HUD. Todo por el mismo comando porque
@@ -1408,8 +1420,7 @@ SlashCmdList["RTSCOMMAND"] = function(msg)
 			ns.Print("cambiar: |cffffff00/rts swap <nombre>|r. Tiene que ser un " ..
 			         "personaje de |cffffff00tu cuenta|r, y no vale en combate.")
 			ns.Print("|cff888888Pasas a SER ese personaje -- sus bolsas, su libro, sus " ..
-			         "barras -- y el que dejas se queda de bot en tu grupo. Para tomar " ..
-			         "el mando sin cambiar, |cffffff00/rts play|r.|r")
+			         "barras -- y el que dejas se queda de bot en tu grupo.|r")
 		else
 			if ns.RTSMode.active then ns.RTSMode:Toggle() end
 			ns.SendServer("SWAP " .. who)
@@ -1489,17 +1500,6 @@ SlashCmdList["RTSCOMMAND"] = function(msg)
 				tostring(RTS_HasPos), RTS_PX or 0, RTS_PY or 0, RTS_PZ or 0))
 		else
 			ns.Print("|cff888888DLL: no inyectado, solo vale la linea de arriba.|r")
-		end
-
-	elseif cmd == "play" or cmd == "jugar" then
-		-- Sin argumento: suelta si llevas a alguien, y si no toma al primario.
-		local who = strtrim(rest or "")
-		if who ~= "" then
-			ns.Possess:Take(who)
-		elseif ns.Possess.who then
-			ns.Possess:Release()
-		else
-			ns.Possess:Take(nil)
 		end
 
 	elseif cmd == "npc" or cmd == "personaje" then

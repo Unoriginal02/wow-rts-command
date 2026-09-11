@@ -647,11 +647,12 @@ bool rts::command::SetRole(Player* master, std::string const& botName,
     // "no hagas nada", y un bot con `passive` puesto solo en el estado de
     // combate sigue yendo a por cosas fuera de el.
     //
-    // Y la mitad que importa es la de APAGARLO. Dos sitios ponen `+passive` en
-    // LOS DOS estados -- `Suppress` (tomar prestado el bot para lanzar por el) y
-    // `PossessBot` -- y los dos lo quitan de los dos al soltar. Pero si ese
-    // soltar no llega a correr (el bot se va del grupo, el maestro se desconecta,
-    // el jugador cambia de bot), el `+passive` del estado NO combate se queda.
+    // Y la mitad que importa es la de APAGARLO. `Suppress` -- tomar prestado el
+    // bot para lanzar por el -- pone `+passive` en LOS DOS estados y lo quita de
+    // los dos al soltar. Pero si ese soltar no llega a correr (el bot se va del
+    // grupo, el maestro se desconecta, el jugador cambia de bot), el `+passive`
+    // del estado NO combate se queda. (El segundo sitio que hacia esto era
+    // `PossessBot`, borrado en 0.49.0 con la posesion entera.)
     //
     // Con un `-passive` que solo tocara el de combate, ese bot quedaba pasivo
     // fuera de combate PARA SIEMPRE: no reacciona a nada, y la fila de roles leia

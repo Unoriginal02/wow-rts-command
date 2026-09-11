@@ -66,9 +66,9 @@
 	en un color.
 
 	CINCO CASILLAS NO SON ORDENES Y SE QUEDAN COMO ESTAN. Formar abre una lista,
-	Salir sale del modo, Control cambia o posee a UN personaje -- por definicion
-	uno -- y las dos marcas ponen un icono en TU objetivo. Ninguna manda una
-	orden al grupo, asi que "siempre al grupo" no les dice nada.
+	Salir sale del modo, Control te cambia a UN personaje -- por definicion uno
+	-- y las dos marcas ponen un icono en TU objetivo. Ninguna manda una orden
+	al grupo, asi que "siempre al grupo" no les dice nada.
 
 	SALIR ES UN BOTON Y NO UNA TECLA MAS porque el modo RTS esconde la interfaz
 	de Blizzard: si algo va mal, "donde estaba la tecla" es justo lo que no se
@@ -190,12 +190,22 @@ local CELLS = {
 	{ short = "Atacar",  icon = I.attack, tip = "Atacan tu objetivo.",
 	  fn = function() Dispatch("attack", "Atacan") end },
 
-	{ short = "Control", icon = I.control, rmb = true,
+	-- EL CLICK DERECHO POSEIA, Y SE FUE EL 2026-09-11 a peticion del jugador:
+	-- *"si le haces click derecho posees raro, eso quitalo"*. Y tenia razon --
+	-- estaba escrito en la cabecera del propio `Possess.lua` desde el primer
+	-- dia: la posesion cambia quien te MUEVE, no quien ERES, asi que hablar con
+	-- un PNJ va por tu personaje, que esta parado en otro sitio, y falla por
+	-- distancia. Media funcion detras de un gesto que nadie pidio.
+	--
+	-- El mismo dia, y a peticion suya tambien, se fue la posesion ENTERA: el
+	-- fichero, la tecla, `/rts play` y el verbo `POSSESS` de mod-rts. No queda
+	-- media puerta abierta. Este boton hace lo que siempre hizo el izquierdo:
+	-- `SWAP`, que te cambia de personaje de verdad.
+	{ short = "Control", icon = I.control,
 	  tip = "Click: te CONVIERTES en ese personaje. Su equipo, sus\n" ..
 	        "hechizos, sus bolsas. El que dejas se queda de bot.\n" ..
-	        "Click derecho: le posees (al momento, pero sin hablar con PNJs).\n" ..
 	        "Hace falta tener UNO solo seleccionado.",
-	  fn = function(_, button)
+	  fn = function()
 		-- Uno y solo uno. Con varios seleccionados no hay respuesta correcta, y
 		-- elegir el primero de la lista seria elegir por el jugador algo que no
 		-- se puede deshacer sin otra carga.
@@ -216,16 +226,12 @@ local CELLS = {
 			return
 		end
 
-		-- EL IZQUIERDO ES EL CAMBIO, como se penso desde el principio, y desde
-		-- la tarde del 2026-09-03 ya no pasa por la lista de personajes: el
-		-- servidor esconde el `SMSG_LOGOUT_COMPLETE` y el cliente se cambia de
-		-- identidad sin salir del mundo. Ver `/rts swap` en `Core.lua`.
-		if button == "RightButton" then
-			ns.Possess:Take(who)
-		else
-			if ns.RTSMode.active then ns.RTSMode:Toggle() end
-			ns.SendServer("SWAP " .. who)
-		end
+		-- EL CAMBIO, como se penso desde el principio, y desde la tarde del
+		-- 2026-09-03 ya no pasa por la lista de personajes: el servidor esconde
+		-- el `SMSG_LOGOUT_COMPLETE` y el cliente se cambia de identidad sin
+		-- salir del mundo. Ver `/rts swap` en `Core.lua`.
+		if ns.RTSMode.active then ns.RTSMode:Toggle() end
+		ns.SendServer("SWAP " .. who)
 	  end },
 
 	{ short = "A saco",  icon = I.rage,   tip = "Queman cooldowns.",
@@ -393,18 +399,24 @@ local function LayoutOrder(i, c)
 	local b = buttons[i]
 	if not b then
 		b = ns.W:Button(host, c.w, spec and spec.icon)
-		-- EL DERECHO SOLO CUENTA SI LA CELDA LO PIDE (`rmb = true`).
+		-- EL DERECHO NO HACE NADA EN ESTA REJILLA, y desde el 2026-09-11 no lo
+		-- hace en NINGUNA casilla: la unica que lo usaba era "Control", que
+		-- poseia, y esa boca se quito.
 		--
-		-- Los botones se reutilizan entre distribuciones, asi que registrar los
-		-- clicks por celda no vale: se registran los dos SIEMPRE y se descarta
-		-- el derecho en el manejador si esa orden no lo usa. Sin ese descarte,
-		-- click derecho sobre "Atacar" atacaria -- y catorce ordenes ganarian un
-		-- gesto que nadie decidio darles.
+		-- Habia una bandera por celda (`rmb = true`) para permitirlo; se va con
+		-- ella, porque una bandera que ya no enciende nadie es maquinaria sin
+		-- llamante -- y volver a ponerla, el dia que haga falta un gesto
+		-- derecho, es esta misma linea.
+		--
+		-- El descarte se queda porque los botones se REUTILIZAN entre
+		-- distribuciones: registrar los clicks por celda no vale, asi que se
+		-- registran los dos siempre y aqui se tira el derecho. Sin eso, click
+		-- derecho sobre "Atacar" atacaria.
 		b:RegisterForClicks("LeftButtonUp", "RightButtonUp")
 		b:SetScript("OnClick", function(self, button)
 			local act = self.act
 			if not act or not act.fn then return end
-			if button == "RightButton" and not act.rmb then return end
+			if button == "RightButton" then return end
 			act.fn(self, button)
 		end)
 		buttons[i] = b

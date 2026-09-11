@@ -5556,6 +5556,141 @@ on` imprime los flags vivos, asi que un `uber=1` antes de tocar nada dice que el
 personaje todavia arrastra el `playerFlags = 0x480000` en la base de datos.
 
 
+## Los macros de mando y las dos barras de la derecha. 2026-09-11
+
+El encargo tenia dos mitades que resultaron ser la misma: *"esconde tambien el
+marco del objetivo y el del objetivo del objetivo, pero DEJA las dos barras
+verticales de la derecha, que ahi pondre cosas"*, y *"hazme macros con los
+comandos de los bots -- el `assist` sobre todo -- para poder activarlos y
+desactivarlos desde ahi"*. Sin las barras los macros no tienen donde vivir; sin
+los macros las barras no tienen para que quedarse.
+
+**Esconder el objetivo es una linea; el conjunto nuevo no.** Las cuatro barras
+de accion vivian juntas en el conjunto `bars`, asi que las dos verticales salen
+a un conjunto propio, `side`, que de fabrica NO se esconde. Eso cambia lo que
+significa `bars` para quien lo tuviera guardado, o sea sello `uiHideGen` a 4 y
+la tabla entera a la basura diciendolo -- la novena purga, por la misma razon de
+siempre: comparar el rango no basta cuando lo que cambia es lo que la clave
+SIGNIFICA.
+
+**Dejarlas visibles no era dejarlas usables.** `MultiActionBars.xml` del cliente
+(sacado de `locale-esES.MPQ`, que es donde vive el XML de FrameXML -- el
+`patch-esES.MPQ` solo trae los ficheros que cambiaron) dice dos cosas: que
+`MultiBarRight` cuelga de **UIParent** y no de `MainMenuBar` -- asi que esconder
+la barra de abajo no se las lleva -- y que esta anclada a **98 pixeles** del
+borde inferior. La consola ocupa el 20% del alto de pantalla. Los tres botones
+de abajo de cada columna quedaban detras de ella: visibles a medias y sin poder
+pulsarlos, que es la version cara de "esta puesto pero no funciona". Se levanta
+el ancla mientras dura el modo y se devuelve al salir, con la regla de capturar
+y devolver de siempre; `MultiBarLeft` cuelga de `MultiBarRight`, asi que mover
+una mueve las dos.
+
+**Y el icono de un macro NO es una ruta.** Esto se leyo en
+`Blizzard_MacroUI.lua` de este cliente antes de escribir una linea, y es la
+diferencia entre 24 macros con icono y 24 con interrogacion:
+
+```lua
+index = CreateMacro(MacroPopupEditBox:GetText(), MacroPopupFrame.selectedIcon, ...)
+...
+MacroFrameSelectedMacroButtonIcon:SetTexture(GetMacroIconInfo(MacroPopupFrame.selectedIcon));
+```
+
+`selectedIcon` es el **indice** dentro de la lista de iconos de macro del
+cliente. Pasar `Interface\Icons\Loquesea` no da error -- dibuja nada, que es el
+modo de fallo por defecto de este cliente. Asi que `Macros.lua` recorre
+`GetMacroIconInfo` una vez, guarda nombre -> indice, y **canta por pantalla** lo
+que no encuentre. Del mismo fichero salen los topes que no hay que recordar de
+memoria: 36 macros de cuenta, 18 de personaje, 16 letras de nombre
+(`letters="16"`) y 255 de cuerpo.
+
+Dos decisiones mas, las dos por un fallo ya pagado:
+
+- **Se actualiza, no se borra y se crea.** Una barra de accion guarda el INDICE
+  del macro. Borrar y recrear recoloca los indices, asi que el boton que el
+  jugador habia colocado acabaria apuntando a otro macro. Volver a dar a `/rts
+  macros` tiene que ser gratis.
+- **No se cachea una lista de iconos vacia.** Si la lista aun no esta, cachear
+  el fallo lo deja fallando para siempre -- que es exactamente lo que tuvo al
+  FOV tres etapas muerto por un CVar que no existia todavia.
+
+Los macros salen por `/rtscmd`, que manda **a los seleccionados** y, si no hay
+nadie, a todo el grupo DICIENDOLO; `/rtsall` va siempre al grupo. Pasan por
+`Orders`, o sea que heredan la cola de envio: cuatro susurros en el mismo frame
+se los come el limite de ritmo del chat sin un solo error.
+
+El catalogo se comprueba en `sim/macro_catalog.py`, que lee el propio
+`Macros.lua` y lo contrasta contra el CLIENTE (los iconos, por
+`SpellIcon.dbc` + `ItemDisplayInfo.dbc`) y contra el MODULO (los comandos, por
+`ChatCommandHandlerStrategy.cpp`, y las estrategias de `co`/`nc`, por
+`StrategyContext.h`). Con `--break` se le mete un nombre largo, un icono que no
+existe y un comando inventado, y caza los cuatro fallos. Si alguna de las dos
+fuentes no esta en la maquina, lo dice en vez de dar por bueno lo que no ha
+mirado.
+
+**La leccion cara de la ronda no fue de WoW:** editar Lua con escapes desde una
+cadena del shell se comio los `\\1` de un `re.sub` y dejo bytes `\x01` dentro del
+fichero. Es la regla que ya estaba escrita -- *"para tocar codigo con escapes,
+fichero y editor, nunca una cadena del shell"* -- y la cuarta vez que se paga.
+`check_addon.py` lo cazo en un segundo, que es justo para lo que esta.
+
+## La posesion, borrada entera. 2026-09-11 (tarde)
+
+Empezo como un detalle: *"el boton de poseer, si le haces click derecho posees
+raro. Eso quitalo, es una mierda"*. Era el click derecho del boton **Control**
+de la rejilla 4x4. Se quito el gesto, se dijo que la posesion seguia viva por
+otras dos puertas -- `/rts play` y su tecla -- y la respuesta fue *"quitala del
+todo"*.
+
+**Y tenia razon desde el principio, que es lo incomodo:** el precio estaba
+escrito en la cabecera de `Possess.lua` **el dia que se escribio**, en un bloque
+titulado "LO QUE ESTO NO DA, DICHO POR DELANTE". La posesion cambia quien te
+MUEVE, no quien ERES; los manejadores de interaccion del nucleo
+(`HandleGossipHelloOpcode`, vendedor, entrenador, botin, misiones) trabajan
+sobre `_player`, no sobre el `m_mover`. Asi que hablar con un PNJ mientras
+posees va por TU personaje, parado en otro sitio, y falla por distancia. Se
+construyo sabiendolo, y lo que se entrego fue media funcion. Escribir el precio
+por delante funciona; lo que falla es leerlo **antes de construir**, no despues.
+
+Lo borrado, de las dos mitades a la vez:
+
+| Addon (1.14.0) | mod-rts (0.49.0) |
+|---|---|
+| `Possess.lua` entero y su linea del `.toc` | el verbo `POSSESS` |
+| `RTSCommand_TogglePossess`, su `Binding` y su `BINDING_NAME` | `PossessBot`, `ReleaseBot` |
+| `/rts play` y su linea de ayuda | `ReleaseAnyPossession`, `ReleaseAll` |
+| el click derecho de **Control** y la bandera `rmb` | `FillPossessBar` y `g_possessed` |
+
+**La parte que habia que pensar era quitar los dos seguros del `ABORT()`.**
+`ReleaseAnyPossession` se llamaba en el logout y en el cambio de mapa, y existe
+por un worldserver muerto con volcado el 2026-09-03: un `Player` charmado sin
+aura llega a `Player::RemoveFromWorld` -> `StopCastingCharm`, que solo sabe
+quitar auras, no encuentra ninguna y responde con `ABORT()`. Borrar una guarda
+que costo eso da respeto.
+
+Se borran igualmente, y el razonamiento es el que manda el propio documento:
+`PossessBot` era **lo unico de este modulo que charmaba a un `Player`**, asi que
+sin el la guarda no puede dispararse nunca -- *"una comprobacion que no puede
+dispararse es peor que no tenerla, porque parece cubrir un caso que en realidad
+esta descubierto"*. Y hay una razon mas fuerte: el unico charm de `Player` que
+queda en el juego es el **Control Mental de un sacerdote**, que lleva aura de
+verdad y el nucleo deshace solo; la guarda del logout se la habria comido por
+delante. La camara no entra en nada de esto -- es un Puppet y se suelta por
+`camera::Abandon`, que ademas devuelve la criatura a su mapa.
+
+Un comentario en `RtsCommandMode.cpp` decia *"dos sitios ponen `+passive` en los
+dos estados: `Suppress` y `PossessBot`"*. Ahora es uno, y se ha corregido:
+**un comentario que cita un simbolo borrado es una pista falsa**, y este
+proyecto ya perdio vueltas siguiendo pistas falsas escritas por el mismo.
+
+Epilogo para una linea vieja de `CLAUDE.md`. Decia que la unica vez que dejar
+codigo sin llamante salio bien fue `PossessBot`, porque estaba documentado por
+que se dejaba. Se sostiene a medias: volvio a usarse, y al volver reintrodujo
+entero el `ABORT()` que la camara ya habia sufrido. Guardar un año de codigo no
+salvo ni una hora de las que costo. Esta vez se borra de verdad -- git lo tiene,
+y la cura de raiz esta escrita en el hueco que dejo: que la posesion lleve un
+aura de verdad (`SPELL_AURA_MOD_POSSESS`), que es lo que `StopCastingCharm` sabe
+deshacer.
+
 ---
 
 # Apendice -- el texto original de las etapas 1-4 y de `rts-tools`

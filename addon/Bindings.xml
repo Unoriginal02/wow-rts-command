@@ -61,9 +61,6 @@
 	<Binding name="RTSCOMMAND_BAGS" header="RTSCOMMAND_WINDOWS">
 		RTSCommand_ToggleBags();
 	</Binding>
-	<Binding name="RTSCOMMAND_POSSESS">
-		RTSCommand_TogglePossess();
-	</Binding>
 
 	<Binding name="RTSCOMMAND_SKILL1" header="RTSCOMMAND_SKILLS">
 		RTSCommand_Skill(1);

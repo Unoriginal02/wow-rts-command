@@ -90,18 +90,9 @@ namespace rts
         // something off the path and the anchor then pulls it back.
         bool AttackMoveBot(Player* master, std::string const& botName, float x, float y, float z);
 
-        // Take direct control of a bot: stand its AI down and hand the client
-        // the reins. The same possession the RTS camera uses, pointed at a
-        // Player instead of an invisible creature (Unit.cpp:14610 permits it).
-        bool PossessBot(Player* master, std::string const& botName);
-        bool ReleaseBot(Player* master, std::string const& botName);
-
-        // Soltar lo que sea que este poseyendo, sin saber su nombre ni mirar el
-        // grupo. Para las salidas del nucleo (logout, cambio de mapa): un charm
-        // sin aura que llegue a `Player::RemoveFromWorld` MATA EL WORLDSERVER
-        // con un ABORT. El porque, entero, en el .cpp.
-        bool ReleaseAnyPossession(Player* master);
-        bool ReleaseAll(Player* master);
+        // LA POSESION SE BORRO EL 2026-09-11 (0.49.0): `PossessBot`,
+        // `ReleaseBot`, `ReleaseAnyPossession` y `ReleaseAll` ya no existen.
+        // El porque, entero, en el hueco que dejaron en el .cpp.
 
         // Move the commanding player's OWN character.
         //

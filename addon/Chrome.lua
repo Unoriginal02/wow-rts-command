@@ -100,8 +100,16 @@ local ITEMS = {
 	{ n = "MainMenuBarArtFrame",      s = "bars", p = true },
 	{ n = "MultiBarBottomLeft",       s = "bars", p = true },
 	{ n = "MultiBarBottomRight",      s = "bars", p = true },
-	{ n = "MultiBarLeft",             s = "bars", p = true },
-	{ n = "MultiBarRight",            s = "bars", p = true },
+	-- LAS DOS VERTICALES DE LA DERECHA SON SU PROPIO CONJUNTO desde 2026-09-11,
+	-- y de fabrica SE QUEDAN. Son el sitio donde el jugador pone sus macros de
+	-- ordenes a los bots (`/rts macros`), o sea que esconderlas con el resto de
+	-- barras dejaba el modo RTS sin el unico hueco de la interfaz de Blizzard
+	-- que aqui hace falta. Son hijas de UIParent -- comprobado en
+	-- `MultiActionBars.xml` del cliente -- asi que esconder `MainMenuBar` no se
+	-- las lleva, y `MultiBarLeft` cuelga de `MultiBarRight`: mover una mueve las
+	-- dos. Ver el bloque de LEVANTAR mas abajo.
+	{ n = "MultiBarLeft",             s = "side", p = true },
+	{ n = "MultiBarRight",            s = "side", p = true },
 	{ n = "ShapeshiftBarFrame",       s = "bars", p = true },
 	{ n = "PetActionBarFrame",        s = "bars", p = true },
 	{ n = "BonusActionBarFrame",      s = "bars", p = true },
@@ -147,6 +155,7 @@ local SETS = {
 	{ k = "buffs",   d = "buffs y debuffs" },
 	{ k = "minimap", d = "minimapa de Blizzard (el nuestro lo sustituye)" },
 	{ k = "bars",    d = "barras de accion, bolsas, XP, menu de iconos" },
+	{ k = "side",    d = "las dos verticales de la derecha (de fabrica SE QUEDAN)" },
 	{ k = "chat",    d = "ventanas de chat y sus botones" },
 	{ k = "quest",   d = "seguimiento de misiones" },
 	{ k = "misc",    d = "durabilidad, avisos, marcadores de zona" },
@@ -169,17 +178,29 @@ C.SETS = SETS
 -- cumplio, asi que la excepcion se va -- y ahora eran DOS dibujos de lo mismo,
 -- uno encima del otro.
 --
--- El objetivo se queda a la vista: la sala ensena el objetivo del BOT
--- seleccionado, que no es el tuyo, asi que ahi no hay duplicado que quitar.
--- Se siguen pudiendo encender con /rts ui player|party.
-local SHOW_BY_DEFAULT = { target = true }
+-- EL OBJETIVO TAMBIEN SE ESCONDE desde 2026-09-11, pedido por el jugador.
+-- Estaba a la vista porque la sala ensena el objetivo del BOT seleccionado, que
+-- no es el tuyo, asi que no habia duplicado que quitar -- pero la razon para
+-- dejarlo puesto era que no estorbaba, y estorba. El objetivo del objetivo y el
+-- foco son hijos suyos y se van con el.
+--
+-- Lo unico que se queda de fabrica es `side`: las dos barras verticales de la
+-- derecha, que son donde el jugador pone sus macros de mando (`/rts macros`).
+-- Se siguen pudiendo cambiar todos con /rts ui <conjunto>.
+local SHOW_BY_DEFAULT = { side = true }
 
 -- Se sube cuando cambia lo que significa una clave guardada de `uiHide`.
 --
 -- A 3 el 2026-09-06: `player` y `party` cambian de valor de fabrica, y una
 -- preferencia guardada bajo el defecto viejo los dejaria a la vista para
 -- siempre sin que nada lo explicara. Es la misma purga que `railCropGen`.
-local UIHIDE_GEN = 3
+--
+-- A 4 el 2026-09-11: `target` pasa a esconderse y NACE `side`. Las dos barras
+-- verticales estaban dentro de `bars`, asi que quien tuviera `bars` guardado
+-- (encendido o apagado) llevaria ese valor a un conjunto que ya no significa lo
+-- mismo. Es exactamente el caso que el sello existe para cubrir: comparar el
+-- rango no basta cuando lo que cambia es lo que la clave SIGNIFICA.
+local UIHIDE_GEN = 4
 
 C.hide = {}
 for _, s in ipairs(SETS) do C.hide[s.k] = not SHOW_BY_DEFAULT[s.k] end
@@ -227,6 +248,101 @@ local function Unpark(item)
 	return true
 end
 
+--- LEVANTAR LAS DOS VERTICALES SOBRE LA CONSOLA ---------------------------
+--
+-- Dejarlas visibles no basta: `MultiBarRight` esta anclada a 98 pixeles del
+-- borde de abajo (`MultiActionBars.xml` del cliente) y la consola ocupa el 20%
+-- del alto de pantalla, o sea unos 216 en 1080p. Los tres botones de abajo de
+-- cada columna quedan DETRAS de la barra -- visibles a medias y sin poder
+-- pulsarlos, que es la version cara de "esta puesto pero no funciona".
+--
+-- Asi que se sube el ancla justo por encima de la consola mientras dure el modo
+-- RTS, y se devuelve al salir. Capturar y devolver, como todo lo demas de este
+-- fichero: se guarda el punto EXACTO que tenia antes del primer cambio.
+--
+-- `MultiBarLeft` cuelga de `MultiBarRight`, asi que mover una mueve las dos.
+-- Y solo se mueve SI HACE FALTA: con una consola baja, o con las barras ya
+-- colocadas mas arriba por el propio jugador, no se toca nada.
+--
+-- Es un frame protegido: en combate no se puede mover, asi que devuelve false
+-- y el aplazamiento a PLAYER_REGEN_ENABLED que ya existe se encarga.
+
+local LIFT_ANCHOR = "MultiBarRight"
+local LIFT_GAP = 10        -- pixeles entre el techo de la consola y la barra
+
+local lifted = nil         -- { point, rel, relPoint, x, y } de ANTES de tocarla
+local liftedTo = nil       -- el y que se aplico, para no reescribirlo cada tick
+
+-- El techo de la consola, en las coordenadas de `frame`. Sin esto sale mal en
+-- cuanto la barra tiene escala propia, que la tiene: `HUD:ScaleFrame` se la
+-- pone y `ArtScale` la multiplica.
+local function ConsoleTopIn(frame)
+	local bar = _G.RTSBar
+	if not bar or not bar:IsShown() then return nil end
+	local top = bar:GetTop()
+	if not top then return nil end
+	local es = frame:GetEffectiveScale()
+	if not es or es == 0 then return nil end
+	return top * bar:GetEffectiveScale() / es
+end
+
+local function LiftDown()
+	if not lifted then return true end
+	local f = _G[LIFT_ANCHOR]
+	if not f then lifted, liftedTo = nil, nil return true end
+	if InCombatLockdown() then return false end
+	f:ClearAllPoints()
+	f:SetPoint(lifted[1], lifted[2] or f:GetParent(), lifted[3] or lifted[1],
+		lifted[4] or 0, lifted[5] or 0)
+	lifted, liftedTo = nil, nil
+	return true
+end
+
+local function LiftUp()
+	local f = _G[LIFT_ANCHOR]
+	if not f then return true end
+
+	-- Un ancla con varios puntos no es la de fabrica: la ha movido otro addon y
+	-- devolverla seria adivinar. Se deja en paz.
+	if f:GetNumPoints() ~= 1 then return true end
+
+	local want = ConsoleTopIn(f)
+	if not want then return true end
+	want = want + LIFT_GAP
+
+	local p, rel, rp, x, y = f:GetPoint(1)
+	if not p then return true end
+
+	-- Ya esta por encima por su cuenta: no hay nada que levantar. Se compara
+	-- contra el sitio ORIGINAL cuando ya lo hemos movido nosotros, no contra el
+	-- sitio al que lo movimos -- si no, bajar la consola no lo bajaria nunca.
+	local base = lifted and lifted[5] or y or 0
+	if base >= want then return LiftDown() end
+
+	-- Nada que hacer solo si el sitio que queremos no ha cambiado Y la barra
+	-- sigue puesta ahi. Mirar solo lo nuestro daria por hecho que nadie mas
+	-- la ha movido, y Blizzard recoloca frames por su cuenta.
+	if liftedTo and math.abs(liftedTo - want) < 1
+	   and y and math.abs(y - want) < 1 then
+		return true
+	end
+	if InCombatLockdown() then return false end
+
+	if not lifted then lifted = { p, rel, rp, x, y } end
+	f:ClearAllPoints()
+	f:SetPoint(lifted[1], lifted[2] or f:GetParent(), lifted[3] or lifted[1],
+		lifted[4] or 0, want)
+	liftedTo = want
+	return true
+end
+
+-- Levantada mientras el modo esta activo Y las dos barras se quedan a la vista.
+-- Si el jugador las esconde con `/rts ui side` no hay nada que levantar.
+local function ApplyLift()
+	if C.active and not C.hide.side then return LiftUp() end
+	return LiftDown()
+end
+
 -- Un unico sitio que decide, para cada frame, si deberia estar aparcado ahora
 -- mismo. Entrar, salir, encender un conjunto y el aviso de fin de combate son
 -- todos la misma operacion, que es lo que impide que se desincronicen.
@@ -239,6 +355,8 @@ function C:Apply()
 			if not ok then blocked = true end
 		end
 	end
+
+	if not ApplyLift() then blocked = true end
 
 	if self.active and self.hide.tooltip and GameTooltip:IsShown()
 	   and not ns.IsOurs(GameTooltip:GetOwner()) then
@@ -272,6 +390,11 @@ local function EnsureSweeper()
 			C.peek, peekUntil = false, nil
 			C:Apply()
 		end
+
+		-- La consola cambia de alto con `/rts bar share` y con la resolucion,
+		-- asi que a que altura van las dos verticales se revisa cada barrido.
+		-- Cuesta una resta salvo el tick en que de verdad cambia.
+		ApplyLift()
 
 		for _, item in ipairs(ITEMS) do
 			-- Wanted y no C.hide: mientras el chat esta asomado NO se le puede
@@ -432,7 +555,8 @@ function C:Create()
 	if RTSCommandDB.uiHideGen ~= UIHIDE_GEN then
 		if type(RTSCommandDB.uiHide) == "table" and next(RTSCommandDB.uiHide) then
 			ns.Print("|cff888888ui: los ajustes de que se esconde vuelven a fabrica " ..
-			         "(tu marco y los del grupo pasan a esconderse; /rts ui los devuelve).|r")
+			         "(el objetivo pasa a esconderse y las dos barras verticales " ..
+			         "de la derecha se quedan; /rts ui <conjunto> lo cambia).|r")
 		end
 		RTSCommandDB.uiHide = {}
 		RTSCommandDB.uiHideGen = UIHIDE_GEN

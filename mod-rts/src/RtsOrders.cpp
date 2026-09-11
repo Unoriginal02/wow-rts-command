@@ -3,9 +3,7 @@
 #include "RtsCamera.h"   // camera::IsSpectating, para la guarda de MoveSelf
 
 #include "RtsBotApi.h"   // la unica puerta a mod-playerbots
-#include "RtsCommandMode.h"   // ActionBarSpells, para la barra de posesion
 
-#include "CharmInfo.h"   // CHARM_TYPE_POSSESS -- Unit.h only forward-declares CharmType
 #include "SpellInfo.h"
 #include "Creature.h"
 #include "LootMgr.h"
@@ -324,218 +322,26 @@ bool rts::orders::AttackMoveBot(Player* master, std::string const& botName, floa
     return true;
 }
 
-namespace
-{
-    // QUIEN ESTA POSEIDO Y COMO ESTABA ANTES.
-    //
-    // El comentario que habia aqui decia: *"esto pone passive a ciegas y
-    // `ReleaseBot` lo quita a ciegas (...) se deja asi A PROPOSITO porque el
-    // verbo POSSESS no lo manda nadie. Si POSSESS vuelve a usarse, la version
-    // correcta esta escrita en `Suppress`"*.
-    //
-    // POSSESS tiene llamante desde hoy, asi que se hace lo que aquel comentario
-    // mandaba: capturar antes del primer cambio y devolver a lo capturado. Sin
-    // esto, tomar el mando de un bot al que le habias puesto "Esperar" a mano se
-    // lo quitaba al soltarlo, en silencio.
-    struct Possessed
-    {
-        ObjectGuid bot;
-        bool wasPassiveCombat = false;
-        bool wasPassiveIdle = false;
-    };
-
-    std::unordered_map<ObjectGuid, Possessed> g_possessed;
-
-    // Los diez huecos de la barra de posesion, rellenos con la barra de acciones
-    // DEL PROPIO BOT.
-    //
-    // POSEER A UN `Player` DA UNA BARRA VACIA, y hay que saberlo: el nucleo
-    // rellena la barra de posesion desde `m_spells` de la CRIATURA
-    // (`CharmInfo::InitPossessCreateSpells`, CharmInfo.cpp:79), y para cualquier
-    // otra cosa hace `InitEmptyActionBar()`. O sea que sin esto tomas el mando
-    // del mago y te encuentras moviendote sin un solo hechizo -- que se leeria
-    // como que la posesion esta a medias.
-    //
-    // La fuente es la misma que usa la fila de habilidades: la barra guardada
-    // del bot, que son los hechizos que TU le pusiste jugandolo.
-    void FillPossessBar(Player* master, Player* bot)
-    {
-        CharmInfo* info = bot->GetCharmInfo();
-        if (!info)
-            return;
-
-        auto const spells = rts::command::ActionBarSpells(master, bot->GetName());
-
-        // `ActionBarSpells` devuelve id + LETRA DE TIPO desde 0.36.0. Aqui solo
-        // hace falta el id: una barra de posesion no pregunta a quien apuntar,
-        // la maneja el jugador con el raton como cualquier otra.
-        uint32 slot = 0;
-        for (auto const& sp : spells)
-        {
-            if (slot >= MAX_UNIT_ACTION_BAR_INDEX)
-                break;
-            if (SpellInfo const* si = sSpellMgr->GetSpellInfo(sp.id))
-            {
-                if (info->AddSpellToActionBar(si, ACT_PASSIVE, slot))
-                    ++slot;
-            }
-        }
-
-        // Y se le manda al cliente. `SetCharmedBy` ya llamo a
-        // `PossessSpellInitialize` ANTES de que rellenaramos nada, asi que sin
-        // esta segunda llamada el jugador ve la barra vacia que se envio
-        // entonces -- los huecos estarian puestos en el servidor y no en la
-        // pantalla, que es la peor forma de estar a medias.
-        master->PossessSpellInitialize();
-    }
-}
-
-bool rts::orders::PossessBot(Player* master, std::string const& botName)
-{
-    Player* bot = ResolveBot(master, botName);
-    if (!rts::bots::Driven(bot))
-        return false;
-
-    if (bot->GetCharmerGUID())
-        return false;   // already possessed by someone
-
-    // Y NOSOTROS TAMPOCO PODEMOS ESTAR CHARMANDO YA. `Unit::SetCharm` avisa con
-    // un LOG_FATAL si el charmer ya tiene charm y sigue adelante pisando el
-    // anterior -- o sea que el primero se queda charmado para siempre, y el
-    // primero puede ser la CRIATURA DE LA CAMARA. La comprobacion cuesta una
-    // linea y evita quedarse con dos posesiones de las que solo una se suelta.
-    if (master->GetCharmGUID())
-        return false;
-
-    Possessed p;
-    p.bot = bot->GetGUID();
-    p.wasPassiveCombat = rts::bots::Has(bot, "passive", rts::bots::COMBAT);
-    p.wasPassiveIdle   = rts::bots::Has(bot, "passive", rts::bots::IDLE);
-
-    // La IA se sienta. Un bot corriendo sus estrategias mientras tu le llevas
-    // pelearia contigo por los mandos en cada tick.
-    rts::bots::Change(bot, "+passive", rts::bots::BOTH);
-
-    // Y SE LE SUELTA EL ANCLA. Un bot en `stay` poseido camina a donde le
-    // lleves y su estrategia lo devuelve -- exactamente el "va y vuelve" que
-    // `PRUEBAS-20` 0.3 reporto sobre el personaje del jugador. Mismo mecanismo,
-    // misma cura, y esta vez aplicada a los dos caminos a la vez.
-    rts::bots::Change(bot, "-stay", rts::bots::BOTH);
-    rts::bots::ClearAnchor(bot, "stay");
-    rts::bots::ClearAnchor(bot, "return");
-    rts::bots::ForgetLastMove(bot);
-
-    if (!bot->SetCharmedBy(master, CHARM_TYPE_POSSESS))
-    {
-        if (!p.wasPassiveIdle)
-            rts::bots::Change(bot, "-passive", rts::bots::IDLE);
-        if (!p.wasPassiveCombat)
-            rts::bots::Change(bot, "-passive", rts::bots::COMBAT);
-        return false;
-    }
-
-    g_possessed[master->GetGUID()] = p;
-    FillPossessBar(master, bot);
-    return true;
-}
-
-bool rts::orders::ReleaseBot(Player* master, std::string const& botName)
-{
-    Player* bot = ResolveBot(master, botName);
-    if (!bot)
-        return false;
-
-    if (bot->GetCharmerGUID() == master->GetGUID())
-        bot->RemoveCharmedBy(master);
-
-    // DEVUELTO A COMO ESTABA, no a "no pasivo". Ver `g_possessed` arriba.
-    auto it = g_possessed.find(master->GetGUID());
-    if (it != g_possessed.end() && it->second.bot == bot->GetGUID())
-    {
-        if (!it->second.wasPassiveIdle)
-            rts::bots::Change(bot, "-passive", rts::bots::IDLE);
-        if (!it->second.wasPassiveCombat)
-            rts::bots::Change(bot, "-passive", rts::bots::COMBAT);
-        g_possessed.erase(it);
-    }
-    else
-    {
-        // Sin nota de como estaba (reinicio del servidor a mitad, o alguien
-        // llamo por otro camino) se hace lo unico razonable: dejarlo activo. Es
-        // la suposicion que el bloque de arriba evita, y aqui es preferible a
-        // dejar un bot pasivo para siempre sin que nada lo explique.
-        rts::bots::Change(bot, "-passive", rts::bots::BOTH);
-    }
-
-    // La barra de posesion se va con el mando. Si no, el cliente se queda
-    // dibujando los diez hechizos de un bot que ya no llevas.
-    master->SendRemoveControlBar();
-
-    // The viewpoint has to go the same way it does for the camera, or the
-    // client is left seeing through a character it no longer drives.
-    if (WorldObject* seen = master->GetViewpoint())
-        master->SetViewpoint(seen, false);
-
-    return true;
-}
-
-bool rts::orders::ReleaseAnyPossession(Player* master)
-{
-    // EL SEGURO QUE FALTABA, Y COSTO EL SERVIDOR ENTERO.
-    //
-    // `PossessBot` hace `SetCharmedBy` a pelo, sin aura. `Player::RemoveFromWorld`
-    // llama a `StopCastingCharm`, que deshace un charm QUITANDO SUS AURAS -- y
-    // aqui no hay ninguna que quitar. Asi que el charm sigue puesto, cae en el
-    // `LOG_FATAL` de `Player.cpp:9551`, ve que el charmado tiene charmer y hace
-    // **`ABORT()`**: el worldserver se muere. Visto el 2026-09-03, con volcado.
-    //
-    // Es EL MISMO fallo que tuvo la camara y que se arreglo haciendola un
-    // Puppet (ver `kPuppetProps` en `RtsCamera.cpp`), y esa salida aqui no
-    // sirve: un Puppet es una criatura invocada y esto es un `Player` que ya
-    // existe. Lo que queda es soltar por el camino bueno -- `RemoveCharmedBy`,
-    // que es lo que `SetCharmedBy` sabe deshacer -- ANTES de que el nucleo
-    // llegue a `RemoveFromWorld`.
-    //
-    // Se mira `GetCharmGUID()` y no la lista del grupo a proposito: un bot que
-    // se fue del grupo mientras lo llevabas seguiria charmado y no aparecería
-    // en el recorrido. La pregunta correcta es "¿estoy charmando algo?", y esa
-    // solo tiene una fuente.
-    //
-    // SOLO SI ES UN `Player`. La camara tambien charma, y esa se suelta por su
-    // propio camino (`camera::Abandon`), que ademas devuelve la criatura al
-    // mapa en vez de dejarla huerfana.
-    if (!master)
-        return false;
-
-    ObjectGuid const charmed = master->GetCharmGUID();
-    if (!charmed || !charmed.IsPlayer())
-        return false;
-
-    Player* bot = ObjectAccessor::FindPlayer(charmed);
-    if (!bot)
-        return false;
-
-    return ReleaseBot(master, bot->GetName());
-}
-
-bool rts::orders::ReleaseAll(Player* master)
-{
-    if (!master)
-        return false;
-
-    Group* group = master->GetGroup();
-    if (!group)
-        return false;
-
-    bool any = false;
-    for (GroupReference* ref = group->GetFirstMember(); ref; ref = ref->next())
-    {
-        Player* member = ref->GetSource();
-        if (member && member != master && member->GetCharmerGUID() == master->GetGUID())
-            any = ReleaseBot(master, member->GetName()) || any;
-    }
-    return any;
-}
+// AQUI VIVIA LA POSESION, Y SE FUE ENTERA EL 2026-09-11 (mod-rts 0.49.0).
+//
+// Eran `PossessBot`, `ReleaseBot`, `ReleaseAnyPossession`, `ReleaseAll`, la
+// barra de posesion (`FillPossessBar`) y la tabla `g_possessed` que devolvia
+// cada bot a como estaba. Unas doscientas lineas.
+//
+// La quito el jugador: *"posees raro, eso quitalo"*. Y no tenia arreglo por
+// este camino -- lo decia la cabecera del `Possess.lua` del addon desde el
+// primer dia: la posesion cambia quien te MUEVE, no quien ERES, y los
+// manejadores de interaccion del nucleo (`HandleGossipHelloOpcode`, el
+// vendedor, el entrenador, el botin, las misiones) trabajan sobre `_player`.
+// Asi que hablar con un PNJ iba por tu personaje, parado en otro sitio, y
+// fallaba por distancia. Lo que hace de verdad lo que esto prometia es `SWAP`.
+//
+// SE BORRA, NO SE APARTA. La vez anterior se dejo escrita sin llamante "por si
+// vuelve" y volvio -- y con ella volvio el `ABORT()` del worldserver que ya
+// habia costado un dia. Esta vez no queda nada que resucitar por accidente; si
+// alguna vez se quiere otra vez, el codigo esta en git y la cura de raiz esta
+// escrita: que la posesion lleve un aura de verdad (`SPELL_AURA_MOD_POSSESS`),
+// que es lo que `Player::StopCastingCharm` sabe deshacer.
 
 bool rts::orders::MoveSelf(Player* player, float x, float y, float z, std::string* why)
 {
@@ -946,7 +752,7 @@ void rts::orders::ForgetPlayer(Player* master)
             ++it;
     }
 
-    ReleaseAll(master);
+    // Y ya esta: la posesion, que era lo otro que se soltaba aqui, no existe.
 }
 
 // Every bot in the master's group picks up EVERYTHING, greys included.

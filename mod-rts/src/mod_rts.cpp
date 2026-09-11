@@ -62,6 +62,17 @@ namespace
     // pieces in this project -- the DLL, this module, and the addon -- and only
     // the DLL had a version you could see, which made a server-side fix look
     // like nothing had happened. All three now report.
+    // 0.49.0 = LA POSESION SE VA ENTERA. El verbo `POSSESS`, `PossessBot`,
+    // `ReleaseBot`, `ReleaseAnyPossession` y `ReleaseAll` (la de `orders`) estan
+    // borrados: el jugador la retiro el 2026-09-11 -- *"posees raro, eso
+    // quitalo"* -- y no habia forma de arreglarla, porque cambia quien te MUEVE
+    // y no quien ERES (los manejadores de interaccion del nucleo trabajan sobre
+    // `_player`). Con ella se van los dos seguros del `ABORT()` de
+    // `StopCastingCharm`: ya nada de este modulo charma a un `Player`, asi que
+    // eran guardas que no podian dispararse -- y peor, la de `OnPlayerLogout`
+    // habria pisado un Control Mental de sacerdote, que el nucleo ya deshace
+    // solo. La camara NO usaba nada de esto: es un Puppet y se suelta por
+    // `camera::Abandon`.
     // 0.48.0 = el servidor deja de poner `PLAYER_FLAGS_UBER`: el nucleo prohibe
     // atacar a quien lo lleva (`Unit.cpp:10762`). Ese bit pasa a escribirlo
     // `rts_core` en la memoria del cliente, asi que la camara libre necesita el
@@ -72,7 +83,7 @@ namespace
     // tercera condicion de `MoveSelf`. El addon debe pedir `ServerAtLeast(46)`
     // antes de usar esos verbos: un verbo que el servidor no conoce NO da error,
     // no contesta, asi que un worldserver sin reiniciar se lee como un addon roto.
-    constexpr char const* kModVersion = "0.48.0";
+    constexpr char const* kModVersion = "0.49.0";
 
     std::string Upper(std::string s)
     {
@@ -1743,35 +1754,11 @@ namespace
             return true;
         }
 
-        // "POSSESS Bot" / "POSSESS" to let go.
-        if (verb == "POSSESS")
-        {
-            if (rest.empty())
-            {
-                rts::orders::ReleaseAll(player);
-                SendAddon(player, "POSSESS 0");
-                return true;
-            }
-
-            rts::orders::ReleaseAll(player);
-            if (rts::orders::PossessBot(player, rest))
-            {
-                SendAddon(player, "POSSESS 1 " + rest);
-            }
-            else
-            {
-                // EL FALLO TAMBIEN VIAJA POR EL CANAL, no solo al chat.
-                //
-                // El addon suelta el modo RTS ANTES de pedir la posesion, asi
-                // que un fallo silencioso te dejaba fuera del modo RTS y sin
-                // bot -- lo peor de las dos opciones, y sin nada que lo
-                // deshiciera. Con el `POSSESS 0` el cliente se entera y te
-                // devuelve a donde estabas.
-                SendAddon(player, "POSSESS 0");
-                Reply(player, "RTS: cannot take control of " + rest + ".");
-            }
-            return true;
-        }
+        // EL VERBO `POSSESS` SE BORRO EN 0.49.0 con la posesion entera. Un
+        // verbo que el servidor no conoce no da error: no contesta -- asi que
+        // un addon viejo contra este servidor se queda esperando y el jugador
+        // ve "no pasa nada", que es el modo de fallo de siempre. Por eso la
+        // version del modulo sube: el addon 1.14.0 ya no lo manda.
 
         if (verb == "CAM")
         {
@@ -2038,19 +2025,22 @@ public:
     // a client whose mover is gone. Drop it on the way out.
     void OnPlayerLogout(Player* player) override
     {
-        // Camera first, then anything possessed. Leaving a bot charmed by a
-        // player who has gone would strand it: passive, uncommandable, and
-        // still pointing at a charmer that no longer exists.
+        // La camara, que si se queda: dejarla corriendo en un logout deja una
+        // criatura huerfana y un cliente cuyo mover ya no existe.
         rts::camera::Abandon(player);
 
-        // Y LO POSEIDO, QUE FALTABA Y MATO EL SERVIDOR. Un `Player` charmado sin
-        // aura llega a `Player::RemoveFromWorld` -> `StopCastingCharm`, que solo
-        // sabe quitar auras, no encuentra ninguna y responde con `ABORT()`
-        // (`Player.cpp:9556`). Visto el 2026-09-03 al salir poseyendo un bot.
-        // Este gancho corre en `WorldSession.cpp:851`, y `RemoveFromWorld` en la
-        // 866: hay sitio de sobra, pero tenia que estar escrito.
-        rts::orders::ReleaseAnyPossession(player);
-
+        // AQUI HABIA UN SEGURO CONTRA UN `ABORT()`, y se fue en 0.49.0 con la
+        // posesion. Un `Player` charmado sin aura llegaba a
+        // `Player::RemoveFromWorld` -> `StopCastingCharm`, que solo sabe quitar
+        // auras, no encontraba ninguna y respondia con `ABORT()`
+        // (`Player.cpp:9556`) -- el worldserver muerto, visto el 2026-09-03.
+        //
+        // Lo unico de este modulo que charmaba a un `Player` era `PossessBot`.
+        // Sin el, la guarda no podia dispararse nunca, y una comprobacion que
+        // no puede dispararse es peor que no tenerla: parece cubrir un caso que
+        // en realidad esta descubierto. Ademas habria pisado el unico charm de
+        // `Player` que queda en el juego -- el Control Mental de un sacerdote --
+        // que lleva aura de verdad y el nucleo deshace solo.
         rts::orders::ForgetPlayer(player);
         rts::command::ReleaseAll(player);
         // Y LA COLA. Un hechizo esperando su hueco guarda el guid del maestro;
@@ -2099,19 +2089,12 @@ public:
         // end of a flight path.
         rts::camera::Abandon(player);
 
-        // La posesion de un bot SI es load-bearing aqui, al reves que la camara:
-        // un cambio de mapa pasa por `RemoveFromWorld` igual que un logout, y
-        // ahi un charm sin aura es un `ABORT()`. Ver `ReleaseAnyPossession`.
-        //
-        // QUEDA UN CAMINO SIN CUBRIR y se dice por delante:
+        // Aqui habia una segunda llamada a `ReleaseAnyPossession`, y esta SI
+        // era load-bearing mientras la posesion existio: un cambio de mapa pasa
+        // por `RemoveFromWorld` igual que un logout. Se va con ella en 0.49.0,
+        // y con las dos se va tambien el camino que quedaba sin cubrir --
         // `Player::ActivateTaxiPathTo` (`Player.cpp:10481`) llama a
-        // `StopCastingCharm` y no tiene gancho. Hoy es inalcanzable -- mientras
-        // posees, hablar con un maestro de vuelo va por TU personaje, que esta
-        // parado en otro sitio -- pero si algun dia se puede interactuar siendo
-        // el bot, esa puerta se abre. La cura de raiz seria que la posesion
-        // llevara un aura de verdad (`SPELL_AURA_MOD_POSSESS`), que es lo que
-        // `StopCastingCharm` sabe quitar.
-        rts::orders::ReleaseAnyPossession(player);
+        // `StopCastingCharm` y no tiene gancho.
         return true;
     }
 

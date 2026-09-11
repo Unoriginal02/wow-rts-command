@@ -395,8 +395,13 @@ end
 -- without moving the camera or leaving RTS mode. That borrowing was a floating
 -- panel and a mode of its own until 2026-08-24; it is now the console's skill
 -- row (Skills.lua), driven by whoever is selected, with no mode to enter.
--- The possession server side still exists for the day a "play as this
--- character" mode is wanted again; nothing in the addon reaches for it.
+--
+-- It came back on 2026-09-06 as `/rts play` and went for good on 2026-09-11:
+-- *"posees raro, eso quitalo"*. It never could be anything else -- possession
+-- changes who MOVES you, not who you ARE, so talking to an NPC went through
+-- your own character, standing somewhere else, and failed on range. This time
+-- the server half went with it, so there is nothing left to reach for; the
+-- thing that does what it promised is `SWAP`.
 
 --- Attack-move -------------------------------------------------------------
 -- Advance to a point, engaging on the way. There is no attack-move verb in
