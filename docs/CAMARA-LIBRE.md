@@ -702,6 +702,108 @@ Ahi el tiron es la unica salida y es para lo que existe `clear`.
 
 ---
 
+## 13. LA ESPADA Y EL ATAQUE: tres puertas, y el mismo bit detras (2026-09-11)
+
+Sintoma: con la camara libre puesta, pasar el raton por encima de un enemigo no
+sacaba la espada y el boton derecho no atacaba. El icono de mision y la bolsa de
+botin SI salian -- eso es lo que hizo el caso legible, porque significa que el
+cursor y la accion del boton derecho funcionaban y lo que estaba cortado era
+solo *atacar*.
+
+Y fuera del modo RTS el boton derecho ataca bien. O sea que el mecanismo estaba
+entero y lo rompia nuestro propio estado.
+
+**Eran TRES puertas, y `PLAYER_FLAGS_UBER` esta detras de las tres.** Ese es el
+bit 19, el que el cliente EXIGE para abrir la camara de comentarista
+(`0x006DE980`), asi que no se puede simplemente no ponerlo.
+
+Abrir una sola no cambia nada en pantalla, y eso costo dos rondas: se leyo la
+primera entera en el binario, se parcheo, se probo, y no se movio un pixel.
+**Media cura no se distingue de una cura equivocada.**
+
+### Puerta 1 -- el cursor, en el cliente
+
+`0x004F7A50` decide el cursor de lo que hay bajo el raton. Para el de ataque:
+
+```
+004F7F81  push ebx / mov ecx, edi
+004F7F84  call 0x00729A70          ; ¿puedo atacar a esto?
+004F7F89  test al, al / je -> sin cursor
+...
+004F7FC0  jp 0x004F7AE3            ; -> push 4  = cursor "Attack"
+004F7FC6  push 0x1e                ; = "UnableAttack" (fuera de alcance)
+```
+
+`0x00729A70` acaba llamando a `0x00729740`, que es el predicado de
+`UnitCanAttack` -- la funcion Lua esta en `0x0060D730` y lo llama en
+`0x0060D786`. Y ese predicado empieza asi:
+
+```
+0072974C  shr ecx, 4 ; test cl, 1   ; ¿el SUJETO es un jugador?
+00729752  je  0x0072976B
+0072975D  shr eax, 0x13 ; test al,1 ; bit 19 = PLAYER_FLAGS_UBER
+00729762  je  0x0072976B            ; apagado -> sigue evaluando
+00729764  xor al, al                ; ENCENDIDO -> FALSO, y ya
+```
+
+Con el bit puesto, `UnitCanAttack("player", loquesea)` es **falso para todo**.
+El icono de mision y el botin se salvan porque van por otro predicado
+(`UnitCanCooperate` usa `0x00729B30`).
+
+Cura: un byte, `0x00729762` `je` -> `jmp`. En `rts_core`, armado con los flags.
+Ver `Offsets.h`, `kCanActUberJe`.
+
+### Puerta 2 -- el mismo cursor, unas lineas mas abajo
+
+```
+004F7FA5  cmp dword ptr [0x00BCFB8C], 0
+004F7FAC  je  -> sin cursor
+```
+
+Ese global lo escribe `0x00520FE0` con el bit 10 de `[unidad + 0xa30]`, que
+enciende y apaga `SMSG_CLIENT_CONTROL_UPDATE` (`0x0071C930`). Y **el ataque de
+verdad muere en el mismo global**: el `AttackTarget` de Lua (`0x0051A650`) baja
+a `0x0072C2B0`, que lo vuelve a mirar en `0x0072C3E9`.
+
+O sea que `SetClientControl(player, false)` -- la linea que `camera::Arm` metio
+el 2026-09-10 al jubilar el Puppet -- apagaba el cursor y el ataque de un golpe.
+
+Cura: no quitarle el control al cliente de fabrica. `CAM CTRL 1` lo vuelve a
+quitar, porque era lo que permitia que el servidor condujera tu propio heroe.
+Es un trato con dos mitades, no un fallo.
+
+### Puerta 3 -- el servidor, y esta es la que remata
+
+`Unit::_IsValidAttackTarget`, `Unit.cpp:10762`:
+
+```cpp
+if (Player const* playerAttacker = ToPlayer())
+{
+    if (playerAttacker->HasPlayerFlag(PLAYER_FLAGS_UBER) ||
+        playerAttacker->IsSpectator())
+        return false;
+}
+```
+
+**Un jugador con el bit 19 no puede atacar a nada**, y ese es el UNICO uso del
+bit en todo el nucleo (enumerado, no supuesto). El bit 22 solo pone una etiqueta
+de chat (`Player.cpp:1381`).
+
+El sintoma en pantalla fue el que lo delato: el circulo del bicho se ponia
+**rojo un tick y volvia a amarillo**. El cliente empezaba el ataque, el servidor
+lo rechazaba aqui, el cliente lo deshacia. *Empieza y se cancela* no es *esta
+bloqueado*, y esa diferencia es la que llevo al nucleo en vez de a otro parche
+del cliente.
+
+Cura: **cada lado se queda con lo suyo.** El servidor manda solo el bit 22
+(`mod-rts 0.48.0`); el bit 19 lo escribe `rts_core` en la memoria del cliente,
+armado al ver el bit 22 y reescrito cada tick por si el servidor reenvia el
+campo. El predicado del cliente lo lee de ahi y no se entera de nada.
+
+**Consecuencia: la camara libre pasa a necesitar el DLL inyectado.** Sin el, el
+bit 19 no existe en ninguna parte y la puerta del cliente no abre nunca --
+`CameraOn` se cae al Puppet y lo dice.
+
 ## Apendice: direcciones usadas, todas de este `Wow.exe`
 
 | que | direccion |

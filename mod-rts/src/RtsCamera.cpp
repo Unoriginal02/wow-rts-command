@@ -68,6 +68,11 @@ namespace
     // mover el cuerpo del jugador. Ver `Spectate`.
     std::unordered_set<ObjectGuid> g_spectating;
 
+    // QUIEN HA PEDIDO QUE EL SERVIDOR SE QUEDE EL CONTROL DEL CUERPO. Vacio de
+    // fabrica desde el 2026-09-11: quitarle el control al cliente le apaga
+    // tambien la espada y el click derecho (el porque, entero, en `Arm`).
+    std::unordered_set<ObjectGuid> g_holdControl;
+
     constexpr float kDefaultPivotDist  = 12.0f;   // yards ahead of the camera
     constexpr float kDefaultPivotSpeed = 1.6f;    // radians per second
 
@@ -701,6 +706,7 @@ void rts::camera::Abandon(Player* player)
     player->RemovePlayerFlag(PLAYER_FLAGS_UBER);
     player->RemovePlayerFlag(PLAYER_FLAGS_COMMENTATOR2);
     Arm(player, false);   // y el modo, o el cliente se queda en el 6
+    g_holdControl.erase(player->GetGUID());
     if (g_spectating.erase(player->GetGUID()) > 0 && player->IsInWorld())
     {
         // Devolverle el control del cuerpo. Sin esto, un logout o un cambio de
@@ -757,12 +763,43 @@ bool rts::camera::Spectate(Player* player, bool on)
     if (!player || !player->GetSession())
         return false;
 
-    // Los dos bits, por nombre del nucleo y no por su valor. Bit 19
-    // (PLAYER_FLAGS_UBER) es obligatorio; bit 22 (PLAYER_FLAGS_COMMENTATOR2)
-    // es lo unico que salta el requisito de estar en un mapa de arena.
+    // EL BIT 19 YA NO SE PONE AQUI, Y ESTA ES LA RAZON (2026-09-11).
+    //
+    // `Unit::_IsValidAttackTarget` (`Unit.cpp:10762`) tiene esto, literal:
+    //
+    //     if (Player const* playerAttacker = ToPlayer())
+    //         if (playerAttacker->HasPlayerFlag(PLAYER_FLAGS_UBER) ||
+    //             playerAttacker->IsSpectator())
+    //             return false;
+    //
+    // O sea: **un jugador con el bit 19 no puede atacar a nada.** Y ese es el
+    // unico uso del bit en todo el nucleo -- enumerado, no supuesto. El bit 22
+    // solo pone una etiqueta de chat (`Player.cpp:1381`) y sale en una
+    // comprobacion de un comando de GM; es inofensivo y se queda.
+    //
+    // El sintoma que costo la ronda: en modo RTS el circulo del bicho se ponia
+    // rojo un tick y volvia a amarillo. El cliente empezaba el ataque, el
+    // servidor lo rechazaba aqui, y el cliente lo deshacia. Ni espada ni
+    // ataque -- y las otras dos puertas (el predicado `0x00729740` del cliente
+    // y el global que apaga `SetClientControl`) eran reales tambien, asi que
+    // abrir solo esas dos daba la espada y ningun golpe.
+    //
+    // PERO EL CLIENTE SI NECESITA EL BIT 19: su predicado `0x006DE980` lo exige
+    // para abrir la camara de comentarista. La salida es que cada lado tenga lo
+    // suyo -- el bit vive **solo en la memoria del cliente**, escrito por
+    // `rts_core` (`SelfShow.cpp`), que se arma al ver el bit 22 y lo reescribe
+    // cada tick por si el servidor reenvia el campo.
+    //
+    // CONSECUENCIA QUE HAY QUE SABER: la camara libre pasa a NECESITAR el DLL.
+    // Sin inyectar, el bit 19 no existe en ninguna parte, la puerta del cliente
+    // no abre y `CameraOn` se cae al Puppet, que ya es el respaldo escrito.
     if (on)
     {
-        player->SetPlayerFlag(PLAYER_FLAGS_UBER);
+        // Y SE BORRA, no se deja como este. Un bit 19 pegado de una sesion
+        // anterior (una caida con la camara puesta lo deja escrito en la base
+        // de datos) te dejaria sin poder atacar sin que nada lo explique. Es la
+        // misma leccion que la vuelta atras del 2026-09-08.
+        player->RemovePlayerFlag(PLAYER_FLAGS_UBER);
         player->SetPlayerFlag(PLAYER_FLAGS_COMMENTATOR2);
     }
     else
@@ -782,6 +819,32 @@ bool rts::camera::Spectate(Player* player, bool on)
     LOG_INFO("module.rts", "rts: spectate flags {} para {}", on ? "ON" : "OFF",
         player->GetName());
     return true;
+}
+
+// Pedir (o soltar) que el servidor conduzca el cuerpo. Se aplica en el acto si
+// la camara ya esta armada, para que el interruptor se pueda probar sin salir
+// del modo RTS -- que es la unica forma de comparar las dos mitades del trato.
+bool rts::camera::HoldControl(Player* player, bool on)
+{
+    if (!player || !player->GetSession())
+        return false;
+
+    if (on)
+        g_holdControl.insert(player->GetGUID());
+    else
+        g_holdControl.erase(player->GetGUID());
+
+    if (IsSpectating(player) && !player->GetCharm())
+        player->SetClientControl(player, !on);
+
+    LOG_INFO("module.rts", "rts: control del cuerpo {} para {}",
+        on ? "AL SERVIDOR" : "al cliente", player->GetName());
+    return true;
+}
+
+bool rts::camera::HoldsControl(Player const* player)
+{
+    return player && g_holdControl.count(player->GetGUID()) > 0;
 }
 
 bool rts::camera::IsSpectating(Player const* player)
@@ -833,16 +896,47 @@ bool rts::camera::Arm(Player* player, bool on)
     // control al cliente por el camino bueno, y la guarda de `MoveSelf` la
     // cumple `GetCharm()`. Sin Puppet -- `/rts cam spec 1` a mano -- se sigue
     // necesitando, y de ahi la condicion en vez de borrarlo.
+    // ...Y ESA LINEA ES LA QUE SE LLEVO POR DELANTE LA ESPADA Y EL CLICK
+    // DERECHO (2026-09-11). Leido en el cliente, no supuesto:
+    //
+    //   * `SMSG_CLIENT_CONTROL_UPDATE` acaba en `0x0071C930(allowMove)`, que
+    //     enciende o apaga el bit 10 de `[unidad + 0xa30]`, y **para el jugador
+    //     local escribe ese bit en el global `0x00BCFB8C`** (`0x00520FE0`).
+    //   * El cursor de ataque lo decide `0x004F7A50`, y en `0x004F7FA5` hace
+    //     `cmp dword [0x00BCFB8C], 0` -> si es cero **no pone ningun cursor**.
+    //   * Y el ataque de verdad muere en el mismo sitio: el `AttackTarget` de
+    //     Lua (`0x0051A650`) baja a `0x0072C2B0`, que vuelve a mirar ese global
+    //     en `0x0072C3E9`. Un solo interruptor apaga las dos cosas, que es
+    //     exactamente el sintoma: ni espada ni ataque.
+    //
+    // O sea: decirle al cliente "no conduces tu cuerpo" es decirle tambien "no
+    // puedes pegar a nadie". Es coherente -- es el mismo estado que usa el
+    // nucleo para congelar a un jugador tras las puertas de un campo de batalla
+    // (`Battleground.cpp:1020`, *"movement disabled"*) -- y es incompatible con
+    // querer el raton normal dentro del modo RTS.
+    //
+    // ASI QUE AHORA ES UNA ELECCION Y NO UN EFECTO SECUNDARIO. De fabrica el
+    // cliente SE QUEDA con el control: la camara libre no lo necesita para nada
+    // (la puerta del modo comentarista son los flags, y esos siguen puestos).
+    // `CAM CTRL 1` lo vuelve a quitar, que es lo que hacia falta para que el
+    // servidor condujera tu propio heroe -- y ese es el precio a medir, no una
+    // suposicion: `orders::MoveSelf` sigue pasando su guarda por
+    // `IsSpectating`, lo que esta por ver es si el cuerpo se mueve en pantalla.
     bool const possessing = player->GetCharm() != nullptr;
+    bool const hold = g_holdControl.count(player->GetGUID()) > 0;
     if (on)
     {
         g_spectating.insert(player->GetGUID());
-        if (!possessing)
+        if (!possessing && hold)
             player->SetClientControl(player, false);
     }
     else
     {
         g_spectating.erase(player->GetGUID());
+        // Devolverlo SIEMPRE, se pidiera o no. Un control que no vuelve porque
+        // "el interruptor estaba apagado" es la misma trampa que dejo los flags
+        // escritos en la base de datos: el estado que se quita se quita sin
+        // condicion, y devolver el control a quien ya lo tiene no hace nada.
         if (!possessing)
             player->SetClientControl(player, true);
     }

@@ -261,7 +261,7 @@ local REPLY_ONLY = {
 	-- `SPEC` y `SPECARM` son las confirmaciones del sondeo de la camara libre.
 	-- Solo las dice el SERVIDOR: lo que manda el addon es `CAM SPEC 1`, o sea el
 	-- verbo `CAM`, asi que aqui no hay ambiguedad de sentido que discriminar.
-	SPEC = true, SPECARM = true,
+	SPEC = true, SPECARM = true, CTRL = true,
 }
 
 --- Que sabe hacer el servidor que hay puesto -------------------------------

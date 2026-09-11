@@ -69,11 +69,19 @@ constexpr int32_t kSitesAll  = 63;
 constexpr int32_t kNoFix    = 8192;
 // Bit 14: apagar el parpadeo. Candidato, no cura: arranca APAGADO.
 constexpr int32_t kBlinkOff = 16384;
+// Bit 15: devolver "puedo atacar". ARRANCA APAGADO como todo parche de bytes
+// que todavia no se ha visto funcionar en juego -- la regla que se incumplio
+// dos veces y las dos el primer contacto del jugador con la ronda fue un fallo
+// nuevo. Cuando este probado, se arma solo con los dos flags igual que el
+// arreglo del heroe invisible: una linea en `WantedActFix`.
+constexpr int32_t kActFix   = 32768;
 
 uint8_t g_siteOrig[off::kSpecCallSiteCount][5];
 uint32_t g_siteOn = 0;   // mascara de los que estan apagados AHORA MISMO
 uint8_t g_blinkOrig[5];
 bool g_blinkOff = false;
+uint8_t g_actOrig[2];
+bool g_actFix = false;
 
 enum PatchState { kPatchNone = 0, kPatchNever = 1, kPatchAlways = 2 };
 
@@ -202,6 +210,48 @@ bool NeuterCall(uint32_t addr, uint32_t target, uint8_t* orig, bool want,
     return out;
 }
 
+// Convierte un `je rel8` en un `jmp rel8` y lo devuelve. Un byte, mismo
+// destino, misma longitud -- o sea que la rama que saltaba a veces salta
+// siempre y nada mas de la funcion cambia de sitio.
+//
+// La firma se comprueba antes de escribir, igual que en `NeuterCall`: si ahi no
+// hay un `74 xx` con el desplazamiento esperado, no se toca nada y se dice que
+// habia. Un cliente distinto tiene otros bytes en esa direccion, y machacar uno
+// cualquiera no es una sonda, es un cuelgue.
+bool ForceJe(uint32_t addr, const uint8_t* expect, uint8_t* orig, bool want,
+             bool have, const char* what) {
+    if (want == have) return have;
+
+    uint8_t* site = reinterpret_cast<uint8_t*>(addr);
+    DWORD prot = 0, ignored = 0;
+    if (!VirtualProtect(site, 2, PAGE_EXECUTE_READWRITE, &prot)) {
+        RTS_LOG("body: %s (%08X): VirtualProtect fallo (%lu)", what, addr, GetLastError());
+        return have;
+    }
+
+    bool out = have;
+    if (want) {
+        if (site[0] != expect[0] || site[1] != expect[1]) {
+            RTS_LOG("body: %s (%08X): hay %02X %02X y esperaba %02X %02X -- NO toco",
+                    what, addr, site[0], site[1], expect[0], expect[1]);
+            VirtualProtect(site, 2, prot, &ignored);
+            return have;
+        }
+        memcpy(orig, site, 2);
+        site[0] = 0xEB;   // je rel8 -> jmp rel8
+        out = true;
+        RTS_LOG("body: %s (%08X) PUESTO (je -> jmp) -- el bit 19 deja de vetar", what, addr);
+    } else {
+        memcpy(site, orig, 2);
+        out = false;
+        RTS_LOG("body: %s (%08X) devuelto", what, addr);
+    }
+
+    VirtualProtect(site, 2, prot, &ignored);
+    FlushInstructionCache(GetCurrentProcess(), site, 2);
+    return out;
+}
+
 void ApplySites(uint32_t want) {
     for (int i = 0; i < off::kSpecCallSiteCount; ++i) {
         char name[24];
@@ -244,17 +294,20 @@ void Tick() {
         if (g_siteOn) ApplySites(0);
         g_blinkOff = NeuterCall(off::kBlinkCall, off::kBlinkPredicate,
                                 g_blinkOrig, false, g_blinkOff, "parpadeo");
+        g_actFix = ForceJe(off::kCanActUberJe, off::kCanActUberBytes,
+                           g_actOrig, false, g_actFix, "atacar");
         return;
     }
 
     if (mode != g_lastMode) {
         RTS_LOG("body: modo %d (flagsOn=%d flagsOff=%d skip=%d invert=%d "
-                "uberOnly=%d commOnly=%d sitio=%d noFix=%d blinkOff=%d)", mode,
+                "uberOnly=%d commOnly=%d sitio=%d noFix=%d blinkOff=%d actFix=%d)", mode,
                 (mode & kFlagsOn) ? 1 : 0, (mode & kFlagsOff) ? 1 : 0,
                 (mode & kSkipPatch) ? 1 : 0, (mode & kInvert) ? 1 : 0,
                 (mode & kUberOnly) ? 1 : 0, (mode & kCommOnly) ? 1 : 0,
                 (mode >> kSiteShift) & kSiteMask,
-                (mode & kNoFix) ? 1 : 0, (mode & kBlinkOff) ? 1 : 0);
+                (mode & kNoFix) ? 1 : 0, (mode & kBlinkOff) ? 1 : 0,
+                (mode & kActFix) ? 1 : 0);
         g_lastMode = mode;
     }
 
@@ -277,12 +330,16 @@ void Tick() {
         // parche que se queda puesto porque no supimos leer es la definicion de
         // un apaño que sobrevive a su motivo.
         ApplySites(WantedSites((mode >> kSiteShift) & kSiteMask, false, false));
+        g_actFix = ForceJe(off::kCanActUberJe, off::kCanActUberBytes, g_actOrig,
+                           (mode & kActFix) != 0, g_actFix, "atacar");
         return;
     }
 
     uint32_t flags = 0;
     if (!mem::Read<uint32_t>(addr, &flags)) {
         ApplySites(WantedSites((mode >> kSiteShift) & kSiteMask, false, false));
+        g_actFix = ForceJe(off::kCanActUberJe, off::kCanActUberBytes, g_actOrig,
+                           (mode & kActFix) != 0, g_actFix, "atacar");
         return;
     }
 
@@ -317,6 +374,34 @@ void Tick() {
         want |= both;
     }
 
+    // EL BIT 19 LO PONEMOS NOSOTROS, PORQUE EL SERVIDOR YA NO PUEDE (2026-09-11).
+    //
+    // `Unit::_IsValidAttackTarget` (`Unit.cpp:10762`) devuelve false a secas si
+    // el atacante es un jugador con `PLAYER_FLAGS_UBER`, y es el unico uso del
+    // bit en todo el nucleo. O sea que llevarlo puesto de verdad significa **no
+    // puedo atacar a nada**, y eso es lo que dejaba el modo RTS con espada y sin
+    // golpe. Desde mod-rts 0.48.0 el servidor manda solo el bit 22.
+    //
+    // Pero el cliente SI lo exige: su `0x006DE980` no abre la camara de
+    // comentarista sin el. Asi que el bit vive aqui y solo aqui -- en la copia
+    // del cliente, que es la unica que lee ese predicado.
+    //
+    // SE ARMA CON EL BIT 22 Y NO CON UN INTERRUPTOR PROPIO. El 22 lo pone el
+    // servidor exactamente cuando hay camara libre, asi que ya es la señal: no
+    // hace falta un canal nuevo, no puede quedarse a medias, y al salir el
+    // servidor lo quita y esto se va solo. Misma forma que el arreglo del heroe
+    // invisible, que cuelga de que el jugador LLEVE los bits.
+    //
+    // No se toca cuando la sonda manda a mano (`flags on/off/uber/comm`): ahi el
+    // que decide es quien teclea, y `comm` existe justo para ver el bit 22 SIN
+    // el 19. Y `nofix` lo desarma con los demas, para poder volver a ver el fallo.
+    bool const manualFlags =
+        (mode & (kFlagsOn | kFlagsOff | kUberOnly | kCommOnly)) != 0;
+    if (!manualFlags && (mode & kNoFix) == 0 &&
+        (want & off::kPlayerFlagCommentator) != 0) {
+        want |= off::kPlayerFlagUber;
+    }
+
     // EL ARREGLO, Y SE ARMA SOLO.
     //
     // Encontrado y confirmado en juego el 2026-09-09: con los dos flags puestos
@@ -335,6 +420,25 @@ void Tick() {
     bool const bothFlags = (want & both) == both;
     ApplySites(WantedSites((mode >> kSiteShift) & kSiteMask, bothFlags,
                            (mode & kNoFix) == 0));
+
+    // DEVOLVER "PUEDO ATACAR", Y SE ARMA CON LOS FLAGS igual que el arreglo del
+    // heroe invisible: la condicion es que el jugador LLEVE los dos bits, no que
+    // los hayamos pedido nosotros. Se mira `want` por lo mismo que arriba.
+    //
+    // Por que este si entra armado cuando la regla dice que nada entra armado:
+    // no es un candidato, es UNA DE LAS DOS PUERTAS del cursor de ataque, y las
+    // dos estan leidas en el binario -- `0x004F7F84` llama a `0x00729A70`, que
+    // acaba en el predicado que el bit 19 veta, y `0x004F7FA5` mira el global
+    // que apaga `SetClientControl`. Estuvo puesto en juego el 2026-09-11 sin
+    // efecto y sin romper nada, porque la otra puerta seguia cerrada: media cura
+    // no es un experimento distinto.
+    //
+    // `nofix` lo desarma junto con el otro, para poder volver a ver el fallo;
+    // `kActFix` lo fuerza SIN los flags, que es como se probo suelto.
+    g_actFix = ForceJe(off::kCanActUberJe, off::kCanActUberBytes, g_actOrig,
+                       (mode & kActFix) != 0 ||
+                           (bothFlags && (mode & kNoFix) == 0),
+                       g_actFix, "atacar");
 
     // Se reescribe CADA TICK y no una vez. El servidor puede reenviar el campo
     // en cualquier actualizacion de descriptores, y una escritura unica se
@@ -363,6 +467,8 @@ void Shutdown() {
     if (g_siteOn) ApplySites(0);
     g_blinkOff = NeuterCall(off::kBlinkCall, off::kBlinkPredicate,
                             g_blinkOrig, false, g_blinkOff, "parpadeo");
+    g_actFix = ForceJe(off::kCanActUberJe, off::kCanActUberBytes,
+                       g_actOrig, false, g_actFix, "atacar");
 }
 
 }  // namespace selfshow

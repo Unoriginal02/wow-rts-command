@@ -569,6 +569,49 @@ constexpr int      kSelfHideSite = 16;
 constexpr uint32_t kBlinkPredicate = 0x00729740;
 constexpr uint32_t kBlinkCall      = 0x0073DB42;
 
+// Y EL BIT 19 APAGA ADEMAS "PUEDO ATACAR", QUE ES DE DONDE SALIO LA ESPADA.
+//
+// 0x00729740 -- el mismo predicado del parpadeo, 37 llamantes -- empieza asi:
+//
+//   00729746  mov  eax, [ebx + 8]        ; ebx = el SUJETO (ecx a la entrada)
+//   00729749  mov  ecx, [eax + 8]        ; OBJECT_FIELD_TYPE
+//   0072974C  shr  ecx, 4 ; test cl, 1   ; ¿es un JUGADOR?
+//   00729752  je   0x0072976B            ; no -> sigue evaluando de verdad
+//   00729754  mov  edx, [ebx + 0x1008]   ; si -> sus PLAYER_FIELDS
+//   0072975A  mov  eax, [edx + 8]        ; PLAYER_FLAGS
+//   0072975D  shr  eax, 0x13 ; test al,1 ; bit 19 = PLAYER_FLAGS_UBER
+//   00729762  je   0x0072976B            ; APAGADO -> sigue        <-- AQUI
+//   00729764  xor  al, al                ; ENCENDIDO -> FALSO, y ya
+//   00729766  pop ebx / pop ebp / ret 4
+//
+// O sea: **un jugador con el bit 19 puesto no puede con nada.** Y ese predicado
+// es literalmente el de `UnitCanAttack`: la funcion Lua (0x0060D730, resuelta
+// por la tabla de pares nombre/puntero) lo llama en 0x0060D786 y devuelve lo
+// que conteste. Con la camara libre encendida `UnitCanAttack("player", X)` es
+// falso para TODO -- de ahi que no salga la espada al pasar por encima de un
+// bicho, que el boton derecho no ataque, y que `HoverUnit().hostile` del addon
+// sea siempre falso.
+//
+// POR QUE EL ICONO DE MISION Y LA BOLSA DE BOTIN SI SALEN: no pasan por aqui.
+// `UnitCanCooperate` usa otro predicado (0x00729B30) y el botin mira si el
+// cadaver es saqueable. Esa asimetria -- unas cosas si y atacar no -- es la
+// firma del bit 19 y es lo que llevo hasta esta linea.
+//
+// EL BIT 19 NO SE PUEDE QUITAR: `0x006DE980` lo exige para abrir la camara de
+// comentarista (`shr edx,0x13 / test dl,1` -> apagado, no eres espectador), y
+// sin camara no hay modo RTS. Asi que lo que se toca es ESTE veredicto, un
+// byte: `je rel8` (0x74) -> `jmp rel8` (0xEB), mismo destino y misma longitud,
+// o sea que el bit 19 deja de significar "no puedes con nada" y el predicado
+// sigue contestando lo que de verdad toque (faccion, muerto, fuera de rango).
+//
+// El radio de la explosion esta ACOTADO, no supuesto: el corto solo dispara
+// cuando el SUJETO es un jugador con el bit 19, y el unico que lo lleva somos
+// nosotros. Los bots no. Los 37 llamantes siguen viendo la verdad para todos
+// los demas. Es lo contrario del parche del 2026-09-08, que reescribio un
+// predicado compartido y le dijo al cliente que todo jugador era espectador.
+constexpr uint32_t kCanActUberJe      = 0x00729762;
+constexpr uint8_t  kCanActUberBytes[2] = {0x74, 0x07};  // je +7, verificado
+
 // PLAYER_FLAGS tal y como lo lee el predicado. NO es el array de descriptores
 // corriente (ese cuelga de +0x08); es un segundo bloque propio de CGPlayer_C.
 // Se escribe donde el predicado LEE, que es la unica direccion que garantiza

@@ -62,11 +62,17 @@ namespace
     // pieces in this project -- the DLL, this module, and the addon -- and only
     // the DLL had a version you could see, which made a server-side fix look
     // like nothing had happened. All three now report.
+    // 0.48.0 = el servidor deja de poner `PLAYER_FLAGS_UBER`: el nucleo prohibe
+    // atacar a quien lo lleva (`Unit.cpp:10762`). Ese bit pasa a escribirlo
+    // `rts_core` en la memoria del cliente, asi que la camara libre necesita el
+    // DLL inyectado.
+    // 0.47.0 = `CAM CTRL <0|1>`, y el control del cuerpo deja de quitarsele al
+    // cliente de fabrica -- quitarselo le apaga la espada y el click derecho.
     // 0.46.0 = vuelve la camara de espectador (`CAM SPEC` / `CAM SPECARM`) y la
     // tercera condicion de `MoveSelf`. El addon debe pedir `ServerAtLeast(46)`
     // antes de usar esos verbos: un verbo que el servidor no conoce NO da error,
     // no contesta, asi que un worldserver sin reiniciar se lee como un addon roto.
-    constexpr char const* kModVersion = "0.46.0";
+    constexpr char const* kModVersion = "0.48.0";
 
     std::string Upper(std::string s)
     {
@@ -1907,6 +1913,23 @@ namespace
                         return true;
                     }
                     SendAddon(player, on ? "SPECARM 1" : "SPECARM 0");
+                    return true;
+                }
+                // "CAM CTRL <0|1>" -- QUIEN CONDUCE TU CUERPO.
+                //
+                // 1 = el servidor (lo que hacia falta para que `MoveSelf`
+                // mueva tu propio heroe), y a cambio el cliente se queda sin
+                // espada y sin click derecho. 0 = el cliente, que es lo de
+                // fabrica desde 0.47.0. El porque entero, con las direcciones,
+                // en `RtsCamera.cpp` (`Arm`).
+                if (sub == "CTRL" || sub == "CONTROL")
+                {
+                    bool const on = (value == "1" || value == "on" || value == "ON");
+                    rts::camera::HoldControl(player, on);
+                    SendAddon(player, on ? "CTRL 1" : "CTRL 0");
+                    Reply(player, on
+                        ? "RTS: conduce el SERVIDOR -- sin espada ni click derecho."
+                        : "RTS: conduce el CLIENTE -- raton normal.");
                     return true;
                 }
                 // "CAM FLY <0|1>" -- decides whether forward follows the view

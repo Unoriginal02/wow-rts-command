@@ -1143,6 +1143,17 @@ function R:CameraOn()
 			end,
 			function()
 				ns.Print("|cffff0000camara:|r el cliente no abrio la camara libre.")
+				-- Y LA PRIMERA SOSPECHA ES EL DLL, desde mod-rts 0.48.0. El bit 19
+				-- que abre esa puerta ya no lo manda el servidor -- el nucleo prohibe
+				-- atacar a quien lo lleve (`Unit.cpp:10762`) -- asi que lo escribe
+				-- `rts_core` en la memoria del cliente. Sin inyectar, ese bit no
+				-- existe en ninguna parte y la puerta no abre nunca. Se dice aqui
+				-- porque el sintoma (una espera de doce intentos que se agota) no se
+				-- parece en nada a "falta el DLL".
+				if RTS_Ready ~= 1 then
+					ns.Print("  |cffff0000El DLL no esta inyectado|r, y desde 0.48.0 la " ..
+						"camara libre lo necesita. Abre el juego con |cffffff002-Jugar.bat|r.")
+				end
 				ns.Print("  |cffffff00/rts cam probe|r dice en que paso se queda.")
 				-- Igual que arriba: quitar los flags y traerse el Puppet. Antes esta
 				-- rama se podia permitir solo quejarse porque la camara de siempre ya

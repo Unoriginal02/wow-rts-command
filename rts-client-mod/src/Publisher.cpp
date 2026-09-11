@@ -23,8 +23,11 @@ namespace {
 // 0.23?" creyera que habla con un DLL viejo, cuando lo que pasa es que la
 // funcion ya no existe. Hacia atras no se vuelve, se avanza quitando.
 //
+// 0.28.0 = el bit 19 lo escribe el DLL: el servidor no puede llevarlo puesto.
+// 0.27.0 = "puedo atacar" vuelve armado con los flags: una de las dos puertas.
+// 0.26.0 = el interruptor que devuelve "puedo atacar" (el veto del bit 19).
 // 0.25.0 = el suelo bajo la camara se publica DOS VECES, con y sin edificios.
-constexpr const char* kVersion = "0.25.0";
+constexpr const char* kVersion = "0.28.0";
 constexpr int kProtocol = 3;
 
 // Every published unit costs ~110 bytes of Lua source that the client parses on

@@ -1198,6 +1198,8 @@ SlashCmdList["RTSCOMMAND"] = function(msg)
 			ns.Camera:Probe()
 		elseif sub == "spec" then
 			ns.Camera:Spectate(arg ~= "0" and arg ~= "off")
+		elseif sub == "ctrl" or sub == "control" then
+			ns.Camera:Control(arg == "1" or arg == "on")
 		elseif sub == "colision" or sub == "collision" then
 			ns.Camera:CameraCut(arg == "1" or arg == "on")
 		elseif sub == "geo" then
@@ -1808,6 +1810,8 @@ SlashCmdList["RTSCOMMAND"] = function(msg)
 			ns.Body:NoFix(b ~= "off" and b ~= "no")
 		elseif a == "blink" or a == "parpadeo" then
 			ns.Body:Blink(b ~= "off" and b ~= "no")
+		elseif a == "attack" or a == "atacar" or a == "espada" then
+			ns.Body:Attack(b ~= "off" and b ~= "no")
 		elseif a == "sites" or a == "sitios" then
 			if b == "all" or b == "todos" then ns.Body:Sites(63)
 			else ns.Body:Sites(0) end

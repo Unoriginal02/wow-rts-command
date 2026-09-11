@@ -42,6 +42,7 @@ local UBER_ONLY = 32    -- solo el bit 19, sin el 22
 local COMM_ONLY = 64    -- solo el bit 22, sin el 19
 local NO_FIX    = 8192  -- desarmar el arreglo automatico (para volver a ver el fallo)
 local BLINK_OFF = 16384 -- apagar el parpadeo. CANDIDATO, no cura
+local ACT_FIX   = 32768 -- devolver "puedo atacar" (el bit 19 lo veta)
 
 -- Se crea si no esta. `SetCVar` sobre un nombre que no existe NO DA ERROR: no
 -- hace nada. Es como el canal del FOV llevaba tres etapas fallando en silencio,
@@ -121,6 +122,9 @@ function B:Report()
 		ns.Print("  sitios del predicado: |cffff8000LOS DIECIOCHO apagados|r")
 	elseif code > 0 then
 		ns.Print(("  sitios del predicado: |cffff8000apagado el %d|r"):format(code - 1))
+	end
+	if Has(v, ACT_FIX) then
+		ns.Print("  espada: |cff00ff00veredicto del bit 19 anulado|r (puedes atacar)")
 	end
 	if not dll then
 		ns.Print("  |cffff0000Sin el DLL la sonda no hace absolutamente nada.|r " ..
@@ -285,6 +289,34 @@ function B:Blink(on)
 	end
 end
 
+-- LA ESPADA: DEVOLVER "PUEDO ATACAR".
+--
+-- `PLAYER_FLAGS_UBER` -- el bit 19, el que la camara libre NO puede no poner --
+-- corta en seco el predicado 0x00729740, que es el de `UnitCanAttack`. Con la
+-- camara puesta `UnitCanAttack("player", loquesea)` es falso, asi que el
+-- cliente no dibuja la espada al pasar por encima de un bicho y el boton
+-- derecho no ataca. El icono de mision y la bolsa de botin salen porque van por
+-- otro predicado, y esa asimetria es justo la firma del bit 19.
+--
+-- El arreglo es un byte en el veredicto (`je` -> `jmp`), y esta descrito entero
+-- en `rts-client-mod/src/Offsets.h`. Aqui solo esta el interruptor.
+--
+-- ARRANCA APAGADO. Es un parche de bytes sobre el cliente y todavia no se ha
+-- visto funcionar en juego: esa es la regla, y las dos veces que se incumplio
+-- el primer contacto del jugador con la ronda fue un fallo nuevo puesto encima
+-- de lo que venia a arreglar.
+function B:Attack(on)
+	Set(Bit(Get(), ACT_FIX, on and true or false))
+	if on then
+		ns.Print("|cff00ff00body:|r veredicto del bit 19 anulado (0x00729762).")
+		ns.Print("  Pasa el raton por encima de un bicho: |cffffff00¿sale la espada?|r")
+		ns.Print("  |cff00ff00si|r -> era eso y el arreglo pasa a armarse solo.")
+		ns.Print("  |cffff0000no|r -> no es el unico sitio; el predicado tiene 37 llamantes.")
+	else
+		ns.Print("body: veredicto del bit 19 devuelto (sin espada, como hasta hoy).")
+	end
+end
+
 function B:FlagsAuto()
 	-- Ni poner ni borrar: dejar los flags como esten. Es el estado neutro, y
 	-- hace falta para probar la cura de la ventana sin que la sonda pelee.
@@ -439,6 +471,7 @@ function B:Help()
 	ns.Print("  |cff00ff00/rts body look|r           aparca la camara sobre tu cuerpo")
 	ns.Print("  |cff00ff00/rts body log on|off|r      una linea por segundo a rts_core.log")
 	ns.Print("  |cff00ff00/rts body blink on|off|r    apaga el parpadeo (candidato)")
+	ns.Print("  |cff00ff00/rts body attack on|off|r   devuelve la espada y el click derecho")
 	ns.Print("  |cff00ff00/rts body nofix on|off|r    desarma el arreglo, para ver el fallo")
 	ns.Print("  |cff00ff00/rts body sites all|off|r   apaga los 18 llamantes del predicado")
 	ns.Print("  |cff00ff00/rts body site 0..17|r     apaga SOLO ese llamante")

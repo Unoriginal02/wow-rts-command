@@ -173,6 +173,9 @@ namespace rts
         //     shr ecx, 0x16 ; test bit 22  -> ENCENDIDO: return true, y ya
         //                                  ; si no: hace falta mapa tipo 4
         //
+        // OJO: DESDE 2026-09-11 EL SERVIDOR SOLO PONE EL BIT 22. El bit 19 lo
+        // escribe `rts_core` en la memoria del cliente, porque el nucleo se niega
+        // a dejar atacar a quien lo lleve (`Unit.cpp:10762`). Ver `Spectate`.
         // Bit 19 y bit 22 son `PLAYER_FLAGS_UBER` (0x00080000) y
         // `PLAYER_FLAGS_COMMENTATOR2` (0x00400000) -- comprobados contra el
         // enum del propio nucleo (`Player.h:478,481`) y no de memoria. El 22
@@ -227,6 +230,19 @@ namespace rts
         // para saber si puede mover el cuerpo: con la camara libre el cliente
         // ya no conduce al personaje, aunque no haya ninguna posesion.
         bool IsSpectating(Player const* player);
+
+        // QUIEN CONDUCE EL CUERPO, Y ES UN TRATO CON DOS MITADES.
+        //
+        // `SetClientControl(player, false)` deja que el servidor mueva tu
+        // personaje (lo pide `orders::MoveSelf`), y a cambio **el cliente se
+        // apaga entero para pelear**: escribe un cero en `0x00BCFB8C` y ese
+        // global es el que miran tanto el cursor de ataque (`0x004F7FA5`) como
+        // el ataque de verdad (`0x0072C3E9`). Ni espada ni click derecho.
+        //
+        // De fabrica el cliente SE QUEDA el control -- el raton normal pesa mas
+        // -- y esto lo cambia en caliente para poder medir el otro lado.
+        bool HoldControl(Player* player, bool on);
+        bool HoldsControl(Player const* player);
 
     }
 }

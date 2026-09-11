@@ -1083,6 +1083,29 @@ function C:Arm(on, after)
 	Send("CAM SPECARM " .. (on and "1" or "0"))
 end
 
+--- QUIEN CONDUCE TU CUERPO -------------------------------------------------
+--
+-- Es un TRATO, no un ajuste, y las dos mitades se excluyen:
+--
+--   * `ctrl 1` -- el servidor. Es lo que hace falta para que una orden mueva a
+--     TU propio heroe (`orders::MoveSelf`), y a cambio el cliente se queda sin
+--     espada al pasar por encima de un bicho y sin click derecho: le llega un
+--     `SMSG_CLIENT_CONTROL_UPDATE` con cero y eso pone a cero el global que
+--     miran tanto el cursor de ataque como el ataque.
+--   * `ctrl 0` -- el cliente, que es lo de fabrica desde mod-rts 0.47.0. Raton
+--     normal dentro del modo RTS.
+--
+-- Las direcciones del cliente que lo demuestran estan en `RtsCamera.cpp`.
+function C:Control(on)
+	if not ns.Link:ServerAtLeast(47) then
+		ns.Print("|cffff0000camara:|r |cffffff00/rts cam ctrl|r necesita mod-rts 0.47.0" ..
+		         (" y hay %s. Reinicia el worldserver."):format(
+		            tostring(ns.Link.serverVersion or "ninguno")))
+		return
+	end
+	Send("CAM CTRL " .. (on and "1" or "0"))
+end
+
 -- === LA COLOCACION SE GUARDA, Y NO ES SOLO ORDEN =========================
 --
 -- `CommentatorSetCamera` toma los seis valores de golpe, asi que cambiar SOLO
@@ -1589,6 +1612,13 @@ function C:Create()
 	ns.Link:On("SPECARM", function(rest)
 		local state = rest:match("^([01])$")
 		if state then C:OnArm(state == "1") end
+	end)
+
+	-- Igual que los dos de arriba: un solo sentido (el addon manda `CAM CTRL`),
+	-- asi que esta en `REPLY_ONLY` y no hace falta discriminante.
+	ns.Link:On("CTRL", function(rest)
+		local state = rest:match("^([01])$")
+		if state then C.bodyServer = (state == "1") end
 	end)
 
 	-- `self.events`, NO `self.frame`. `C.frame` es la tabla de ENCUADRE
