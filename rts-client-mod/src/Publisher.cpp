@@ -27,7 +27,7 @@ namespace {
 // 0.27.0 = "puedo atacar" vuelve armado con los flags: una de las dos puertas.
 // 0.26.0 = el interruptor que devuelve "puedo atacar" (el veto del bit 19).
 // 0.25.0 = el suelo bajo la camara se publica DOS VECES, con y sin edificios.
-constexpr const char* kVersion = "0.28.0";
+constexpr const char* kVersion = "0.29.0";
 constexpr int kProtocol = 3;
 
 // Every published unit costs ~110 bytes of Lua source that the client parses on
@@ -302,9 +302,24 @@ void PublishCameraOnly() {
     // Todavia no lo lee nadie: es el paso 2 de `docs/CAMARA-LIBRE.md` §10 y lo
     // gasta FreeCam, que viene detras. Va ahora para no pagar otro ciclo de
     // cerrar el cliente, y se dice aqui para que no parezca codigo huerfano.
+    // EL RAYO ARRANCA EN LA CAMARA (2026-09-12), y antes arrancaba cinco yardas
+    // mas arriba. Ese adelanto se puso para que un rayo que empieza DENTRO del
+    // suelo siguiera encontrandolo, y costaba mucho mas de lo que valia: durante
+    // las cinco yardas siguientes a cruzar una superficie hacia abajo, el rayo
+    // seguia devolviendo LA DE ARRIBA. Una franja ciega, y justo la franja por
+    // la que hay que pasar para meterse en una cueva desde el tejado: la camara
+    // veia el tejado del tubo desde dentro y el addon la subia otra vez encima.
+    //
+    // Peor todavia, con el suelo duro del addon eso era una escalera que se
+    // construye sola -- sube a `ground + clear`, el rayo del frame siguiente
+    // arranca cinco yardas mas alto, vuelve a encontrar roca encima -- y echaba
+    // la camara fuera de la montana en una fraccion de segundo.
+    //
+    // Arrancando en la camara, lo que se publica es lo que significa su nombre:
+    // el suelo que hay DEBAJO. Nunca una superficie por encima.
     constexpr float kCamGroundUp   = 5.0f;
     constexpr float kCamGroundDown = 1000.0f;
-    world::Vec3 const gs = {cam.pos[0], cam.pos[1], cam.pos[2] + kCamGroundUp};
+    world::Vec3 const gs = {cam.pos[0], cam.pos[1], cam.pos[2]};
     world::Vec3 const ge = {cam.pos[0], cam.pos[1], cam.pos[2] - kCamGroundDown};
     world::Vec3 ghit = {0, 0, 0};
     bool const camGroundHit = world::Raycast(gs, ge, &ghit, nullptr);
@@ -324,7 +339,25 @@ void PublishCameraOnly() {
     world::Vec3 lhit = {0, 0, 0};
     bool const camLandHit = world::RaycastTerrain(gs, ge, &lhit, nullptr);
 
-    char code[768];
+    // Y LO QUE EL ADELANTO SI COMPRABA, AHORA APARTE: un rayo corto que mira las
+    // cinco yardas de ENCIMA de la camara. Sirve para el unico caso que
+    // justificaba el adelanto -- el suavizado deja la camara un instante por
+    // debajo del terreno, y desde ahi el rayo de abajo ya no encuentra el suelo
+    // del que se ha colado -- y ahora es un dato con su propio nombre en vez de
+    // una contaminacion del otro. "Tengo suelo debajo" y "tengo roca encima" son
+    // dos preguntas distintas y cada una tiene su rayo.
+    //
+    // Terreno solo a proposito: el tejado de una casa NO debe levantar la camara
+    // -- eso era el fallo que `floor 1` vino a arreglar -- pero estar por debajo
+    // del terreno del mundo si es una situacion de la que hay que salir.
+    world::Vec3 const cs = {cam.pos[0], cam.pos[1], cam.pos[2] + kCamGroundUp};
+    world::Vec3 chit = {0, 0, 0};
+    bool const camCeilHit = world::RaycastTerrain(cs, gs, &chit, nullptr);
+
+    // 768 se quedo corto al anadir el rayo del techo: con _TRUNCATE, pasarse
+    // devuelve -1 y el `if (n <= 0) return;` de abajo tira la publicacion ENTERA
+    // en silencio -- la camara dejaria de tener suelo sin decir por que.
+    char code[1024];
     int n = _snprintf_s(code, sizeof(code), _TRUNCATE,
         "RTS_HasCam=1;RTS_CamX=%.3f;RTS_CamY=%.3f;RTS_CamZ=%.3f;"
         "RTS_CamFwdX=%.4f;RTS_CamFwdY=%.4f;RTS_CamFwdZ=%.4f;"
@@ -332,14 +365,16 @@ void PublishCameraOnly() {
         "RTS_CamUpX=%.4f;RTS_CamUpY=%.4f;RTS_CamUpZ=%.4f;"
         "RTS_CamFov=%.5f;RTS_CamAspect=%.5f;"
         "RTS_CamGroundHit=%d;RTS_CamGroundZ=%.3f;"
-        "RTS_CamLandHit=%d;RTS_CamLandZ=%.3f",
+        "RTS_CamLandHit=%d;RTS_CamLandZ=%.3f;"
+        "RTS_CamCeilHit=%d;RTS_CamCeilZ=%.3f",
         cam.pos[0], cam.pos[1], cam.pos[2],
         cam.mat[0], cam.mat[1], cam.mat[2],
         cam.mat[3], cam.mat[4], cam.mat[5],
         cam.mat[6], cam.mat[7], cam.mat[8],
         cam.fov, cam.aspect,
         camGroundHit ? 1 : 0, camGroundHit ? ghit.z : 0.0f,
-        camLandHit ? 1 : 0, camLandHit ? lhit.z : 0.0f);
+        camLandHit ? 1 : 0, camLandHit ? lhit.z : 0.0f,
+        camCeilHit ? 1 : 0, camCeilHit ? chit.z : 0.0f);
     if (n <= 0) return;
 
     __try {

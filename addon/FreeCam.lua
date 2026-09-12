@@ -112,7 +112,8 @@ local D = {
 	lift    = 14.0,   -- yardas/segundo de offset con ESPACIO y C
 	turn    = 90.0,   -- grados/segundo con Q y E
 	height  = 30.0,   -- offset inicial sobre el suelo
-	minH    = 4.0,    -- suelo del offset
+	minH    = 4.0,    -- lo mas bajo que puede valer `height`. NO es un suelo del
+	                  -- vuelo: con C se atraviesa lo que sea
 	maxH    = 300.0,  -- techo del offset
 	smoothZ = 8.0,    -- k del suavizado de altura (1/s); mas alto, mas seco
 	-- === EL SUELO NO ES LO PRIMERO QUE HAY DEBAJO ========================
@@ -381,10 +382,107 @@ end
 -- Devuelve tambien de donde ha salido, porque "la camara sube sola" y "la
 -- camara no baja" son el mismo sintoma con las dos fuentes cambiadas, y
 -- distinguirlo mirando la pantalla cuesta una ronda.
+
+-- LA CAJA NEGRA DE LA BOCA. Avisa cuando el terreno se queda arriba, porque es
+-- el unico instante que importa y dura menos de lo que se tarda en escribir
+-- `/rts fc`. Se limita a un aviso cada dos segundos: dentro de una cueva la
+-- condicion es cierta en TODOS los frames, y sin el freno serian sesenta lineas
+-- por segundo tapando el chat.
+local lastBox = 0
+local function BlackBox(land, solid)
+	local now = GetTime and GetTime() or 0
+	if now - lastBox < 2.0 then return end
+	lastBox = now
+	ns.Print(("|cffff8800techo de roca|r: terreno %.1f ARRIBA, solido %.1f abajo, camara %.1f -- se usa el solido")
+		:format(land, solid, st.z or 0))
+end
+
+-- EL RAYO QUE DICE QUE CHOCO SIN CHOCAR (2026-09-12).
+--
+-- Dentro de la cueva, `/rts fc` imprimio esto:
+--
+--     suelo: terreno 0.0   solido 1345.7   en uso: terreno
+--
+-- `terreno 0.0` NO es "no ha contestado" -- eso se imprime como `--`. Es que
+-- `RTS_CamLandHit` vino a 1 y `RTS_CamLandZ` a cero: el rayo de terreno dijo que
+-- SI choco, y no escribio donde. En el DLL, `Cast` arranca `out = {0,0,0}` y lo
+-- devuelve tal cual si `CGWorldFrame::Intersect` contesta cierto sin tocarlo,
+-- que es lo que hace ahi donde el ADT esta agujereado a proposito -- o sea justo
+-- dentro de una cueva.
+--
+-- Y AHI ESTA EL PLOP, entero, sin bucles ni acantilados: un suelo de 0.0 con la
+-- camara a 1345 es un desnivel de mil trescientas yardas hacia abajo, mas grande
+-- que `GROUND_SNAP`, asi que el filtro hace lo que tiene mandado con un salto
+-- imposible -- se pone al dia DE GOLPE -- y la camara aparece a `0 + offset`, en
+-- el fondo del mundo. Por eso no se sabia si iba arriba o abajo: iba abajo, del
+-- todo, en un frame.
+--
+-- La regla es que un choque tiene que caer DENTRO del segmento que se disparo.
+-- El DLL lanza desde `cam.z + 5` hasta `cam.z - 1000`; cualquier cosa fuera de
+-- ahi no la ha podido tocar ese rayo. No hay constante que inventar: son las dos
+-- del publicador. El cero se descarta ademas por su cuenta, porque es el valor
+-- que el propio publicador escribe cuando NO hay choque y ningun suelo del mundo
+-- cae exactamente en 0.000.
+--
+-- Esto tapa el sintoma en el lado barato -- un `/reload` en vez de recompilar e
+-- inyectar. El arreglo de raiz es que el DLL no publique un choque que no ha
+-- escrito.
+local RAY_UP, RAY_DOWN = 5.0, 1000.0
+
+local function RayHit(hit, z)
+	if hit ~= 1 or type(z) ~= "number" then return nil end
+	if z == 0 then return nil, "0.0" end
+	if st.z and (z > st.z + RAY_UP + 0.5 or z < st.z - RAY_DOWN) then
+		return nil, ("%.1f"):format(z)
+	end
+	return z
+end
+
+-- EL RAYO DEL TECHO (rts_core 0.29.0). Mira las `RAY_UP` yardas de ENCIMA de la
+-- camara, y solo terreno. Es lo unico que el adelanto del rayo de abajo compraba
+-- -- salir de debajo del suelo cuando el suavizado te ha colado -- separado en un
+-- dato con su propio nombre, ahora que el de abajo arranca en la camara y por fin
+-- significa "lo que hay DEBAJO".
+--
+-- Con un rts_core viejo esto es nil y no pasa nada: la franja ciega vuelve, que
+-- es exactamente como se venia funcionando.
+local function CeilAbove()
+	local z = RayHit(RTS_CamCeilHit, RTS_CamCeilZ)
+	if z and st.z and z >= st.z and z <= st.z + RAY_UP + 0.5 then return z end
+	return nil
+end
+
 local function GroundUnderCamera(c)
-	local land  = (RTS_CamLandHit  == 1) and RTS_CamLandZ  or nil
-	local solid = (RTS_CamGroundHit == 1) and RTS_CamGroundZ or nil
+	local land  = RayHit(RTS_CamLandHit,  RTS_CamLandZ)
+	local solid = RayHit(RTS_CamGroundHit, RTS_CamGroundZ)
 	if c.floor == 1 then
+		-- EL TERRENO DEJA DE SER SUELO CUANDO ESTA POR ENCIMA DE LA CABEZA.
+		--
+		-- Aqui estaba la causa de las cuevas, y no en la aritmetica de la
+		-- altura: la aritmetica hacia exactamente lo que se le pedia con una
+		-- MEDIDA QUE NO ERA UN SUELO. Al cruzar la boca, la XY de la camara pasa
+		-- por debajo de la silueta de la montana; el ADT solo esta agujereado en
+		-- el INTERIOR, asi que el rayo de terreno sigue contestando -- y lo que
+		-- devuelve es la ladera de fuera, decenas de yardas POR ENCIMA. El suelo
+		-- duro lee eso y hace lo unico que sabe hacer: empujar la camara hasta
+		-- `ground + clear`, o sea al tejado de la montana, atravesando la roca
+		-- durante todo el camino. Eso es la pantalla lila, y por eso el `/rts fc`
+		-- de dentro salia coherente: las cuentas cuadraban con la superficie
+		-- equivocada.
+		--
+		-- Un suelo esta DEBAJO. Si el terreno queda arriba y el solido queda
+		-- abajo, el solido es el suelo de la cueva y el terreno es el techo de
+		-- roca que tenemos encima: no hay nada que decidir.
+		--
+		-- Y la regla no toca el acantilado, que es el caso que parece el mismo:
+		-- volando contra un risco el terreno tambien queda arriba, pero ahi NO
+		-- hay solido debajo -- el risco es terreno pelado -- asi que el `if` no
+		-- entra y la camara lo sube como hasta ahora. Hace falta que las DOS
+		-- cosas pasen a la vez, y eso solo pasa bajo techo.
+		if land and solid and st.z and land > st.z and solid < st.z then
+			BlackBox(land, solid)
+			return solid, "solido (el terreno queda arriba)"
+		end
 		if land then return land, "terreno" end
 		-- CAER AL SOLIDO NO ES DEGRADARSE AQUI, ES ACERTAR. Dentro de una cueva
 		-- el ADT esta agujereado a proposito y el rayo de terreno NO CONTESTA:
@@ -547,18 +645,103 @@ function F:Step(dt)
 	st.x = st.x + st.vx * dt
 	st.y = st.y + st.vy * dt
 
-	-- --- altura: ESPACIO y C mueven el OFFSET, no la Z ----------------
+	-- --- el objetivo y el suavizado -----------------------------------
+	--
+	-- EL SUELO SE MIDE ANTES QUE LA ALTURA, y el orden no es cosmetico: sin
+	-- suelo, ESPACIO y C tienen que mover otra cosa (ver abajo), asi que hay que
+	-- saber si lo hay antes de leer las teclas.
+	local ground = GroundUnderCamera(c)
+
+	-- EL EMPUJE SE CANSA (2026-09-12). "Puedo asomarme un poco en la montana y
+	-- me echa fuera al momento" -- y el que echa es este fichero, no la colision
+	-- del cliente, que esta apagada.
+	--
+	-- La causa es el arranque del rayo. El DLL dispara desde `cam.z + 5`, asi
+	-- que estando DENTRO de la roca el rayo sale por encima de la camara y
+	-- devuelve una superficie que esta ARRIBA. El suelo duro hace lo suyo --
+	-- subir a `ground + clear` -- y al frame siguiente el rayo arranca cinco
+	-- yardas mas alto todavia, encuentra otra vez roca por encima, y vuelve a
+	-- subir. Es una escalera que se construye sola: la camara sale disparada
+	-- hasta que se acaba la montana. El limite `push` no la para, solo le pone
+	-- velocidad.
+	--
+	-- Y no hay forma de distinguir "estoy metido en un monte" de "el suavizado
+	-- me ha dejado una yarda por debajo del suelo" mirando un solo rayo hacia
+	-- abajo: los dos casos son lo mismo, una superficie por encima. Lo que si
+	-- los separa es CUANTO HAY QUE SUBIR. Una yarda de suavizado se arregla en
+	-- dos frames; una montana no se arregla nunca.
+	--
+	-- Asi que el empuje tiene presupuesto: `offset + clear`, que es lo que mide
+	-- la camara de suelo a cabeza y ni una constante nueva. Mientras el suelo
+	-- este por encima se va gastando; en cuanto vuelve a estar debajo -- o sea
+	-- al asomar a cielo abierto -- se repone entero. Gastado, el suelo deja de
+	-- contar como suelo y la camara MANTIENE la altura, que es lo que se pidio:
+	-- "que no siga al suelo y simplemente clipee".
+	if ground and st.z and ground > st.z then
+		st.buried = (st.buried or 0) + c.push * dt
+		if st.buried > (st.offset or 0) + c.clear then ground = nil end
+	else
+		st.buried = 0
+	end
+
+	-- --- altura: ESPACIO y C MUEVEN LA CAMARA ------------------------
+	--
+	-- TERCER MODELO Y EL BUENO (2026-09-12). Los dos anteriores movian el
+	-- OFFSET, y los dos se estrellaron contra lo mismo: un offset es una altura
+	-- SOBRE algo, asi que mientras se pulsa una tecla el suelo esta discutiendo
+	-- con el jugador. Primero el offset se paraba en `minH` y cualquier
+	-- superficie era un techo infranqueable. Luego se le dejo bajar a -7 y se
+	-- podia uno incrustar un poco, pero no atravesar: en cuanto el rayo
+	-- encontraba otro suelo debajo, el offset se recalculaba en positivo y habia
+	-- que volver a bajarlo entero. Cada piso costaba un segundo de tecla.
+	--
+	-- Mientras la tecla esta pulsada, la camara se mueve EN EL MUNDO y punto. No
+	-- hay suelo, no hay filtro, no hay suelo duro: hay una camara bajando a
+	-- `lift` yardas por segundo, que es lo que se pidio -- "poder colarme por
+	-- donde sea". Atraviesa terreno, tejados, pisos y el tubo de la cueva sin
+	-- notar ninguno, porque durante ese rato ninguno significa nada.
+	--
+	-- AL SOLTAR es cuando vuelve a haber suelo, y se engancha a lo que haya
+	-- debajo desde la altura en la que se ha quedado. Eso esta unas lineas mas
+	-- abajo y vale ademas para salir del vacio: es la misma pregunta.
 	local lift = 0
 	if input.up then lift = lift + 1 end
 	if input.down then lift = lift - 1 end
 	if lift ~= 0 then
-		st.offset = st.offset + lift * c.lift * dt
-		if st.offset < c.minH then st.offset = c.minH end
-		if st.offset > c.maxH then st.offset = c.maxH end
+		st.z = st.z + lift * c.lift * dt
+		st.free = true
+		-- Se olvida el suelo filtrado y el presupuesto, no por limpieza: si se
+		-- quedara puesto, al soltar la tecla el filtro creeria que el suelo de
+		-- hace medio segundo sigue siendo el suyo y daria el escalon entero de
+		-- golpe. Y `ground` a nil aqui mismo apaga, en una linea, todo lo que
+		-- viene detras y empuja.
+		st.gz, st.gstep, st.buried = nil, 0, 0
+		ground = nil
+	else
+		st.free = false
 	end
 
-	-- --- el objetivo y el suavizado -----------------------------------
-	local ground = GroundUnderCamera(c)
+	-- EL ANCLAJE: al aparecer un suelo donde no habia ninguno -- soltando la
+	-- tecla, o saliendo del vacio volando de lado -- se toma la altura a la que
+	-- la camara YA esta como offset. Asi no hay ni un salto: estaba donde
+	-- estaba y sigue estando ahi, solo que ahora se mide contra otra cosa. Es la
+	-- idea del jugador ("ese sera el nuevo suelo") escrita una sola vez, y
+	-- sustituye al relevo que antes dependia de que el offset fuera negativo.
+	--
+	-- Y EL VACIO ABISAL, la otra mitad: si lo que aparece debajo esta mas lejos
+	-- que `maxH` -- el techo del propio offset, o sea mas de lo que esta camara
+	-- llama "volar sobre algo" -- no es un suelo, es el fondo del mundo. No se
+	-- engancha y se sigue flotando; engancharse a algo a trescientas yardas
+	-- seria caerse.
+	if ground and not st.gz then
+		local h = st.z - ground
+		if h < 0 or h > c.maxH then
+			ground = nil
+		else
+			st.offset = h
+		end
+	end
+
 	local targetZ
 	if ground then
 		-- EL ESCALON SE FILTRA EN EL SUELO, NO EN LA CAMARA, y esa es la unica
@@ -672,6 +855,13 @@ function F:Step(dt)
 		-- Y el suelo filtrado se olvida: cuando el rayo vuelva a contestar sera
 		-- en otro sitio, y arrastrar el de antes lo haria parecer un escalon
 		-- gigante justo en el frame de la reaparicion.
+		--
+		-- EL PRESUPUESTO DE EMPUJE NO SE REPONE AQUI, y esa linea de mas habria
+		-- deshecho el arreglo entero sin cambiarlo de sitio: cuando el empuje se
+		-- agota, `ground` se pone a nil y la ejecucion cae JUSTO EN ESTA RAMA.
+		-- Reponerlo aqui seria rellenar el deposito en el mismo frame en que se
+		-- vacia -- la escalera otra vez, un peldano por frame. Se repone solo
+		-- donde toca: con suelo debajo, o al entrar y salir del modo.
 		st.gz, st.gstep = nil, 0
 	end
 
@@ -713,10 +903,42 @@ function F:Step(dt)
 	-- cambia es que tarda lo que tiene que tardar, y eso convierte un salto que
 	-- no se puede ver en una subida que se ve venir y de la que se puede salir
 	-- marcha atras.
-	if ground and st.z < ground + c.clear then
-		local want = ground + c.clear
-		local lim = c.push * dt
-		st.z = (want - st.z > lim) and (st.z + lim) or want
+	--
+	-- Y NUNCA POR ENCIMA DE LO QUE SE HA PEDIDO (2026-09-12). `clear` a secas
+	-- era el suelo duro discutiendo con el buceo: el jugador baja el offset a
+	-- -7 para colarse por un tejado y esta linea lo devuelve a +2 del tejado,
+	-- cada frame, para siempre. Un margen de seguridad que anula la orden que
+	-- viene de las teclas no es un margen, es un veto. Con el `min`, mientras el
+	-- offset sea mayor que `clear` esto se comporta exactamente igual que antes,
+	-- y en cuanto se pide bajar mas, deja de empujar.
+	if ground and st.offset then
+		local want = ground + math.min(c.clear, st.offset)
+		if st.z < want then
+			local lim = c.push * dt
+			st.z = (want - st.z > lim) and (st.z + lim) or want
+		end
+	end
+
+	-- SALIR DE DEBAJO DEL SUELO, que es lo unico para lo que existe el rayo del
+	-- techo. Sin suelo debajo y con TERRENO justo encima, la camara se ha colado
+	-- por debajo del mundo -- normalmente porque el suavizado fue por detras de
+	-- una bajada brusca -- y ahi no hay nada que seguir, solo de donde salir.
+	--
+	-- Dos frenos, y los dos hacen falta. No se hace si se esta buceando a
+	-- proposito (`offset` negativo), o seria el veto de siempre con otro nombre.
+	-- Y gasta el MISMO presupuesto que el resto del empuje, asi que en el peor
+	-- caso -- que el techo sea de verdad el interior de una montana -- sube unas
+	-- yardas y se rinde, en vez de convertirse otra vez en un eyector.
+	if not ground and not st.free and st.offset and st.offset >= 0 then
+		local ceil = CeilAbove()
+		if ceil then
+			st.buried = (st.buried or 0) + c.push * dt
+			if st.buried <= st.offset + c.clear then
+				local lim = c.push * dt
+				local want = ceil + c.clear
+				st.z = (want - st.z > lim) and (st.z + lim) or want
+			end
+		end
 	end
 
 	ns.Camera:SpecPlace(st.x, st.y, st.z, st.yaw, st.pitch or c.pitch, nil)
@@ -772,7 +994,7 @@ function F:Start()
 	-- El suelo filtrado de la ULTIMA vez que se entro no vale: puede ser de
 	-- otro continente. A nil, que es lo que hace que el primer tick lo siembre
 	-- con la medida de aqui en vez de venir subiendo desde donde estuvieramos.
-	st.gz, st.gstep = nil, 0
+	st.gz, st.gstep, st.buried = nil, 0, 0
 	-- El yaw arranca en 0 y NO se deriva del que tenga la camara: la convencion
 	-- de angulos de `CommentatorSetCamera` no se puede leer del binario, asi que
 	-- sembrarlo seria adivinar. El precio es un giro brusco al entrar; el
@@ -832,7 +1054,7 @@ end
 --
 -- Existe porque el fallo de las cuevas tenia DOS mitades y solo una es la
 -- aritmetica: la otra es que una vez la camara acaba en un sitio malo **no hay
--- ninguna tecla que la saque**. C solo baja el `offset` (suelo `minH`), y el
+-- ninguna tecla que la saque**. C solo bajaba el `offset` (suelo `minH`), y el
 -- suelo duro gana; W/A/S/D mueven a ciegas dentro de la roca, donde no hay
 -- ninguna referencia para saber hacia donde esta la salida. Literalmente sin
 -- vuelta: *"me lleva a un sitio del que no puedo volver"*.
@@ -859,7 +1081,7 @@ function F:Home()
 	st.x, st.y = RTS_PX, RTS_PY
 	st.offset = c.height
 	st.z = RTS_PZ + c.height
-	st.gz, st.gstep = nil, 0
+	st.gz, st.gstep, st.buried = nil, 0, 0
 	st.vx, st.vy = 0, 0
 	ns.Print(("|cff33ccffcamara RTS:|r camara devuelta sobre tu heroe (%.0f %.0f %.0f)."):format(
 		st.x, st.y, st.z))
@@ -873,7 +1095,7 @@ local LABEL = {
 	lift = "velocidad de subida (yd/s)",
 	turn = "giro (grados/s)",
 	height = "altura sobre el suelo (yd)",
-	minH = "altura minima (yd)",
+	minH = "altura minima de `height` (yd); el vuelo ya no tiene suelo",
 	maxH = "altura maxima (yd)",
 	smoothZ = "suavizado de altura (k)",
 	floor = "que cuenta como suelo: 1 = solo terreno, 0 = lo primero que haya",
@@ -906,8 +1128,13 @@ function F:Set(key, value)
 	end
 	c[key] = n
 	Cfg()   -- reacota y descarta lo imposible
+	-- SOLO EL TECHO. `minH` dejo de ser un suelo del vuelo cuando las teclas
+	-- pasaron a mover la camara: la altura viva puede estar por debajo a
+	-- proposito -- dentro de una cueva, bajo un piso -- y subirla aqui seria
+	-- echar al jugador de donde acaba de colarse por tocar un ajuste que no
+	-- tiene nada que ver.
 	if st.offset and (key == "height" or key == "minH" or key == "maxH") then
-		st.offset = math.max(c.minH, math.min(c.maxH, st.offset))
+		st.offset = math.min(c.maxH, st.offset)
 	end
 	-- El pitch es estado vivo, asi que tocarlo tiene que verse AHORA. Sin esto
 	-- `/rts fc pitch 60` no haria nada hasta la siguiente entrada al modo, que
@@ -936,12 +1163,23 @@ function F:Report()
 	-- y se contesta sola en cuanto se ven los dos numeros juntos: si `solido`
 	-- esta quince yardas por encima de `terreno`, eso de debajo es un tejado.
 	-- Con un solo numero hay que adivinar cual de los dos se esta mirando.
-	local land  = (RTS_CamLandHit  == 1) and RTS_CamLandZ  or nil
-	local solid = (RTS_CamGroundHit == 1) and RTS_CamGroundZ or nil
+	-- Y PASADOS POR LA MISMA CRIBA QUE USA EL CONTROLADOR, o el informe diria
+	-- que hay suelo justo donde la camara ha decidido que no lo hay. Un rayo
+	-- descartado se ensena con su valor entre parentesis: "no contesta" y
+	-- "contesta una mentira" son dos averias distintas y se arreglan en sitios
+	-- distintos.
+	local land,  landBad  = RayHit(RTS_CamLandHit,  RTS_CamLandZ)
+	local solid, solidBad = RayHit(RTS_CamGroundHit, RTS_CamGroundZ)
+	-- Una sola llamada para todo el informe: `GroundUnderCamera` avisa por chat
+	-- cuando descarta un techo, y llamarla dos veces por un `/rts fc` seria el
+	-- instrumento generando la lectura que va a imprimir.
+	local g, src = GroundUnderCamera(c)
 	ns.Print(("  suelo: terreno %s   solido %s   |cffffff00en uso: %s|r"):format(
-		land and ("%.1f"):format(land) or "|cffff8800--|r",
-		solid and ("%.1f"):format(solid) or "|cffff8800--|r",
-		c.floor == 1 and "terreno" or "solido"))
+		land and ("%.1f"):format(land)
+			or (landBad and ("|cffff0000descartado (%s)|r"):format(landBad) or "|cffff8800--|r"),
+		solid and ("%.1f"):format(solid)
+			or (solidBad and ("|cffff0000descartado (%s)|r"):format(solidBad) or "|cffff8800--|r"),
+		src or (c.floor == 1 and "terreno" or "solido")))
 	if land == nil and RTS_CamLandHit == nil then
 		-- Un DLL viejo no publica la variable EN ABSOLUTO, y eso no se parece en
 		-- nada a "el rayo no ha chocado". Sin esta linea, `floor 1` se comporta
@@ -955,7 +1193,6 @@ function F:Report()
 	ns.Print(("  colision del cliente: %s"):format(
 		c.noclip == 1 and "|cff00ff00APAGADA|r (atraviesa todo)"
 		              or "|cffff8800encendida|r (choca con paredes y tejados)"))
-	local g, src = GroundUnderCamera(c)
 	if g then
 		ns.Print(("  suelo en uso %.1f (%s)   filtrado %s   separacion %.1f yd"):format(
 			g, src,
@@ -963,6 +1200,16 @@ function F:Report()
 			(st.z or g) - (st.gz or g)))
 	else
 		ns.Print("  |cffff8800sin suelo|r: el rayo no contesta aqui (¿cueva, agua?).")
+	end
+	local ceil = CeilAbove()
+	if ceil then
+		ns.Print(("  |cffff8800techo|r a %.1f (%.1f yd por encima)"):format(ceil, ceil - (st.z or ceil)))
+	elseif RTS_CamCeilHit == nil then
+		ns.Print("  |cff888888sin rayo de techo|r: rts_core anterior a 0.29.0 (la franja ciega de 5 yd sigue ahi).")
+	end
+	if (st.buried or 0) > 0 then
+		ns.Print(("  |cffff8800empuje gastado|r %.1f de %.1f yd (suelo por encima: se deja de seguir al agotarse)")
+			:format(st.buried, (st.offset or 0) + c.clear))
 	end
 	local fx, fy = FlatForward()
 	if fx then
