@@ -13,7 +13,6 @@ proyecto. Lo que hay en el WoW y dentro de AzerothCore son copias desplegadas.
 | `addon/` | Addon Lua: selección, órdenes, cámara, command card | `D:\GAMES\WOW WOTLK\Interface\AddOns\RTSCommand` |
 | `mod-rts/` | Módulo de servidor: cámara poseída, despacho de órdenes, command mode | `C:\Server\azerothcore\modules\mod-rts` |
 | `rts-client-mod/` | `rts_core.dll` — coordenadas de mundo, raycast del cursor, cámara, círculos nativos | no se despliega: se compila aquí mismo |
-| `docs/` | `CLAUDE.md` y las listas `PRUEBAS-N.txt` | copia manual desde `C:\Server` |
 | `scripts/` | `.bat` de arranque | copia manual desde `C:\Server` |
 
 Las tres piezas se comunican así:
@@ -78,5 +77,8 @@ git pull
 
 y después los dos botones de deploy, más compilar el DLL y el `worldserver`.
 
-`docs/CLAUDE.md` explica el porqué de cada decisión, incluidos los callejones
-sin salida, que es la parte que más cuesta redescubrir.
+El porqué de cada decisión, callejones sin salida incluidos, está en los
+comentarios del fichero que la implementa, y los casos de prueba en `sim/`,
+donde se corren en vez de leerse. `docs/` existió y se borró a propósito
+(`4c2b163`): unas notas que ya no coinciden con el binario son un sitio cómodo
+donde confirmar una idea equivocada sin abrir el código.
