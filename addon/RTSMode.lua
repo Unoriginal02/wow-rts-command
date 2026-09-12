@@ -1353,10 +1353,44 @@ end
 -- ai` en vez de apagarlo siempre -- si no, volver a encender la IA de misiones
 -- se la devolveria a los bots y no a ti, que es la clase de discrepancia que
 -- luego se lee como "a mi personaje le pasa otra cosa".
+-- Y LA TERCERA, QUE ES LA QUE CERRABA LA VENTANA DE BOTIN (2026-09-12).
+--
+-- Sintoma: *"cuando voy a lootear a un bicho me sale un frame el loot del bicho
+-- y al instante se esconde"*. Medido con la sonda de `Loot.lua`: la ventana se
+-- abre y entre 80 y 130 ms despues llega `LOOT_CLOSED`, sin recoger un solo
+-- hueco y con el cliente viendote a menos de cinco metros del cuerpo. O sea que
+-- el botin se SUELTA, y lo suelta tu propia IA:
+--
+--     SMSG_LOOT_RESPONSE
+--       -> disparador "loot response"      (PlayerbotAI.cpp:189)
+--       -> accion "store loot"             (WorldPacketHandlerStrategy.cpp:40)
+--       -> StoreLootAction::Execute, que mira objeto por objeto, se queda con
+--          lo que su estrategia permita... y ACABE COMO ACABE termina mandando
+--          CMSG_LOOT_RELEASE (LootAction.cpp:459).
+--
+-- Los 100 ms son su tick de reaccion. Y el `-loot` de arriba NO lo tapa, que es
+-- lo que despistaba: `store loot` no cuelga de la estrategia `loot` -- esa es la
+-- que hace que un bot vaya andando hasta el cadaver -- sino de `default`, que es
+-- el manejador de paquetes y lo lleva todo el mundo que tenga IA.
+--
+-- QUE SE PIERDE AL QUITARLA, dicho entero porque no es gratis: `default` es
+-- tambien quien acepta solo las invitaciones de grupo, los intercambios y las
+-- hermandades, quien entrega misiones al abrir el dialogo, quien te levanta del
+-- suelo al morir y quien hace el mantenimiento al subir de nivel. Todo eso son
+-- cosas que un jugador de verdad hace por su cuenta con su interfaz -- y varias
+-- de ellas son quejas viejas de este mismo fichero ("me ha cogido la quest tal
+-- cual"). Los BOTS no se enteran: esto va por susurro y el susurro llega solo a
+-- tu IA.
+--
+-- Va en los dos motores. El botin casi siempre se abre fuera de combate, pero
+-- con cinco bots peleando alrededor "fuera de combate" no es donde uno cree, y
+-- si el motor de combate es el activo el disparador sale igual por ahi.
 local function SelfSoloStrategies(on)
     local quest = (on or R.questAI) and "+quest" or "-quest"
     SendChatMessage((on and "nc +loot,+gather," or "nc -loot,-gather,") .. quest,
                     "WHISPER", nil, ns.MyName())
+    SendChatMessage(on and "nc +default" or "nc -default", "WHISPER", nil, ns.MyName())
+    SendChatMessage(on and "co +default" or "co -default", "WHISPER", nil, ns.MyName())
 end
 
 function R:SelfBotSet(want, quiet)
@@ -1446,7 +1480,18 @@ function R:Toggle()
 			ns.Print("  - |cffff0000mover y atacar al suelo no funcionan|r (siguen valiendo follow/stay/attack)")
 			ns.Print("  Arreglo: cierra el WoW y abrelo con |cffffff00C:\\Server\\rts-tools\\Jugar.bat|r")
 		end
-		if self.selfBot.auto then self:SelfBotSet(true, true) end
+		if self.selfBot.auto then
+			self:SelfBotSet(true, true)
+			-- Y LOS SUSURROS DE ESTRATEGIA SIEMPRE, aunque `SelfBotSet` crea
+			-- que no hay nada que cambiar. Despues de un `/reload` la cuenta
+			-- de `on` vuelve a false mientras la IA de verdad sigue
+			-- enganchada, y ahi el early-return se come justo lo que hace
+			-- falta -- que es como el cierre de la ventana de botin podia
+			-- volver sin que nada hubiera cambiado. Mandarlos de mas no
+			-- cuesta nada: quitar una estrategia que ya no esta es no hacer
+			-- nada, y sin IA el susurro no lo lee nadie.
+			SelfSoloStrategies(false)
+		end
 		self:ApplyFreeLoot(true)
 		self:ApplyLootAllSoon()
 		self:ApplyQuestAISoon()

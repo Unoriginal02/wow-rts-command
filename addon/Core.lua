@@ -651,6 +651,9 @@ local function Initialise()
 	-- para que el registro de Blizzard empezara a funcionar, y eso no se
 	-- adivina.
 	ns.Quests:Create()
+	-- La sonda del botin. No dibuja nada: se engancha al `LootFrame` de
+	-- Blizzard y solo habla cuando la ventana se cierra sola. Ver Loot.lua.
+	ns.Loot:Create()
 	if type(RTSCommandDB.selfBotAuto) == "boolean" then
 		ns.RTSMode.selfBot.auto = RTSCommandDB.selfBotAuto
 	end

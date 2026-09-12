@@ -41,5 +41,6 @@ Npc.lua
 Art.lua
 Body.lua
 Macros.lua
+Loot.lua
 Core.lua
 Bindings.xml

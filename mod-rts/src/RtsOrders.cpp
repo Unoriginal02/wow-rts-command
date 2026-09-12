@@ -544,6 +544,22 @@ namespace
         {
             if (!player->isAllowedToLoot(creature))
                 return false;
+
+            // UN BOTIN QUE YA ESTA ABIERTO NO SE VUELVE A ABRIR: REABRIRLO ES
+            // CERRARLO. `Player::SendLoot` empieza soltando el botin anterior
+            // (Player.cpp:7985), asi que la segunda apertura manda
+            // `SMSG_LOOT_RELEASE_RESPONSE` -- y eso, en el cliente, es
+            // `LOOT_CLOSED` y la ventana escondida.
+            //
+            // Ese era el parpadeo de 2026-09-12: *"me sale un frame el loot del
+            // bicho y al instante se esconde"*. Medido con la sonda de
+            // `Loot.lua`: una apertura, un cierre en el MISMO frame, cero
+            // huecos recogidos y el cliente viendote a metro y medio del
+            // cuerpo. Y la prueba que lo cerro: sin nada seleccionado -- o sea
+            // sin que el addon mande la orden -- la ventana se abre y SE QUEDA.
+            if (player->GetLootGUID() == creature->GetGUID())
+                return true;
+
             player->SendLoot(creature->GetGUID(), LOOT_CORPSE);
             return true;
         }
@@ -686,6 +702,28 @@ bool rts::orders::SelfInteract(Player* player, ObjectGuid targetGuid)
     Creature* creature = unit ? unit->ToCreature() : nullptr;
     if (!creature)
         return false;
+
+    // UN CADAVER A TIRO ES DEL CLIENTE, Y AQUI NO SE TOCA NADA.
+    //
+    // El mismo click derecho que nos manda esta orden ha hecho que el cliente
+    // mande su `CMSG_LOOT` por su cuenta, y ese camino funciona: probado
+    // 2026-09-12 deseleccionando todo -- sin orden nuestra la ventana se abre y
+    // se queda. Lo que la rompia era llegar detras a hacer lo mismo: dos
+    // aperturas del mismo botin, y la segunda suelta la primera.
+    //
+    // La razon por la que esto existia sigue siendo verdad A DISTANCIA: fuera
+    // de alcance el cliente no lootea nada, y "ve hasta el cuerpo y lootealo"
+    // solo lo puede hacer el servidor. Asi que el reparto es por alcance, que
+    // es justo donde cambia quien puede: a tiro, el cliente; lejos, nosotros
+    // -- y para entonces su click ya se perdio y no hay con quien chocar.
+    //
+    // OJO CON LA POSESION SI ALGUN DIA VUELVE. Esto da por hecho que el cliente
+    // conduce tu cuerpo, que es como esta el modo RTS de fabrica desde
+    // 2026-09-11 (ver `camera::Arm`). Si el cliente deja de ser el mover, deja
+    // tambien de mandar el `CMSG_LOOT` y este atajo se lleva el botin por
+    // delante; el sitio donde mirarlo es `IsSpectating` + `HoldsControl`.
+    if (!creature->IsAlive() && player->IsWithinDistInMap(creature, INTERACTION_DISTANCE))
+        return true;
 
     // Out of reach: walk there, and remember what it was for.
     if (WalkToInteract(player, player, creature))
