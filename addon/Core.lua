@@ -995,6 +995,7 @@ local HELP = {
 	"|cffffff00/rts cam fly|r / |cffffff00fly 0|r - forward follows your view, or runs flat (RTS)",
 	"|cffffff00/rts cam here|r - recentre over your character; |cffffff00mouse|r toggles mouse steering",
 	"|cffffff00/rts fc|r - ajustes de la camara libre (velocidad, altura, suavizado, giro)",
+	"|cffffff00/rts fc home|r - devuelve la camara sobre tu heroe si se queda atascada",
 	"|cffffff00/rts cam probe|r - SONDEO: ¿sirve la camara libre del cliente? (|cffffff00spec 0|r sale)",
 	"|cffffff00/rts cam colision|r - la camara atraviesa geometria (cuevas); |cffffff00geo|r inventaria el resto",
 	"|cffffff00/rts cam speed <n>|r - how fast it flies",
@@ -1300,6 +1301,11 @@ SlashCmdList["RTSCOMMAND"] = function(msg)
 			ns.FreeCam:Report()
 		elseif sub == "mouse" or sub == "raton" then
 			ns.FreeCam:Mouse()
+		-- ANTES del `Set`, que es el cajon de sastre: `Set` no conoce `home`,
+		-- asi que caeria ahi, se quejaria de que quiere un numero, y el comando
+		-- parece roto justo cuando hace falta.
+		elseif sub == "home" or sub == "casa" then
+			ns.FreeCam:Home()
 		else
 			ns.FreeCam:Set(sub, arg)
 		end

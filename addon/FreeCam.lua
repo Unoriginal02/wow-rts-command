@@ -162,6 +162,21 @@ local D = {
 	-- visto una vez.
 	pitch   = 45.0,   -- grados; POSITIVO mira abajo (medido en juego 2026-09-07)
 	clear   = 2.0,    -- margen duro sobre el suelo
+	-- === Y EL SUELO DURO TAMBIEN TIENE VELOCIDAD (2026-09-12) =============
+	--
+	-- Sin esto el suelo duro era un `st.z = ground + clear` a pelo: un salto de
+	-- OCHENTA yardas en UN frame. Era el unico camino del fichero capaz de
+	-- teletransportar la camara, y es el "plop" al cruzar la boca de una cueva.
+	--
+	-- Y el filtro de escalon de arriba no lo impedia, AL CONTRARIO -- ver el
+	-- comentario del tope de retraso. Los dos se saltaban el limitador a la vez
+	-- y por el mismo motivo: los dos leen `ground` EN CRUDO.
+	--
+	-- 40 yd/s es holgado para terreno de verdad: la camara avanza a `speed`
+	-- (30), asi que una ladera de 45 grados mueve el suelo 30 yd/s y una de 53
+	-- grados 40. Mas empinado que eso es un acantilado, y ahi que la camara se
+	-- meta un instante en la roca y salga por arriba es preferible al salto.
+	push    = 40.0,   -- yd/s; lo mas deprisa que el suelo duro puede EMPUJAR
 	yawSign = 1,      -- si Q y E salen al reves, esto es -1
 	ease    = 9.0,    -- k del arranque/parada en el plano (1/s); mas alto, mas seco
 }
@@ -224,6 +239,10 @@ local function Cfg()
 	if c.climb <= 0 or c.climb > 500 then c.climb = D.climb end
 	if c.soft  <= 0 or c.soft  > 100 then c.soft  = D.soft  end
 	if c.slow  <  0 or c.slow  > 200 then c.slow  = D.slow  end
+	-- A cero el suelo duro deja de empujar y la camara se queda enterrada sin
+	-- forma de salir, que es peor que el fallo que esto viene a arreglar. Un
+	-- valor absurdo es basura y vuelve al de fabrica, no se recorta.
+	if c.push  <= 0 or c.push  > 1000 then c.push  = D.push  end
 	-- El suelo de la velocidad por encima del techo dejaria el codo sin efecto
 	-- y el ajuste `soft` sin nada que hacer -- un mando que gira sin conectar.
 	-- Se baja el SUELO y no se sube el techo: bajar `climb` es una intencion
@@ -617,10 +636,28 @@ function F:Step(dt)
 			-- SOLO HACIA ARRIBA. Hacia abajo el retraso no es peligroso, es la
 			-- vista: cuando el suelo se acaba, la camara baja despacio y el
 			-- terreno se abre debajo. Capar ese lado seria obligarla a caer.
+			--
+			-- Y EL TOPE SE ALCANZA A UNA VELOCIDAD, NO DE UN SALTO (2026-09-12).
+			--
+			-- Aqui ponia `gz = ground - cap` a secas, y eso convertia el tope --
+			-- que se escribio para que el suelo duro NO tuviera que rescatar a
+			-- la camara -- en el atajo que se salta el limitador entero. Con el
+			-- offset por defecto (30) el tope son 28 yardas, asi que cualquier
+			-- escalon de mas de 28 pasaba de golpe; con el offset bajado a 6.4,
+			-- medido en juego el 2026-09-12, son CUATRO YARDAS Y MEDIA, o sea
+			-- que el filtro de escalon no filtraba absolutamente nada.
+			--
+			-- `climb`, `soft` y `slow` quedaban de adorno justo en el caso que
+			-- los justifica. Es el modo de fallo de siempre: dos caminos para lo
+			-- mismo y el malo manda.
 			if d > 0 then
 				local cap = st.offset - c.clear
 				if cap < 1 then cap = 1 end
-				if ground - gz > cap then gz = ground - cap end
+				local want = ground - cap
+				if want > gz then
+					local lim = c.push * dt
+					gz = (want - gz > lim) and (gz + lim) or want
+				end
 			end
 		end
 		st.gz, st.gstep = gz, pend
@@ -664,8 +701,22 @@ function F:Step(dt)
 	-- dispararse mientras el filtro manda. Sin el tope los dos se pelearian cada
 	-- frame -- uno frenando y el otro empujando -- que es la forma exacta de
 	-- discusion que este proyecto ya ha perdido dos veces.
+	--
+	-- Y EMPUJA A UNA VELOCIDAD (2026-09-12). El parrafo de arriba daba por hecho
+	-- que este `if` no llega a dispararse mientras el filtro manda, y era falso:
+	-- el tope de retraso lo llamaba en cuanto el escalon pasaba de `offset -
+	-- clear`, y entonces esta linea movia la camara OCHENTA YARDAS EN UN FRAME.
+	-- Enumerados todos los escritores de `st.z`, era el unico teletransporte del
+	-- fichero -- lo demas va limitado o suavizado -- asi que es el "plop".
+	--
+	-- Sigue siendo duro: no negocia con el suavizado, gana siempre. Lo unico que
+	-- cambia es que tarda lo que tiene que tardar, y eso convierte un salto que
+	-- no se puede ver en una subida que se ve venir y de la que se puede salir
+	-- marcha atras.
 	if ground and st.z < ground + c.clear then
-		st.z = ground + c.clear
+		local want = ground + c.clear
+		local lim = c.push * dt
+		st.z = (want - st.z > lim) and (st.z + lim) or want
 	end
 
 	ns.Camera:SpecPlace(st.x, st.y, st.z, st.yaw, st.pitch or c.pitch, nil)
@@ -775,6 +826,46 @@ function F:ReleaseKeysNow()
 	return ReleaseKeys()
 end
 
+--- La salida de emergencia ------------------------------------------------
+--
+-- `/rts fc home` devuelve la camara sobre el heroe.
+--
+-- Existe porque el fallo de las cuevas tenia DOS mitades y solo una es la
+-- aritmetica: la otra es que una vez la camara acaba en un sitio malo **no hay
+-- ninguna tecla que la saque**. C solo baja el `offset` (suelo `minH`), y el
+-- suelo duro gana; W/A/S/D mueven a ciegas dentro de la roca, donde no hay
+-- ninguna referencia para saber hacia donde esta la salida. Literalmente sin
+-- vuelta: *"me lleva a un sitio del que no puedo volver"*.
+--
+-- Va aparte del arreglo del salto a proposito. El arreglo puede estar
+-- incompleto -- quedan causas por enumerar -- y esto vale igual sea cual sea la
+-- causa, porque no diagnostica nada: solo deshace. Lo mismo que el macro
+-- "Reset IA" para las estrategias de los bots.
+--
+-- Se recolocan las MISMAS cosas que `Start`, ni una mas ni una menos, y ahi
+-- entran las dos que se olvidan solas: el suelo filtrado (`gz`) hay que
+-- borrarlo o el primer frame en el destino ve un escalon gigante, y la
+-- velocidad del plano (`vx`,`vy`) o la camara sale disparada al llegar.
+function F:Home()
+	if not self.active then
+		ns.Print("|cffff8800camara RTS:|r la camara libre no esta activa.")
+		return false
+	end
+	if RTS_HasPos ~= 1 or not RTS_PX then
+		ns.Print("|cffff0000camara RTS:|r el DLL no publica tu posicion.")
+		return false
+	end
+	local c = Cfg()
+	st.x, st.y = RTS_PX, RTS_PY
+	st.offset = c.height
+	st.z = RTS_PZ + c.height
+	st.gz, st.gstep = nil, 0
+	st.vx, st.vy = 0, 0
+	ns.Print(("|cff33ccffcamara RTS:|r camara devuelta sobre tu heroe (%.0f %.0f %.0f)."):format(
+		st.x, st.y, st.z))
+	return true
+end
+
 --- Ajustes por comando -----------------------------------------------------
 
 local LABEL = {
@@ -792,6 +883,7 @@ local LABEL = {
 	slow = "velocidad minima de seguimiento del suelo (yd/s)",
 	pitch = "inclinacion de entrada (grados, POSITIVO mira abajo)",
 	clear = "margen duro sobre el suelo (yd)",
+	push = "lo mas deprisa que el suelo duro puede empujar la camara (yd/s)",
 	yawSign = "signo del giro con Q/E (1 o -1)",
 	ease = "suavizado del arranque/parada en el plano (k)",
 }

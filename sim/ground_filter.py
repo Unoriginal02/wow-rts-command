@@ -9,8 +9,9 @@ juego cuestan una ronda de pruebas cada uno:
     la cuesta   45 grados sostenidos a toda velocidad   -> SI debe seguirse
     el tejado   15 yd que no se acaban nunca            -> se sube esperando
     la repisa   un escalon de 20 yd, mas bajo que el vuelo -> se sube sin tiron
-    el borde    un acantilado de 60, mas alto que el vuelo  -> el tiron es legal
+    el borde    un acantilado de 60, mas alto que el vuelo  -> sube, pero se ve
     la mezcla   una repisa y detras una cuesta larga        -> el retraso no crece
+    la boca     +80 de golpe, con dos offsets distintos     -> NUNCA un salto
 
 La pregunta que contesta es la unica que importa aqui: SI LAS DOS COSAS CABEN A
 LA VEZ. Un filtro que ignore el cartel puede perfectamente dejar la camara
@@ -27,6 +28,7 @@ SLOW = 6.0       # yd/s, el suelo de la velocidad
 SMOOTH_Z = 8.0   # k del suavizado exponencial de detras
 CLEAR = 2.0      # margen duro
 OFFSET = 30.0    # altura sobre el suelo
+PUSH = 40.0      # yd/s, lo mas deprisa que el suelo duro puede empujar
 SPEED = 30.0     # yd/s en el plano, para convertir cuestas en yd/s verticales
 
 DT = 1.0 / 60.0
@@ -39,13 +41,18 @@ PENDIENTE = True      # False = el freno se decide con lo que QUEDA del escalon 
                       # final de cada subida daba un latigazo
 LAG_CAP = True        # False = sin tope de retraso: un escalon seguido de cuesta
                       # deja la camara enterrada hasta que el suelo duro la saca
+PUSH_LIMIT = True     # False = el suelo duro y el tope de retraso escriben de
+                      # golpe, como estaban hasta el 2026-09-12. Es EL fallo de
+                      # las cuevas: un salto de 80 yardas en un frame
 
 
-def follow(state, ground, dt):
+def follow(state, ground, dt, offset=None):
     """El suelo filtrado persigue al medido con la velocidad limitada.
 
     `state` es (gz, pend): el suelo filtrado y el mayor desnivel visto desde la
     ultima vez que se puso al dia. Devuelve el estado nuevo."""
+    if offset is None:
+        offset = OFFSET
     gz, pend = state
     if not RATE_FILTER or gz is None:
         return (ground, 0.0)
@@ -59,28 +66,46 @@ def follow(state, ground, dt):
         return (ground, 0.0)
     gz = gz + step if d > 0 else gz - step
     if LAG_CAP and d > 0:
-        cap = max(1.0, OFFSET - CLEAR)
-        if ground - gz > cap:
-            gz = ground - cap
+        cap = max(1.0, offset - CLEAR)
+        want = ground - cap
+        if want > gz:
+            if PUSH_LIMIT:
+                lim = PUSH * dt
+                gz = gz + lim if want - gz > lim else want
+            else:
+                gz = want
     return (gz, pend)
 
 
-def run(profile, seconds, dt=DT):
-    """Devuelve (t, suelo crudo, suelo filtrado, z de camara) por frame."""
+def run(profile, seconds, dt=DT, offset=None):
+    """Devuelve (t, suelo crudo, suelo filtrado, z de camara) por frame.
+
+    `offset` se puede pasar porque EL VALOR IMPORTA y no es cosmetico: el tope
+    de retraso es `offset - clear`, asi que con el offset de fabrica (30) son 28
+    yardas y casi nada lo dispara, y con el offset bajado a mano -- 6.4 medido
+    en juego el 2026-09-12 -- son 4.4 y lo dispara TODO. Este simulador corrio
+    siempre a 30 y por eso aprobo el codigo que teletransportaba la camara."""
+    if offset is None:
+        offset = OFFSET
     g0 = profile(0.0)
     st = (g0, 0.0)
-    z = g0 + OFFSET
+    z = g0 + offset
     out = []
     t = 0.0
     n = int(seconds / dt)
     for _ in range(n):
         ground = profile(t)
-        st = follow(st, ground, dt)
+        st = follow(st, ground, dt, offset)
         gz = st[0]
-        target = gz + OFFSET
+        target = gz + offset
         z += (target - z) * (1.0 - math.exp(-SMOOTH_Z * dt))
         if z < ground + CLEAR:
-            z = ground + CLEAR
+            want = ground + CLEAR
+            if PUSH_LIMIT:
+                lim = PUSH * dt
+                z = z + lim if want - z > lim else want
+            else:
+                z = want
         out.append((t, ground, gz, z))
         t += dt
     return out
@@ -129,6 +154,17 @@ def repisa_y_cuesta(t):
     return 6.0 + SPEED * (t - 1.5)
 
 
+def boca(t):
+    """LA BOCA DE LA CUEVA: el suelo medido salta 80 yd de golpe y se queda.
+
+    No es un acantilado que se sube: es que la XY de la camara ha cruzado bajo
+    la silueta de la montana y el rayo pasa a medir OTRA superficie. Desde la
+    aritmetica los dos son el mismo escalon -- por eso este perfil vale para los
+    dos -- y lo unico que se le puede exigir es que la camara no se mueva mas
+    deprisa de lo que el jugador puede ver."""
+    return 0.0 if t < 1.0 else 80.0
+
+
 def retraso_max(rows, t0=1.0):
     """El mayor desnivel entre el suelo real y el filtrado, hacia arriba."""
     return max((ground - gz) for t, ground, gz, _ in rows if t >= t0)
@@ -160,6 +196,25 @@ def vmax(rows, dt=DT):
     return v
 
 
+def tarda_en_salir(rows, t0=1.0):
+    """Segundos que la camara pasa por DEBAJO del suelo real a partir de t0.
+
+    Sustituye a exigir `separacion >= CLEAR` en los perfiles de escalon grande,
+    y el cambio no es cosmetico: con el suelo duro limitado la camara SI entra
+    en la roca un momento, y eso es la decision, no el fallo. Es lo que pidio el
+    jugador con sus palabras -- *"que no siga al suelo y simplemente clipee"* --
+    y ademas la camara ya atraviesa todo (`noclip`), asi que un segundo de roca
+    es barato y un salto de 80 yardas no.
+
+    Lo que si hay que exigir es que SALGA, y en cuanto: una camara que se queda
+    dentro es el fallo de siempre con otro nombre."""
+    dentro = 0.0
+    for t, ground, _, z in rows:
+        if t >= t0 and z < ground + CLEAR - 0.01:
+            dentro += DT
+    return dentro
+
+
 def separacion_min(rows, t0=1.0):
     """La separacion mas pequena entre la camara y el suelo REAL despues de t0.
 
@@ -176,6 +231,12 @@ def separacion_min(rows, t0=1.0):
 # cualquier cosa por encima de eso es la camara moviendose mas deprisa de lo que
 # el jugador puede pedirle: eso es exactamente lo que se siente como un salto.
 V_TIRON = 14.0
+
+# Y EL TOPE DEL EMPUJE, que es otro numero porque es otra pregunta. `V_TIRON`
+# mide "esto no deberia haberse notado"; esto mide "esto tenia que subir, pero a
+# una velocidad que se pueda ver". Sale de `PUSH` con un margen para el
+# suavizado exponencial, que empuja un poco por su cuenta en el mismo frame.
+V_EMPUJE = PUSH * 1.25
 
 
 def informe():
@@ -232,15 +293,22 @@ def informe():
     # que se le puede pedir, que es que NO se quede dentro; pedirle ademas que
     # no diera el tiron seria pedirle que hiciera lo imposible, y una prueba que
     # exige lo imposible acaba tumbandose a si misma.
+    #
+    # Y "INEVITABLE" ERA FALSO, que es lo que costo la ronda de las cuevas.
+    # Inevitable es que la camara TENGA que subir; lo que no tiene nada de
+    # inevitable es que suba las sesenta yardas EN UN FRAME. Este parrafo
+    # bendijo durante tres rondas el unico teletransporte del fichero, y como la
+    # prueba no lo miraba, el simulador aprobaba el codigo roto.
     r = run(acantilado, 20.0)
-    sep = separacion_min(r, 1.0)
+    dentro = tarda_en_salir(r, 1.0)
     llega = levantada(r)
-    ok = sep >= CLEAR - 0.01 and llega >= 55.0
-    print("  acantilado 60 yd       separacion minima %5.2f yd, sube %5.2f yd   %s"
-          % (sep, llega, "ok" if ok else "MAL"))
-    print("                         (>= %.2f yd -- el tiron aqui es inevitable)" % CLEAR)
+    v = vmax(r)
+    ok = dentro <= 2.5 and llega >= 55.0 and v <= V_EMPUJE
+    print("  acantilado 60 yd       %4.2f s dentro, sube %5.2f yd, tiron %6.1f   %s"
+          % (dentro, llega, v, "ok" if ok else "MAL"))
+    print("                         (<= 2.50 s dentro y el tiron <= %.0f yd/s)" % V_EMPUJE)
     if not ok:
-        fallos.append("la camara se queda dentro del acantilado")
+        fallos.append("el acantilado, o deja la camara dentro o la catapulta")
 
     r = run(repisa_y_cuesta, 6.0)
     lag = retraso_max(r)
@@ -252,6 +320,25 @@ def informe():
     print("                         (<= %.0f yd: el tope sale de offset - clear)" % tope)
     if not ok:
         fallos.append("el retraso crece sin final y la camara acaba pegada al suelo")
+
+    # LA BOCA DE LA CUEVA, LAS DOS VECES, Y LA SEGUNDA ES LA QUE VALE.
+    #
+    # A offset 30 el tope de retraso son 28 yardas y casi nada lo dispara; a 6.4
+    # -- leido de `/rts fc` en juego el 2026-09-12, con la camara atascada dentro
+    # de la montana -- son 4.4, o sea que el filtro de escalon no filtra nada y
+    # todo pasa por el camino instantaneo. Correr el mismo perfil con los dos
+    # offsets es lo que separa "pasa la prueba" de "pasa la prueba en la unica
+    # configuracion que probe".
+    for off, etiqueta in ((OFFSET, "offset 30 "), (6.4, "offset 6.4")):
+        r = run(boca, 20.0, offset=off)
+        v = vmax(r)
+        llega = levantada(r)
+        ok = v <= V_EMPUJE and llega >= 70.0
+        print("  boca de cueva +80 %s tiron %7.1f yd/s, sube %5.2f yd   %s"
+              % (etiqueta, v, llega, "ok" if ok else "MAL"))
+        print("                         (<= %.0f yd/s y >= 70.00 yd en 19 s)" % V_EMPUJE)
+        if not ok:
+            fallos.append("la boca de cueva teletransporta la camara (%s)" % etiqueta.strip())
 
     # LA BAJADA, que es la mitad que no duele y por eso se olvida de probar.
     # Un filtro simetrico deja la camara flotando cuando el suelo cae, y eso se
@@ -268,7 +355,7 @@ def informe():
     if fallos:
         print("FALLA: " + "; ".join(fallos))
     else:
-        print("los siete perfiles pasan")
+        print("los nueve perfiles pasan")
     return not fallos
 
 
@@ -280,4 +367,6 @@ if __name__ == "__main__":
         PENDIENTE = False
     if "--sin-tope" in sys.argv:
         LAG_CAP = False
+    if "--sin-empuje" in sys.argv:
+        PUSH_LIMIT = False
     raise SystemExit(0 if informe() else 1)
