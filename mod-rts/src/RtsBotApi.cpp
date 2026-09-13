@@ -58,6 +58,12 @@ bool rts::bots::Driven(Player* bot)
     return AiFor(bot) != nullptr;
 }
 
+Player* rts::bots::MasterOf(Player* bot)
+{
+    PlayerbotAI* ai = AiFor(bot);
+    return ai ? ai->GetMaster() : nullptr;
+}
+
 // === estrategias ============================================================
 
 bool rts::bots::Change(Player* bot, std::string const& changes, Where where)

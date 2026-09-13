@@ -6,6 +6,7 @@
 #include "Group.h"
 #include "GroupReference.h"
 #include "ObjectAccessor.h"
+#include "DBCStores.h"
 #include "ObjectMgr.h"
 #include "Player.h"
 #include "ItemTemplate.h"
@@ -407,6 +408,103 @@ namespace
             notes.push_back(name + ": " + std::to_string(marked) + " anteriores + la actual");
         }
     }
+
+    // LOS ESLABONES ANTERIORES, EN ORDEN DE HACERSE.
+    //
+    // `MarkChain` se apoya en un `std::set` y le basta: marcar no depende del
+    // orden. Aqui SI depende -- una mision no se deja entregar si la anterior no
+    // esta cobrada -- asi que hace falta el orden de la cadena de verdad. El id
+    // NO lo es: es lo que mas se le parece, y parecerse es justo la clase de
+    // cosa que funciona en las cinco primeras cadenas que pruebas.
+    //
+    // Post-orden: primero de lo que cuelga cada eslabon, y el eslabon despues.
+    void ChainOrder(uint32 questId, std::vector<uint32>& out, std::set<uint32>& seen, int depth)
+    {
+        if (depth > kMaxDepth)
+            return;
+
+        Quest const* q = sObjectMgr->GetQuestTemplate(questId);
+        if (!q)
+            return;
+
+        for (int32 raw : q->prevQuests)
+        {
+            // Igual que en `CollectChain`: los negativos piden la mision ACTIVA,
+            // y eso no se arregla haciendola.
+            if (raw <= 0)
+                continue;
+
+            uint32 const prev = static_cast<uint32>(raw);
+            if (!seen.insert(prev).second)
+                continue;
+
+            ChainOrder(prev, out, seen, depth + 1);
+            out.push_back(prev);
+        }
+    }
+
+    // EMPUJAR UNA MISION HASTA `COMPLETE`, PASE LO QUE PASE CON EL REGISTRO.
+    //
+    // Son los tres escalones de la entrega forzada -- darsela, meterle los
+    // objetos, marcarla hecha -- y vivian dentro de `TurnIn`. Ahora los usa
+    // tambien la puesta al dia de la cadena de clase, asi que salen aqui antes
+    // de ser dos copias: misma regla que saco `CatchUpEach`.
+    //
+    // LO QUE NO HACE ES COBRARLA, y es deliberado: los dos llamantes cobran
+    // distinto. Uno con la eleccion que pidio el jugador, el otro con la que
+    // `BestReward` calcula sola.
+    enum class Forced
+    {
+        Ready,          // en COMPLETE y lista para cobrar
+        SelfRewarded,   // era `TRACKING` y se cobro sola al completarla
+        Blocked,        // no se pudo; `why` dice por que
+    };
+
+    Forced ForceToComplete(Player* who, Quest const* quest, Object* questGiver, std::string& why)
+    {
+        uint32 const questId = quest->GetQuestId();
+
+        // 1. QUE LA LLEVE. Mismo motor que el boton de compartir.
+        if (who->GetQuestStatus(questId) == QUEST_STATUS_NONE)
+        {
+            int const marked = MarkChain(who, questId);
+            if (!who->CanTakeQuest(quest, false) || !who->CanAddQuest(quest, false))
+            {
+                why = std::string(Blocker(who, quest)) +
+                      (marked ? " (" + std::to_string(marked) +
+                                " de la cadena si le quedaron dadas)" : "");
+                return Forced::Blocked;
+            }
+            who->AddQuestAndCheckCompletion(quest, questGiver);
+        }
+
+        // 2. QUE TENGA LOS OBJETOS. Ver la cabecera: sin esto el nucleo rechaza
+        //    la entrega de las misiones de recoger, y solo de esas.
+        if (!Supply(who, quest, why))
+            return Forced::Blocked;
+
+        // 3. QUE ESTE HECHA.
+        if (who->GetQuestStatus(questId) != QUEST_STATUS_COMPLETE)
+            who->CompleteQuest(questId);
+
+        // Y UNA MISION `TRACKING` SE COBRA SOLA AHI DENTRO.
+        // `Player::CompleteQuest` acaba con
+        // `if (qInfo->HasFlag(QUEST_FLAGS_TRACKING)) RewardQuest(qInfo, 0, this, false)`,
+        // asi que para esas ya esta todo hecho al volver. Sin esta salida,
+        // `CanRewardQuest` diria que no -- correctamente, porque ya esta cobrada
+        // -- y lo contariamos como FALLO: un exito presentado como error, que
+        // manda a buscar un problema que no existe.
+        if (who->GetQuestRewardStatus(questId))
+            return Forced::SelfRewarded;
+
+        if (who->GetQuestStatus(questId) != QUEST_STATUS_COMPLETE)
+        {
+            why = "no se dejo completar";
+            return Forced::Blocked;
+        }
+
+        return Forced::Ready;
+    }
 }
 
 bool rts::quests::CatchUp(Player* master, ObjectGuid npcGuid, uint32 questId,
@@ -616,47 +714,22 @@ bool rts::quests::TurnIn(Player* master, ObjectGuid npcGuid, uint32 questId, uin
 
         if (doForce)
         {
-            // 1. QUE LA LLEVE. Mismo motor que el boton de compartir.
-            if (who->GetQuestStatus(questId) == QUEST_STATUS_NONE)
-            {
-                int const marked = MarkChain(who, questId);
-                if (!who->CanTakeQuest(quest, false) || !who->CanAddQuest(quest, false))
-                {
-                    ++failOut;
-                    notes.push_back(name + ": " + Blocker(who, quest) +
-                                    (marked ? " (" + std::to_string(marked) +
-                                              " de la cadena si le quedaron dadas)" : ""));
-                    continue;
-                }
-                who->AddQuestAndCheckCompletion(quest, npc);
-            }
-
-            // 2. QUE TENGA LOS OBJETOS. Ver la cabecera: sin esto el nucleo
-            //    rechaza la entrega de las misiones de recoger.
+            // LOS TRES ESCALONES ESTAN EN `ForceToComplete`, arriba: darsela,
+            // meterle los objetos y marcarla hecha. Estaban escritos aqui hasta
+            // que la mision de clase automatica necesito los mismos.
             std::string whyNot;
-            if (!Supply(who, quest, whyNot))
+            switch (ForceToComplete(who, quest, npc, whyNot))
             {
-                ++failOut;
-                notes.push_back(name + ": " + whyNot);
-                continue;
-            }
-
-            // 3. QUE ESTE HECHA.
-            if (who->GetQuestStatus(questId) != QUEST_STATUS_COMPLETE)
-                who->CompleteQuest(questId);
-
-            // Y UNA MISION `TRACKING` SE COBRA SOLA AHI DENTRO.
-            // `Player::CompleteQuest` acaba con
-            // `if (qInfo->HasFlag(QUEST_FLAGS_TRACKING)) RewardQuest(qInfo, 0, this, false)`,
-            // asi que para esas ya esta todo hecho al volver. Sin esta salida,
-            // `CanRewardQuest` diria que no -- correctamente, porque ya esta
-            // cobrada -- y lo contariamos como FALLO: un exito presentado como
-            // error, que manda a buscar un problema que no existe.
-            if (who->GetQuestRewardStatus(questId))
-            {
-                ++okOut;
-                notes.push_back(name + ": hecha (se cobra sola)");
-                continue;
+                case Forced::Blocked:
+                    ++failOut;
+                    notes.push_back(name + ": " + whyNot);
+                    continue;
+                case Forced::SelfRewarded:
+                    ++okOut;
+                    notes.push_back(name + ": hecha (se cobra sola)");
+                    continue;
+                case Forced::Ready:
+                    break;
             }
         }
 
@@ -771,6 +844,325 @@ bool rts::quests::Drop(Player* master, uint32 questId,
         who->RemoveActiveQuest(questId);
         who->SetQuestSlot(slot, 0);
         ++okOut;
+    }
+
+    return true;
+}
+
+uint32 rts::quests::GrantClassQuest(Player* who)
+{
+    if (!who || !who->IsInWorld())
+        return 0;
+
+    // UNA SOLA EN EL REGISTRO, Y ESA ES LA REGLA ENTERA.
+    //
+    // Se mira el registro y no un contador nuestro a proposito: el jugador puede
+    // abandonar la mision, entregarla en el entrenador o cogerla a mano, y
+    // ninguna de las tres pasa por aqui. Un contador nuestro se desincronizaria
+    // en la primera, y un contador desincronizado o deja de dar misiones para
+    // siempre o las da de tres en tres.
+    for (uint8 slot = 0; slot < MAX_QUEST_LOG_SIZE; ++slot)
+    {
+        uint32 const carried = who->GetQuestSlotQuestId(slot);
+        if (!carried)
+            continue;
+
+        Quest const* q = sObjectMgr->GetQuestTemplate(carried);
+        if (q && q->GetRequiredClasses())
+            return 0;
+    }
+
+    // LA QUE LE TOCA: LA MAS AVANZADA QUE SU NIVEL YA ALCANZA.
+    //
+    // No la mas antigua pendiente. Es lo que se pidio -- *"si estoy en nivel 20
+    // y me toca la de nivel 20"* -- y es tambien lo unico coherente con forzar
+    // la cadena justo debajo: si se diera la mas antigua, la cadena no habria
+    // nada que poner al dia y el bot iria una mision por nivel por detras para
+    // siempre.
+    //
+    // El desempate por id es solo para que dos partidas con el mismo personaje
+    // elijan igual. No significa nada del juego.
+    Quest const* best = nullptr;
+    for (auto const& pair : sObjectMgr->GetQuestTemplates())
+    {
+        Quest const* quest = pair.second;
+        if (!quest || !quest->GetRequiredClasses())
+            continue;
+
+        // Las repetibles y las de calendario no son "la mision de clase que te
+        // toca": son grifos abiertos. Una diaria de clase dada sola cada vez que
+        // subes de nivel es ruido, no progreso.
+        if (quest->IsRepeatable() || quest->IsDailyOrWeekly() || quest->IsSeasonal())
+            continue;
+
+        if (quest->GetMinLevel() > who->GetLevel())
+            continue;
+
+        if (who->GetQuestStatus(quest->GetQuestId()) != QUEST_STATUS_NONE ||
+            who->IsQuestRewarded(quest->GetQuestId()))
+            continue;
+
+        // TODAS LAS PUERTAS MENOS LA DE LA CADENA.
+        //
+        // `SatisfyQuestPreviousQuest` se deja fuera A PROPOSITO y es la unica:
+        // es justo la que vamos a abrir a la fuerza. Las demas se respetan
+        // enteras -- raza, clase, nivel, habilidad, reputacion, grupo exclusivo,
+        // migaja, rama siguiente y rama previa activa -- porque saltarse esas
+        // seria dar misiones que el personaje no deberia ver nunca.
+        if (!who->SatisfyQuestClass(quest, false) ||
+            !who->SatisfyQuestRace(quest, false) ||
+            !who->SatisfyQuestLevel(quest, false) ||
+            !who->SatisfyQuestSkill(quest, false) ||
+            !who->SatisfyQuestReputation(quest, false) ||
+            !who->SatisfyQuestExclusiveGroup(quest, false) ||
+            !who->SatisfyQuestBreadcrumb(quest, false) ||
+            !who->SatisfyQuestNextChain(quest, false) ||
+            !who->SatisfyQuestPrevChain(quest, false))
+            continue;
+
+        if (!best ||
+            quest->GetMinLevel() > best->GetMinLevel() ||
+            (quest->GetMinLevel() == best->GetMinLevel() &&
+             quest->GetQuestId() > best->GetQuestId()))
+            best = quest;
+    }
+
+    if (!best)
+        return 0;
+
+    // LA CADENA, ANTES DE LA MISION.
+    //
+    // === POR QUE SE HACEN DE VERDAD Y NO SE MARCAN Y YA =====================
+    //
+    // `MarkChain` -- `SetRewardedQuest` sobre cada eslabon -- es una linea y
+    // abre la puerta igual. Y PIERDE COSAS QUE NO VUELVEN: la recompensa de una
+    // mision de clase suele ser un hechizo que NO vende ningun entrenador.
+    // Comprobado contra `trainer_spell` el 2026-09-13: Forma de Oso (5487) y los
+    // esbirros del brujo -- Abisario (697), Sucubo (712), Manafiend (691),
+    // Guardia vil (30146) -- no salen en ninguna fila, mientras que las formas
+    // de druida (768, 783, 1066) SI las vende su entrenador. O sea que marcar y
+    // ya deja a un brujo de nivel 30 sin ningun esbirro y a un druida sin oso,
+    // para siempre y sin decirlo.
+    //
+    // Asi que cada eslabon que falta se hace de verdad, en orden, con el mismo
+    // motor que la entrega forzada: se le da, se le completan los objetos, se
+    // marca hecha y se cobra. La eleccion de recompensa la pone `BestReward`,
+    // que es lo que ya hace la entrega automatica.
+    //
+    // EL PNJ QUE FIGURA AL COBRAR ES EL PROPIO PERSONAJE, Y NO ES ESTILO:
+    // `Player::RewardQuest` desreferencia el dador sin comprobarlo
+    // (`PlayerQuest.cpp:858` y `:869`) en cuanto la mision tiene hechizo de
+    // recompensa -- justo el caso que nos importa. Con nulo ahi, el worldserver
+    // se cae.
+    //
+    // Y el hechizo llega igual aunque el dador sea un jugador y no la criatura
+    // de siempre, que era la duda razonable: esa rama solo desvia hacia "que lo
+    // lance el PNJ" los hechizos que NO ensenan nada, y los de estas misiones
+    // ensenan. Comprobado en `Spell.dbc` el 2026-09-13 -- 11520 (Abisario),
+    // 11519 (Sucubo), 1373 (Manafiend), 19179 (formas de druida), 1446
+    // (acuatica) y 8947 (curar veneno) llevan todos efecto 36,
+    // `SPELL_EFFECT_LEARN_SPELL` -- asi que caen del otro lado y los lanza el
+    // propio personaje sobre si mismo.
+    //
+    // AL DARLA ES AL REVES Y VA `nullptr`: con un `Player` de dador, `AddQuest`
+    // se cree que es una mision compartida y le copia el reloj (`:568`), que
+    // para quien no la lleva vale cero -- una mision con tiempo nacida caducada.
+    std::vector<uint32> order;
+    std::set<uint32> seen;
+    ChainOrder(best->GetQuestId(), order, seen, 0);
+
+    for (uint32 prev : order)
+    {
+        if (who->IsQuestRewarded(prev))
+            continue;
+
+        Quest const* link = sObjectMgr->GetQuestTemplate(prev);
+        if (!link)
+            continue;
+
+        std::string whyNot;
+        Forced const state = ForceToComplete(who, link, nullptr, whyNot);
+
+        if (state == Forced::SelfRewarded)
+            continue;
+
+        if (state == Forced::Ready)
+        {
+            uint32 const pick = BestReward(who, link);
+            if (who->CanRewardQuest(link, pick, false))
+            {
+                who->RewardQuest(link, pick, who, false);
+                continue;
+            }
+        }
+
+        // UN ESLABON QUE NO SE DEJA: SE PARA AQUI Y NO SE LIMPIA NADA.
+        //
+        // Si se atasco DESPUES de entrar en el registro -- bolsa llena, casi
+        // siempre -- ese eslabon se queda ahi, y esta bien que se quede: es una
+        // mision de clase de la cadena, en el registro, la unica, y el jugador
+        // puede ir a hacerla. Es la misma promesa, solo que un peldano mas
+        // atras.
+        //
+        // Si ni llego a entrar, no se da nada y se vuelve a intentar al subir
+        // otro nivel. Lo que no se hace en ninguno de los dos casos es seguir
+        // adelante: dar la de nivel 20 con la de nivel 10 a medias es el estado
+        // que la regla de "una sola" existe para que no pase.
+        return who->GetQuestStatus(prev) != QUEST_STATUS_NONE ? prev : 0;
+    }
+
+    if (!who->CanTakeQuest(best, false) || !who->CanAddQuest(best, false))
+        return 0;
+
+    // `AddQuestAndCheckCompletion` y no `AddQuest` a secas: hay misiones que
+    // nacen completas (las de "habla con"), y con `AddQuest` se quedarian en el
+    // registro pidiendo un objetivo que ya esta hecho.
+    who->AddQuestAndCheckCompletion(best, nullptr);
+    return best->GetQuestId();
+}
+
+// EL NOMBRE DE LA ZONA DE UNA MISION, o vacio si no tiene.
+//
+// `ZoneOrSort` guarda dos cosas en un solo campo con el signo: positivo es un
+// id de `AreaTable` y negativo es un id de `QuestSort` -- "Brujo",
+// "Herreria", "Festividades". Los nombres de `QuestSort` NO se pueden dar,
+// porque el nucleo no los carga: `QuestSortEntry` tiene su array de nombres
+// COMENTADO (`DBCStructure.h:1483`), asi que del DBC solo llega el id.
+//
+// No es un problema para lo que esto sirve, y por eso se resuelve asi en vez de
+// cargar un DBC nuevo: el unico grupo sin zona que se pidio es el de CLASE, y
+// esas se reconocen por `AllowableClasses` sin mirar el sort. El resto de
+// negativos caen en un cajon con nombre honesto.
+static std::string ZoneNameOf(Quest const* quest)
+{
+    int32 const sort = quest->GetZoneOrSort();
+    if (sort <= 0)
+        return std::string();
+
+    AreaTableEntry const* area = sAreaTableStore.LookupEntry(static_cast<uint32>(sort));
+    if (!area || !area->area_name[0])
+        return std::string();
+
+    return area->area_name[0];
+}
+
+bool rts::quests::Registry(Player* master, std::vector<Entry>& out)
+{
+    out.clear();
+    if (!master)
+        return false;
+
+    for (Player* who : Party(master))
+    {
+        if (!who || !who->IsInWorld())
+            continue;
+
+        // EL REGISTRO SE LEE POR RANURAS Y NO POR `m_QuestStatus`.
+        //
+        // El mapa de estados guarda tambien misiones que ya no estan en el
+        // registro -- las abandonadas siguen ahi con estado NONE hasta que se
+        // guarda el personaje -- asi que recorrerlo daria filas de misiones que
+        // el jugador no lleva. Las 25 ranuras son, por definicion, lo que se ve
+        // en el registro del juego, que es lo que esta ventana dice ser.
+        for (uint8 slot = 0; slot < MAX_QUEST_LOG_SIZE; ++slot)
+        {
+            uint32 const id = who->GetQuestSlotQuestId(slot);
+            if (!id)
+                continue;
+
+            Quest const* quest = sObjectMgr->GetQuestTemplate(id);
+            if (!quest)
+                continue;
+
+            Entry e;
+            e.name       = who->GetName();
+            e.questId    = id;
+            e.title      = quest->GetTitle();
+            e.classQuest = quest->GetRequiredClasses() != 0;
+            e.zone       = e.classQuest ? std::string() : ZoneNameOf(quest);
+            e.status     = (who->GetQuestStatus(id) == QUEST_STATUS_COMPLETE) ? ST_READY : ST_DOING;
+
+            out.push_back(e);
+        }
+    }
+
+    return true;
+}
+
+bool rts::quests::ForceFinish(Player* master, uint32 questId,
+                              std::vector<std::string> const& names,
+                              int& okOut, int& failOut,
+                              std::vector<std::string>& notes, std::string* why)
+{
+    okOut = 0;
+    failOut = 0;
+
+    Quest const* quest = sObjectMgr->GetQuestTemplate(questId);
+    if (!quest)
+    {
+        if (why)
+            *why = "esa mision no existe";
+        return false;
+    }
+
+    for (std::string const& name : names)
+    {
+        Player* who = Who(master, name);
+        if (!who)
+        {
+            ++failOut;
+            continue;
+        }
+
+        // Ya la cobro: no se toca y no cuenta como fallo, igual que en `TurnIn`.
+        if (who->GetQuestRewardStatus(questId))
+        {
+            notes.push_back(name + ": ya la hizo");
+            continue;
+        }
+
+        std::string whyNot;
+        Forced const state = ForceToComplete(who, quest, nullptr, whyNot);
+
+        if (state == Forced::Blocked)
+        {
+            ++failOut;
+            notes.push_back(name + ": " + whyNot);
+            continue;
+        }
+
+        // `TRACKING`: `CompleteQuest` ya la cobro ahi dentro. Ver `ForceToComplete`.
+        if (state == Forced::SelfRewarded)
+        {
+            ++okOut;
+            notes.push_back(name + ": hecha (se cobra sola)");
+            continue;
+        }
+
+        // LA ELECCION, POR PERSONAJE. Es el mismo motivo que tiene `TurnIn` para
+        // calcularla dentro del bucle: el guerrero y el mago no quieren lo mismo.
+        uint32 const pick = BestReward(who, quest);
+
+        // NO SE SALTA `CanRewardQuest`, y esto es lo unico que separa este boton
+        // de un comando GM. Sitio en la bolsa, diarias y el oro de las que
+        // CUESTAN dinero se siguen respetando: forzar los objetivos es una cosa,
+        // dejar a un bot en numeros rojos saltandose una comprobacion del nucleo
+        // es otra. Ver la nota de `TurnIn`.
+        if (!who->CanRewardQuest(quest, pick, false))
+        {
+            ++failOut;
+            notes.push_back(name + ": el nucleo no deja cobrarla "
+                                   "(bolsa llena, diaria o le falta oro)");
+            continue;
+        }
+
+        // El dador es el propio personaje y NO `nullptr`: `RewardQuest`
+        // desreferencia el dador sin comprobarlo en cuanto la mision tiene
+        // hechizo de recompensa (`PlayerQuest.cpp:858`). Con nulo ahi se cae el
+        // worldserver. Ver la nota larga en `GrantClassQuest`.
+        who->RewardQuest(quest, pick, who, true);
+        ++okOut;
+        notes.push_back(name + ": hecha y cobrada");
     }
 
     return true;

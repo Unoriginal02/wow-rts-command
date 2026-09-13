@@ -311,6 +311,86 @@ namespace rts
                   std::vector<std::string> const& names,
                   int& okOut, int& failOut,
                   std::vector<std::string>& notes, std::string* why = nullptr);
+
+        // LA MISION DE CLASE QUE LE TOCA, al subir de nivel. Devuelve el id de
+        // la que se le dio, o 0 si no habia ninguna o no se pudo.
+        //
+        // Vale para un bot y para el jugador: lo unico que mira es el registro
+        // de misiones y el nivel, y ninguna de las dos cosas sabe quien lleva el
+        // personaje.
+        //
+        // === UNA SOLA EN EL REGISTRO ========================================
+        //
+        // Es la regla que se pidio, y ademas es la que hace que esto no pueda
+        // hacer dano: el registro son 25 huecos, y un personaje de nivel 40 que
+        // estrene esto cumple las condiciones de una docena de misiones de clase
+        // a la vez. Sin el tope, el primer nivel que subiera le llenaria el
+        // registro de golpe con misiones repartidas por medio mundo.
+        //
+        // Con el tope, el ritmo es: una al subir de nivel, la haces, la entregas
+        // en tu entrenador COMO SIEMPRE -- esto no toca la entrega -- y la
+        // siguiente llega al subir otra vez.
+        //
+        // === LOS ESLABONES QUE FALTAN SE HACEN, NO SE FINGEN =================
+        //
+        // Si la que le toca cuelga de otras que no hizo, se le hacen enteras
+        // primero: darsela, completarla y COBRARLA. El motivo esta en el cuerpo,
+        // y en una linea es que la recompensa de una mision de clase suele ser
+        // un hechizo que no vende ningun entrenador -- marcarlas y ya dejaria a
+        // un brujo sin esbirros y a un druida sin forma de oso.
+        uint32 GrantClassQuest(Player* who);
+
+        // UNA FILA DEL REGISTRO DE ALGUIEN. Lo que la ventana necesita para
+        // dibujar una linea y nada mas.
+        struct Entry
+        {
+            std::string name;               // de quien es el registro
+            uint32      questId = 0;
+            std::string title;
+            std::string zone;               // vacio si es de clase o no tiene
+            uint8       status = ST_DOING;  // solo ST_DOING o ST_READY
+            bool        classQuest = false;
+        };
+
+        // EL REGISTRO DE MISIONES DE TODO EL GRUPO, EL MAESTRO INCLUIDO.
+        //
+        // Es lo unico que no se podia ver: tus misiones ya las dibuja el
+        // registro del juego, y las de tus companeros no las dibuja nadie.
+        //
+        // Se leen las 25 RANURAS y no `m_QuestStatus`, que es la diferencia
+        // entre "lo que lleva" y "lo que ha tocado alguna vez". El porque esta
+        // en el cuerpo.
+        //
+        // La zona sale de `ZoneOrSort` cuando es positiva. Las de clase van con
+        // la zona vacia A PROPOSITO: son su propio grupo, se pidieron como su
+        // propio grupo, y varias de ellas ni siquiera tienen zona en los datos.
+        bool Registry(Player* master, std::vector<Entry>& out);
+
+        // DARLA POR HECHA Y COBRADA, SIN PNJ Y SIN IR A NINGUN SITIO.
+        //
+        // === EN QUE SE DIFERENCIA DE `TurnIn(force)` ========================
+        //
+        // `TurnIn` necesita un PNJ delante que reciba esa mision, y ademas solo
+        // fuerza lo que TU ya entregaste -- una puerta que existe porque su
+        // disparador es "se cerro el dialogo", que no dice de cual (ver la nota
+        // de `TurnIn` arriba).
+        //
+        // Aqui no hay ninguna de las dos cosas, y no es un descuido: el
+        // disparador es un boton en una fila que NOMBRA la mision y NOMBRA al
+        // personaje. No hay nada que adivinar, asi que no hay nada de lo que
+        // protegerse. Fue la decision explicita al pedir esta ventana --
+        // *"completar y cobrar, ahi mismo"*.
+        //
+        // Lo que SIGUE sin saltarse es `CanRewardQuest`: sitio en la bolsa,
+        // diarias y el oro de las que cuestan dinero. Y los objetos que falten
+        // se ponen antes, porque si no el nucleo rechaza en silencio las de
+        // recoger. Las dos cosas estan explicadas en `TurnIn`.
+        //
+        // La recompensa a elegir la pone `BestReward`, por personaje.
+        bool ForceFinish(Player* master, uint32 questId,
+                         std::vector<std::string> const& names,
+                         int& okOut, int& failOut,
+                         std::vector<std::string>& notes, std::string* why = nullptr);
     }
 }
 

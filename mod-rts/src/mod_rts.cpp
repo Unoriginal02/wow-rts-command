@@ -24,14 +24,18 @@
 #include "Chat.h"
 #include "CommandScript.h"
 #include "Config.h"
+#include "Group.h"
 #include "ObjectAccessor.h"
+#include "ObjectMgr.h"
 #include "Player.h"
 #include "PlayerScript.h"
 #include "RBAC.h"
 #include "RtsBags.h"
+#include "RtsBotApi.h"
 #include "RtsQuests.h"
 #include "RtsQueue.h"
 #include "RtsSwap.h"
+#include "RtsTrain.h"
 #include "RtsCamera.h"
 #include "RtsChain.h"
 #include "RtsCommandMode.h"
@@ -49,6 +53,7 @@
 #include <vector>
 
 #include <iomanip>
+#include <map>
 #include <sstream>
 #include <string>
 
@@ -639,6 +644,97 @@ namespace
 
         // "QSHARE <questId> <nombre;nombre>" -> darles una de MIS misiones,
         // poniendoles al dia la cadena por el camino. Un solo sentido.
+        // "QLOG" -> el registro de misiones de TODO el grupo.
+        //
+        //     peticion:   QLOG
+        //     respuesta:  QLOGZ <zid> <nombre de zona>
+        //                 QLOG <nombre> <questId> <estado> <clase> <zid> <titulo>
+        //                 QLOGEND <n>
+        //
+        // === POR QUE LAS ZONAS VAN EN SUS PROPIAS LINEAS ====================
+        //
+        // La regla de este canal es que el campo de TEXTO LIBRE va el ultimo y
+        // todo lo demas delante, que es lo que hace que no haya nada que
+        // escapar (ver `SendQuestList`). Una fila de misiones tiene DOS textos
+        // libres -- la zona y el titulo -- y dos no caben en un solo sitio.
+        //
+        // Asi que la zona sale antes, una vez cada una, con un numero corto que
+        // la nombra; la fila lleva el numero y el titulo se queda de ultimo
+        // como en todo lo demas. De paso el nombre de una zona viaja una vez en
+        // vez de quince.
+        //
+        // `zid` 0 es "sin zona", que en la practica son las de CLASE: van a su
+        // propio grupo por peticion, y ademas varias no traen zona en los datos.
+        if (verb == "QLOG")
+        {
+            std::vector<rts::quests::Entry> entries;
+            if (!rts::quests::Registry(player, entries))
+            {
+                SendAddon(player, "QLOGEND 0");
+                return true;
+            }
+
+            // Los nombres de zona, deduplicados y numerados en el orden en que
+            // aparecen. Un `map` por nombre y no por id de area porque el id no
+            // sale de aqui: lo unico que el cliente necesita es poder agrupar.
+            std::map<std::string, uint32> zoneIds;
+            for (auto const& e : entries)
+            {
+                if (e.zone.empty() || zoneIds.count(e.zone))
+                    continue;
+
+                uint32 const zid = static_cast<uint32>(zoneIds.size()) + 1;
+                zoneIds[e.zone] = zid;
+                SendAddon(player, "QLOGZ " + std::to_string(zid) + " " + e.zone);
+            }
+
+            for (auto const& e : entries)
+            {
+                auto const it = zoneIds.find(e.zone);
+                uint32 const zid = (it == zoneIds.end()) ? 0 : it->second;
+
+                std::ostringstream q;
+                q << "QLOG " << e.name << ' ' << e.questId << ' ' << uint32(e.status)
+                  << ' ' << (e.classQuest ? 1 : 0) << ' ' << zid << ' ' << e.title;
+                SendAddon(player, q.str());
+            }
+
+            SendAddon(player, "QLOGEND " + std::to_string(entries.size()));
+            return true;
+        }
+
+        // "QFORCE <questId> <nombre;nombre>" -> darla por hecha y cobrada.
+        //
+        // Misma forma que `QSHARE` a proposito, incluida la lista de nombres
+        // aunque la ventana mande siempre uno: el verbo no tiene por que saber
+        // como esta dibujada la fila que lo dispara.
+        if (verb == "QFORCE")
+        {
+            std::istringstream in(rest);
+            uint32 questId = 0;
+            std::string names;
+            if (!(in >> questId >> names))
+                return false;
+
+            int ok = 0, bad = 0;
+            std::string why;
+            std::vector<std::string> notes;
+
+            if (!rts::quests::ForceFinish(player, questId, SplitList(names, ';'),
+                                          ok, bad, notes, &why))
+            {
+                SendAddon(player, "QERR " + std::to_string(questId) + " " + why);
+                return true;
+            }
+
+            for (std::string const& n : notes)
+                Reply(player, "RTS: " + n);
+
+            SendAddon(player, "QDONE F " + std::to_string(questId) + " " +
+                              std::to_string(ok) + " " + std::to_string(bad));
+            return true;
+        }
+
         if (verb == "QSHARE")
         {
             std::istringstream in(rest);
@@ -2117,6 +2213,125 @@ public:
     }
 };
 
+// PONER AL DIA A UN PERSONAJE: lo que venderia su entrenador, y la mision de
+// clase que le toque.
+//
+// === LOS DOS MOMENTOS, Y POR QUE SON DOS =================================
+//
+// SUBIR DE NIVEL es el unico instante en que cambia QUE puede aprender un
+// personaje y QUE misiones de clase alcanza. Preguntarlo en cualquier otro
+// momento seria preguntar por algo que no ha cambiado, y por eso no hay tick.
+//
+// ENTRAR AL MUNDO es el otro, y no sobra: un personaje puede haber llegado a
+// nivel 40 antes de que esto existiera, o con esto apagado, o -- el caso que lo
+// pidio -- puede ser un alt que acabas de meter con `.playerbots bot add`. Ese
+// alt no va a subir de nivel en el momento de entrar, asi que sin esta segunda
+// puerta se quedaria atrasado hasta la siguiente subida.
+//
+// LAS DOS LLAMAN A LO MISMO, y eso es lo que hace que "si ya esta al dia, no
+// tocar nada" salga gratis en vez de ser una comprobacion aparte: las dos
+// mitades ya preguntan antes de actuar. `Learn` se apoya en `CanTeachSpell`,
+// que contesta `Known` de todo lo que ya sabe, y `GrantClassQuest` lo primero
+// que hace es mirar el registro. Con todo al dia las dos devuelven cero y no se
+// escribe ni se dice nada.
+//
+// === Y POR QUE LOS BOTS ALEATORIOS SE QUEDAN FUERA AL ENTRAR ==============
+//
+// Solo en la puerta de ENTRAR, y solo ellos. Hoy no hay ninguno
+// (`RandomBotAutologin = 0`), pero `MinRandomBots` son quinientos, y el dia que
+// se enciendan entrarian quinientos personajes a la vez: quinientos barridos del
+// entrenador y, peor, quinientas misiones de clase escritas en quinientos
+// personajes que no juega nadie. Al subir de nivel no se filtra, porque ahi
+// entran de uno en uno y cuando de verdad les toca.
+//
+// LO QUE NO HACE NINGUNA DE LAS DOS: tocar la entrega. La mision se entrega en
+// el entrenador como siempre.
+class RtsProgressScript : public PlayerScript
+{
+public:
+    RtsProgressScript() : PlayerScript("RtsProgressScript", {
+        PLAYERHOOK_ON_LEVEL_CHANGED,
+        PLAYERHOOK_ON_LOGIN
+    }) { }
+
+    void OnPlayerLevelChanged(Player* player, uint8 oldLevel) override
+    {
+        // BAJAR DE NIVEL TAMBIEN PASA POR AQUI. El gancho se llama "cambio de
+        // nivel" y no "subida": `.levelup -5` y el castigo de resurreccion del
+        // nucleo entran por el mismo sitio. Aprender hechizos ahi seria darle a
+        // un personaje de nivel 20 lo que ya tenia de 25.
+        if (!player || player->GetLevel() <= oldLevel)
+            return;
+
+        CatchUp(player);
+    }
+
+    // Sale de `WorldSession::HandlePlayerLoginFromDB` (`CharacterHandler.cpp:1116`),
+    // con el personaje ya metido en el mapa desde la linea 899 -- asi que
+    // `IsInWorld` ya es cierto, que es lo primero que miran las dos mitades.
+    //
+    // Y VALE PARA UN BOT porque playerbots no tiene camino de entrada propio:
+    // `PlayerbotHolder::HandlePlayerBotLoginCallback` llama a ese mismo
+    // `HandlePlayerLoginFromDB` (`PlayerbotMgr.cpp:208`). O sea que `.playerbots
+    // bot add Neferite` pasa por aqui sin enganchar nada suyo.
+    void OnPlayerLogin(Player* player) override
+    {
+        if (!player)
+            return;
+
+        // La puerta de los aleatorios. Ver arriba: un bot sin maestro es uno de
+        // los que pasea el servidor, no un alt que acabas de meter.
+        if (rts::bots::Driven(player) && !rts::bots::MasterOf(player))
+            return;
+
+        CatchUp(player);
+    }
+
+private:
+    static void CatchUp(Player* who)
+    {
+        if (sConfigMgr->GetOption<bool>("RTS.CatchUp.Train", true))
+        {
+            if (int const learned = rts::train::Learn(who))
+                Announce(who, std::to_string(learned) +
+                              (learned == 1 ? " habilidad nueva" : " habilidades nuevas"));
+        }
+
+        if (sConfigMgr->GetOption<bool>("RTS.CatchUp.ClassQuest", true))
+        {
+            if (uint32 const questId = rts::quests::GrantClassQuest(who))
+            {
+                Quest const* quest = sObjectMgr->GetQuestTemplate(questId);
+                Announce(who, "mision de clase: " +
+                              (quest ? quest->GetTitle() : std::to_string(questId)));
+            }
+        }
+    }
+
+    // A QUIEN SE LE CUENTA.
+    //
+    // Un bot tiene sesion pero no tiene socket, asi que un mensaje a su ventana
+    // de chat no sale del servidor: se escribe y se tira. El que quiere leerlo
+    // es su maestro.
+    //
+    // Y se le pregunta a playerbots por el maestro en vez de mirar el lider del
+    // grupo, que es lo que habia y era casi siempre lo mismo. CASI: un bot
+    // recien metido con `.playerbots bot add` aun no esta en tu grupo cuando
+    // entra al mundo, asi que por el camino del grupo el aviso del unico caso
+    // que pidio esto se habria perdido siempre.
+    static void Announce(Player* who, std::string const& what)
+    {
+        if (!rts::bots::Driven(who))
+        {
+            Reply(who, what);
+            return;
+        }
+
+        if (Player* const master = rts::bots::MasterOf(who))
+            Reply(master, who->GetName() + ": " + what);
+    }
+};
+
 // Manual fallback so the camera can be tested without the addon loaded --
 // ".rts cam" typed into chat does the same thing the addon message does.
 class RtsCommandScript : public CommandScript
@@ -2189,6 +2404,7 @@ void AddSC_mod_rts()
 
     new RtsPacketScript();
     new RtsChannelScript();
+    new RtsProgressScript();
     new RtsCommandScript();
     new RtsWorldScript();
 }

@@ -89,6 +89,17 @@ namespace rts
         // distingue.
         bool Driven(Player* bot);
 
+        // QUIEN LO ANADIO. Nulo si no lo lleva playerbots, y nulo TAMBIEN si es
+        // un bot aleatorio: esos los mete el servidor solo y no tienen maestro.
+        //
+        // Esa segunda mitad no es un efecto secundario, es media funcion. Es lo
+        // unico que separa *"un alt tuyo que acabas de meter con `.playerbots
+        // bot add`"* de *"uno de los quinientos que el servidor pasea por el
+        // mundo"*, y las dos cosas no piden el mismo trato: lo que sea caro o
+        // deje historial escrito en el personaje se le hace al primero y no a
+        // los otros quinientos.
+        Player* MasterOf(Player* bot);
+
         // --- estrategias -----------------------------------------------------
 
         // "+stay,-passive,-move from group" y compania. Devuelve false si el bot

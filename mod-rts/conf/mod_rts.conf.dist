@@ -84,3 +84,46 @@ RTS.Camera.PivotDistance = 12.0
 #
 
 RTS.Camera.PivotSpeed = 1.6
+
+#
+#    RTS.CatchUp.Train
+#        Al subir de nivel Y al entrar al mundo, aprender gratis todo lo que su
+#        entrenador le venderia a ese nivel: habilidades de clase Y de arma.
+#
+#        Entrar al mundo cuenta porque es cuando aparece un alt metido con
+#        ".playerbots bot add": ese no va a subir de nivel justo entonces, y sin
+#        esa segunda puerta se quedaria atrasado. Si ya esta al dia no se toca
+#        nada -- lo que ya sabe se salta solo.
+#
+#        Vale para los bots y para tu personaje. Lo que decide que se puede
+#        aprender no es una lista nuestra: son los datos del entrenador del
+#        mundo, los mismos que mira el comando ".learn all my trainer". Lo unico
+#        que se salta es el precio.
+#
+#        Las habilidades de arma vienen de los maestros de armas, que son once
+#        PNJ repartidos por el mundo; entre todos cubren los catorce hechizos de
+#        arma del juego y el nucleo filtra por clase y raza.
+#
+#        Por defecto: 1
+#
+
+RTS.CatchUp.Train = 1
+
+#
+#    RTS.CatchUp.ClassQuest
+#        Al subir de nivel Y al entrar al mundo, dar la mision de clase que le
+#        toque.
+#
+#        UNA SOLA A LA VEZ: si ya lleva una mision de clase en el registro, no
+#        se le da otra hasta que la quite de en medio -- entregandola en su
+#        entrenador, que es donde se entrega siempre, o abandonandola.
+#
+#        Si la mision que le toca cuelga de otras que no hizo, se le hacen esas
+#        primero de verdad: se le dan, se completan y se cobran, con recompensa
+#        elegida automaticamente. No se marcan y ya, porque la recompensa de una
+#        mision de clase suele ser un hechizo que no vende ningun entrenador.
+#
+#        Por defecto: 1
+#
+
+RTS.CatchUp.ClassQuest = 1
