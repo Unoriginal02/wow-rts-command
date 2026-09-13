@@ -72,7 +72,19 @@ local SLOT   = 40
 local GAP    = 4
 local COLS   = 6      -- casillas por fila dentro del panel de un personaje
 local ROWS   = 6      -- filas VISIBLES; el resto se pasa con la rueda
-local HEAD   = 44     -- cabecera del panel: nombre, dinero, huecos
+-- EL RETRATO ES DE QUIEN SON LAS BOLSAS, y es lo que convierte una columna con
+-- un nombre encima en la mochila DE alguien. Pedido con la mochila del cliente
+-- delante: *"donde pone Mochila que sea el nombre, y donde la bolsa el avatar
+-- del personaje propietario"*.
+--
+-- 36 y no mas: la cabecera tiene que caber en el alto que ya tenia sin comerse
+-- filas de casillas, que es lo que la ventana esta aqui para ensenar.
+local PORT   = 36
+local HEAD   = PORT + 16   -- cabecera: retrato, nombre y huecos libres
+-- Y EL DINERO ABAJO, EN SU PROPIA FRANJA. Es donde lo pone la mochila del
+-- cliente, y ahi tiene un sitio fijo: en la cabecera compartia linea con los
+-- huecos libres y las dos cifras se leian como una sola.
+local FOOT   = 26
 local COLGAP = 14
 local PAD    = 10
 
@@ -358,11 +370,31 @@ local function BuildColumn(index, name)
 	-- en su lista, asi que `/rts skin` lo reviste en vivo como a los demas.
 	if ns.Skin then ns.Skin:Dress(col, true) end
 
+	-- El retrato del dueno, donde la mochila del cliente lleva el icono de la
+	-- bolsa. Se rellena en `Layout`, que es quien sabe que unidad es cada uno.
+	col.portrait = col:CreateTexture(nil, "ARTWORK")
+	col.portrait:SetWidth(PORT)
+	col.portrait:SetHeight(PORT)
+	col.portrait:SetPoint("TOPLEFT", col, "TOPLEFT", PAD, -8)
+	ns.W:Border(col, col.portrait, PORT)
+
 	col.title = ns.W:Text(col, ns.W.FONT.small)
-	col.title:SetPoint("TOPLEFT", col, "TOPLEFT", PAD, -8)
+	col.title:SetPoint("TOPLEFT", col, "TOPLEFT", PAD + PORT + 8, -10)
 
 	col.info = ns.W:Text(col, ns.W.FONT.tiny)
-	col.info:SetPoint("TOPLEFT", col, "TOPLEFT", PAD, -26)
+	col.info:SetPoint("TOPLEFT", col, "TOPLEFT", PAD + PORT + 8, -30)
+
+	-- La franja del dinero, abajo del todo y con su propio fondo: sin el, una
+	-- cifra suelta sobre el arte no se lee como una franja y vuelve a parecer
+	-- texto perdido, que es el problema que se viene a arreglar.
+	col.purse = col:CreateTexture(nil, "ARTWORK")
+	col.purse:SetTexture(0, 0, 0, 0.45)
+	col.purse:SetHeight(FOOT - 6)
+	col.purse:SetPoint("BOTTOMLEFT", col, "BOTTOMLEFT", PAD, 6)
+	col.purse:SetPoint("BOTTOMRIGHT", col, "BOTTOMRIGHT", -PAD, 6)
+
+	col.money = ns.W:Text(col, ns.W.FONT.tiny)
+	col.money:SetPoint("RIGHT", col.purse, "RIGHT", -6, 0)
 
 	-- La ventana que recorta.
 	col.view = CreateFrame("ScrollFrame", "RTSBagsView" .. index, col)
@@ -398,13 +430,24 @@ function B:Layout()
 	for i, u in ipairs(roster) do
 		local col = BuildColumn(i, u.name)
 		col:SetPoint("TOPLEFT", sheet, "TOPLEFT", (i - 1) * (COLW + PAD * 2 + COLGAP), 0)
-		col:SetHeight(HEAD + VIEWH + PAD)
+		col:SetHeight(HEAD + VIEWH + FOOT + PAD)
 
 		local d = data[u.name] or {}
 		local cc = u.isPlayer and { 1, 0.85, 0.4 } or (ns.W:ClassColor(u.unit) or { 1, 1, 1 })
 		col.title:SetText(u.name)
 		col.title:SetTextColor(cc[1] or cc.r or 1, cc[2] or cc.g or 1, cc[3] or cc.b or 1)
-		col.info:SetText(Money(d.copper) .. "   |cff88ff88" .. tostring(d.free or "?") .. "|r libres")
+		col.info:SetText("|cff88ff88" .. tostring(d.free or "?") .. "|r libres")
+		col.money:SetText(Money(d.copper))
+
+		-- Un bot que se acaba de ir del grupo sigue teniendo fila mientras dure
+		-- este dibujado, asi que la unidad puede no existir. Sin esta guarda,
+		-- `SetPortraitTexture` deja el retrato ANTERIOR puesto: la cara de otro
+		-- personaje sobre las bolsas de este, que es peor que no tener cara.
+		if u.unit and UnitExists(u.unit) then
+			SetPortraitTexture(col.portrait, u.unit)
+		else
+			col.portrait:SetTexture("Interface\\Icons\\INV_Misc_QuestionMark")
+		end
 
 		-- Las casillas, en el orden en que llegaron los contenedores: primero la
 		-- mochila y luego cada bolsa equipada, que es como las ve el jugador en
@@ -444,11 +487,11 @@ function B:Layout()
 
 	local cols = math.max(1, #roster)
 	local w = PAD * 2 + cols * (COLW + PAD * 2) + (cols - 1) * COLGAP
-	local h = 46 + PAD + HEAD + VIEWH + PAD + PAD
+	local h = 46 + PAD + HEAD + VIEWH + FOOT + PAD + PAD
 	win:SetSize(w, h)
 
 	sheet:SetWidth(w - PAD * 2)
-	sheet:SetHeight(HEAD + VIEWH + PAD)
+	sheet:SetHeight(HEAD + VIEWH + FOOT + PAD)
 end
 
 --- Ciclo -------------------------------------------------------------------

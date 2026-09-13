@@ -292,16 +292,23 @@ local CELLS = {
 	        "Arrastra un objeto de una a otra para pasarlo.",
 	  fn = function() ns.Bags:Toggle() end },
 
-	-- LAS MISIONES NECESITAN UN PNJ, y por eso este boton mira tu objetivo en vez
-	-- de abrir una ventana vacia. Es el mismo camino que `/rts quests` sin
-	-- argumento; pinchar al PNJ en el mundo tambien la abre desde la etapa 7.
+	-- ESTE BOTON ABRIA EL REGISTRO DE BLIZZARD, y ahora abre el del GRUPO.
 	--
+	-- El cambio no es de gusto: el registro del cliente ya esta a un click en el
+	-- rail de la derecha (`Rails.lua`, el micro-boton de misiones), asi que esta
+	-- casilla estaba gastada en un atajo a algo que ya tenia atajo. Y lo que no
+	-- tenia NINGUNA forma de verse era el registro de los companeros.
+	--
+	-- El boton Compartir del registro de Blizzard sigue secuestrado igual
+	-- (`Quests.lua`): eso no se toca y no depende de quien abra la ventana.
 	{ short = "Misiones", icon = I.quest, raw = true, global = true,
-	  tip = "Abre el registro de misiones de siempre.\n" ..
-	        "Su boton Compartir FUERZA la mision al grupo:\n" ..
-	        "les marca la cadena que les falte y se la da.",
+	  tip = "El registro de misiones de TODO el grupo, tu incluido.\n" ..
+	        "Por personaje, y dentro por zona, con las de clase aparte.\n\n" ..
+	        "Cada fila trae FORZAR: la da por hecha y cobrada ahi mismo,\n" ..
+	        "sin ir al PNJ.\n\n" ..
+	        "El registro de siempre sigue en el rail de la derecha.",
 	  fn = function()
-		ns.Quests:Open()
+		ns.QuestBook:Toggle()
 	  end },
 
 	{ short = "Matar",   icon = MarkIcon(8), raw = true, global = true,

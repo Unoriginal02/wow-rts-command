@@ -117,6 +117,33 @@ function W:Text(parent, size, layer)
 	return fs
 end
 
+-- UN BORDE DE UNA RAYA ALREDEDOR DE ALGO, normalmente un retrato.
+--
+-- Cuatro texturas y no un aro de los del cliente: las de Blizzard vienen con su
+-- propio recorte y un `SetTexCoord` a ciegas es adivinar. Es la misma decision,
+-- por el mismo motivo, que ya tomo `Frames.lua` con el aro de su retrato -- y
+-- por eso sale aqui, que es donde deja de ser la tercera copia.
+--
+-- `anchor` es la textura o el frame al que se le pone el marco; `size` su lado.
+-- Se devuelven las cuatro rayas para poder recolorearlas.
+function W:Border(parent, anchor, size, r, g, b, a)
+	r, g, b, a = r or 0.45, g or 0.45, b or 0.5, a or 0.9
+	local e = {}
+	for i = 1, 4 do
+		e[i] = parent:CreateTexture(nil, "OVERLAY")
+		e[i]:SetTexture(r, g, b, a)
+	end
+	e[1]:SetPoint("TOPLEFT", anchor, "TOPLEFT", -1, 1)
+	e[1]:SetWidth(size + 2) e[1]:SetHeight(1)
+	e[2]:SetPoint("BOTTOMLEFT", anchor, "BOTTOMLEFT", -1, -1)
+	e[2]:SetWidth(size + 2) e[2]:SetHeight(1)
+	e[3]:SetPoint("TOPLEFT", anchor, "TOPLEFT", -1, 1)
+	e[3]:SetWidth(1) e[3]:SetHeight(size + 2)
+	e[4]:SetPoint("TOPRIGHT", anchor, "TOPRIGHT", 1, 1)
+	e[4]:SetWidth(1) e[4]:SetHeight(size + 2)
+	return e
+end
+
 -- Una barra de estado con fondo negro y, si se pide, un texto encima. El fondo
 -- NO es opcional: sin el, una barra vacia es un agujero en el arte y no se
 -- distingue de una barra que no existe.

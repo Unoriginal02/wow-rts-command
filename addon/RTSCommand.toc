@@ -35,6 +35,7 @@ Rails.lua
 Window.lua
 Bags.lua
 Quests.lua
+QuestBook.lua
 Skills.lua
 Chain.lua
 Npc.lua
