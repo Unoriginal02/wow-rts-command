@@ -87,6 +87,26 @@
 	escalon, mas despacio -- que es exactamente al reves de lo que hace un
 	suavizado normal, y es lo que se pidio.
 
+	=== Y EL CANDADO ES LA CUARTA CAPA APAGADA (2026-09-13) =================
+
+	La casilla CANDADO del panel clava la camara al heroe: se captura la
+	distancia que hay en ese instante y se mantiene mientras el heroe viaja.
+	Sirve para acompanar al grupo por el camino sin conducir la camara a mano.
+
+	Y ESA CASILLA ES LA UNICA BOCA. No hay tecla ni comando: se penso una tecla
+	y el jugador no la quiso (2026-09-13), asi que el candado no coge ninguna.
+
+	Es un DESVIO, no una capa mas: con el candado puesto el SOLVER de suelo
+	entero -- rayo, filtro de escalon, suelo duro, presupuesto de empuje -- no
+	corre. La Z sale del heroe, que ya va por el suelo por su cuenta, y dos
+	duenos de la misma Z es la forma de pelea que este fichero ya ha perdido dos
+	veces.
+
+	Y NO ENCUADRA NADA POR SU CUENTA: ni angulo, ni altura, ni distancia. Lo
+	pone el jugador con el raton y las teclas de siempre -- que con el candado
+	puesto mueven el ENCUADRE en vez de la camara -- y se queda hasta que lo
+	vuelva a tocar.
+
 	=== SIN DLL ESTO NO ARRANCA, Y LO DICE ==================================
 
 	Necesita dos cosas que solo el DLL da: el vector de avance y el suelo bajo
@@ -180,6 +200,23 @@ local D = {
 	push    = 40.0,   -- yd/s; lo mas deprisa que el suelo duro puede EMPUJAR
 	yawSign = 1,      -- si Q y E salen al reves, esto es -1
 	ease    = 9.0,    -- k del arranque/parada en el plano (1/s); mas alto, mas seco
+	-- === EL ANCLA NO ES RIGIDA, Y NO PUEDE SERLO =========================
+	--
+	-- El candado (la casilla del panel) clava la camara a una distancia fija del
+	-- heroe, y lo obvio seria copiar su posicion tal cual cada frame. No sale
+	-- bien, y la causa no esta en este fichero: el DLL publica `RTS_PX/PY/PZ` a
+	-- 33 Hz y la pantalla va a 60 o mas, asi que la posicion del heroe es una
+	-- ESCALERA de unos 30 ms de peldano mientras el cliente dibuja al heroe
+	-- interpolado a cada frame. Copiarla clava la camara al peldano, no al
+	-- heroe: corriendo a 7 yd/s eso son 0.2 yardas de tiron, adelante y atras,
+	-- treinta y tres veces por segundo.
+	--
+	-- Asi que el ancla PERSIGUE al heroe con el mismo suavizado exponencial que
+	-- usa la altura. El precio es un retraso fijo de `v / lockSmooth` -- a 25 y
+	-- corriendo, 0.28 yardas de treinta -- que es un desplazamiento constante e
+	-- invisible, y solo cambia mientras el heroe acelera o frena. La escalera,
+	-- en cambio, se ve.
+	lockSmooth = 25.0,   -- k del seguimiento del heroe con el candado (1/s)
 }
 
 -- SELLO DE GENERACION, y hace falta porque un ajuste CAMBIO DE SIGNIFICADO.
@@ -253,6 +290,10 @@ local function Cfg()
 	if c.clear < 0 or c.clear > 50      then c.clear  = D.clear  end
 	if c.yawSign ~= 1 and c.yawSign ~= -1 then c.yawSign = 1 end
 	if c.ease <= 0 or c.ease > 60 then c.ease = D.ease end
+	-- A cero el ancla no se moveria nunca y el candado pareceria no hacer nada;
+	-- por arriba se convierte en la copia rigida que el comentario de `D`
+	-- explica que no se quiere. Fuera de rango es basura y vuelve al de fabrica.
+	if c.lockSmooth <= 0 or c.lockSmooth > 200 then c.lockSmooth = D.lockSmooth end
 	return c
 end
 
@@ -262,6 +303,11 @@ end
 -- pulsacion y ninguna forma de saber que se solto, que es justo lo que un
 -- control de mantener-para-mover necesita -- es la misma razon y el mismo
 -- mecanismo que ya usaban ESPACIO y C para la camara vieja.
+--
+-- Y EL CANDADO NO ESTA AQUI, a peticion del jugador (2026-09-13): se pone y se
+-- quita SOLO desde su casilla del panel. Esta tabla se queda las ocho teclas de
+-- movimiento y ninguna mas -- cada tecla que se coge es una tecla que hay que
+-- devolver, y una que no se coge no se puede quedar mal devuelta.
 --
 -- NO son botones seguros a proposito: nada de lo que hacen esta protegido.
 
@@ -345,7 +391,19 @@ local st = { x = nil, y = nil, z = nil, yaw = 0, pitch = nil, offset = nil,
              -- debajo, que persigue al medido con una velocidad limitada. Es
              -- estado y no una variable local del tick a proposito -- sin
              -- memoria entre frames no hay filtro, solo un rebautizo del suelo.
-             gz = nil, gstep = 0 }
+             gz = nil, gstep = 0,
+             -- EL CANDADO: `a*` es el ancla (el heroe, perseguido con
+             -- suavizado) y `o*` el encuadre (lo que separa a la camara del
+             -- ancla). La camara con el candado puesto NO tiene posicion
+             -- propia: es siempre `ancla + encuadre`, y las teclas mueven el
+             -- ENCUADRE, no la camara. Por eso el encuadre "se queda": nada
+             -- mas lo escribe.
+             ax = nil, ay = nil, az = nil,
+             ox = 0, oy = 0, oz = 0 }
+
+-- El candado esta encendido. Va en `F` y no en `st` porque lo preguntan desde
+-- fuera -- el informe, el comando -- y `st` es del solver.
+F.lock = false
 
 -- Ninguna de las funciones de comentarista se habia llamado nunca en este
 -- proyecto, asi que todas pasan por aqui: si una no existe, el controlador
@@ -560,6 +618,144 @@ local function MouseButtons()
 	return (b % 2) == 1, (math.floor(b / 2) % 2) == 1
 end
 
+--- EL CANDADO -------------------------------------------------------------
+--
+-- Un interruptor, y hace UNA cosa: mientras esta puesto, la camara se queda a
+-- la misma distancia del heroe -- la que tuviera al encenderlo -- y viaja con
+-- el. Para seguir al grupo por el camino sin conducir la camara a mano.
+--
+-- LO QUE NO HACE, que es la mitad que se pidio por escrito: no toca el angulo,
+-- no toca la altura, no recoloca nada. El encuadre lo pone el jugador -- con el
+-- raton, con W/A/S/D, con ESPACIO y C -- y se queda tal cual hasta que lo
+-- vuelva a tocar. Aqui no hay ni una decision de encuadre.
+--
+-- POR ESO LAS TECLAS MUEVEN EL ENCUADRE Y NO LA CAMARA. Con el candado puesto,
+-- la posicion de la camara es SIEMPRE `ancla + encuadre`, asi que escribir en
+-- ella directamente -- como hace el modo libre -- seria escribir en un valor
+-- que se recalcula entero el frame siguiente: las teclas pareceria que no
+-- hacen nada. Sumando al encuadre, retocar el plano mientras se viaja funciona
+-- igual que siempre y lo retocado PERSISTE, que es exactamente lo que se
+-- pidio.
+--
+-- Y AQUI NO HAY SUELO. Ni rayo, ni filtro de escalon, ni suelo duro, ni
+-- presupuesto de empuje: la Z sale del heroe, que ya va por el suelo por su
+-- cuenta. Meter la correccion de altura seria un segundo dueno de la Z
+-- discutiendo con el candado cada frame -- la forma de pelea que este fichero
+-- ya ha perdido dos veces -- y ademas romperia la promesa de la distancia fija
+-- en cuanto el heroe pasara por debajo de un tejado.
+local function HeroPos()
+	if RTS_HasPos ~= 1 then return nil end
+	local x, y, z = RTS_PX, RTS_PY, RTS_PZ
+	if type(x) ~= "number" or type(y) ~= "number" or type(z) ~= "number" then
+		return nil
+	end
+	return x, y, z
+end
+
+local function Follow(c, dt)
+	local hx, hy, hz = HeroPos()
+	-- Sin posicion del heroe este tick no se inventa una: la camara se queda
+	-- donde esta. Pasa al cambiar de zona y dura lo que tarda el DLL en volver
+	-- a publicar.
+	if not hx then return end
+
+	if not st.ax then
+		st.ax, st.ay, st.az = hx, hy, hz
+	else
+		-- UN CAMBIO DE MAPA NO ES UN PASO. Igual que `GROUND_SNAP` para el
+		-- suelo: por encima de esa distancia el heroe no se ha movido, lo han
+		-- movido -- teleport, portal, cambio de personaje -- y perseguirlo con
+		-- suavizado seria cruzar el continente a la vista. Ahi se salta.
+		local dx, dy, dz = hx - st.ax, hy - st.ay, hz - st.az
+		if (dx * dx + dy * dy + dz * dz) > (GROUND_SNAP * GROUND_SNAP) then
+			st.ax, st.ay, st.az = hx, hy, hz
+		else
+			local a = 1 - math.exp(-c.lockSmooth * dt)
+			st.ax = st.ax + dx * a
+			st.ay = st.ay + dy * a
+			st.az = st.az + dz * a
+		end
+	end
+
+	-- Las teclas RETOCAN EL ENCUADRE. Misma velocidad y mismo suavizado que en
+	-- el modo libre: `st.vx/vy` ya vienen calculadas del mismo solver de
+	-- arriba, asi que el plano se siente igual con el candado puesto.
+	st.ox = st.ox + st.vx * dt
+	st.oy = st.oy + st.vy * dt
+	local lift = 0
+	if input.up then lift = lift + 1 end
+	if input.down then lift = lift - 1 end
+	if lift ~= 0 then st.oz = st.oz + lift * c.lift * dt end
+
+	st.x = st.ax + st.ox
+	st.y = st.ay + st.oy
+	st.z = st.az + st.oz
+
+	-- El suelo filtrado se olvida MIENTRAS dura el candado, no al soltarlo: asi
+	-- el primer tick libre se engancha a lo que haya debajo de donde la camara
+	-- haya acabado, en vez de venir arrastrando el suelo de otro continente.
+	st.gz, st.gstep, st.buried = nil, 0, 0
+end
+
+-- LA CASILLA DEL PANEL TIENE QUE ENTERARSE, y no puede enterarse sola: se
+-- repinta en los cambios de SELECCION (`Panel:Refresh`, suscrito a
+-- `ns.Selection`), y el candado no es uno. Sin este aviso, poner el candado
+-- dejaria el boton apagado hasta el siguiente click en un companero -- o sea un
+-- indicador que miente sobre lo que uno acaba de pulsar.
+--
+-- Va en `SetLock` y no en la casilla porque el estado se cambia AQUI: quien
+-- repinta tiene que colgar de quien decide, no de quien pulsa.
+local function Repaint()
+	if ns.Panel and ns.Panel.Refresh then ns.Panel:Refresh() end
+end
+
+-- Encender y apagar. Devuelve si el candado ha quedado como se pedia.
+function F:SetLock(on)
+	if not self.active then
+		ns.Print("|cffff8800camara RTS:|r la camara libre no esta activa.")
+		return false
+	end
+
+	if not on then
+		if self.lock then
+			self.lock = false
+			-- `offset` se recalcula solo en el primer tick libre (el bloque del
+			-- anclaje): con `gz` a nil, la altura que tenga la camara AHORA
+			-- pasa a medirse contra el suelo de donde este. Sin esto la camara
+			-- volveria de golpe a la altura con la que se encendio el candado.
+			st.gz, st.gstep, st.buried = nil, 0, 0
+			Repaint()
+			ns.Print("|cff33ccffcamara RTS:|r candado |cffff8800SUELTO|r.")
+		end
+		return true
+	end
+
+	local hx, hy, hz = HeroPos()
+	if not hx then
+		ns.Print("|cffff0000camara RTS:|r el DLL no publica la posicion de tu heroe.")
+		return false
+	end
+	if not st.x then
+		ns.Print("|cffff0000camara RTS:|r la camara no tiene sitio todavia.")
+		return false
+	end
+
+	-- EL ENCUADRE SE CAPTURA, NO SE ELIGE. La distancia y la direccion son las
+	-- que haya en pantalla en este instante: encender el candado no debe mover
+	-- ni un pixel, solo dejar de soltar.
+	st.ax, st.ay, st.az = hx, hy, hz
+	st.ox, st.oy, st.oz = st.x - hx, st.y - hy, st.z - hz
+	self.lock = true
+	Repaint()
+	ns.Print(("|cff33ccffcamara RTS:|r candado |cff00ff00PUESTO|r a %.1f yd del heroe."):format(
+		math.sqrt(st.ox * st.ox + st.oy * st.oy + st.oz * st.oz)))
+	return true
+end
+
+function F:ToggleLock()
+	return self:SetLock(not self.lock)
+end
+
 function F:Step(dt)
 	if not self.active then return end
 	-- Un frame perdido (carga de zona, alt-tab) puede traer un dt enorme, y
@@ -642,6 +838,18 @@ function F:Step(dt)
 	-- sin llegar nunca y la camara sigue arrastrandose despues de soltar.
 	if math.abs(st.vx) < 0.01 then st.vx = 0 end
 	if math.abs(st.vy) < 0.01 then st.vy = 0 end
+
+	-- EL CANDADO SE BIFURCA AQUI, y no antes: el giro y el solver del plano son
+	-- comunes -- con el candado puesto tambien se gira y tambien se retoca el
+	-- encuadre -- y todo lo que viene DESPUES es el suelo, que con el candado no
+	-- pinta nada (ver `Follow`). Un `if` en el sitio donde las dos ramas dejan
+	-- de parecerse, y no dos copias del tick.
+	if self.lock then
+		Follow(c, dt)
+		ns.Camera:SpecPlace(st.x, st.y, st.z, st.yaw, st.pitch or c.pitch, nil)
+		return
+	end
+
 	st.x = st.x + st.vx * dt
 	st.y = st.y + st.vy * dt
 
@@ -1002,6 +1210,13 @@ function F:Start()
 	-- depende del yaw para nada (sale del vector que publica el DLL).
 	st.yaw = 0
 	st.pitch = c.pitch
+	-- EL CANDADO NO SOBREVIVE A UNA SALIDA. Entrar al modo recoloca la camara
+	-- sobre el heroe, asi que un candado heredado traeria el encuadre de la
+	-- sesion anterior -- de otro continente, o de antes de un cambio de
+	-- personaje -- y lo aplicaria encima. Se entra siempre suelto.
+	self.lock = false
+	st.ax, st.ay, st.az = nil, nil, nil
+	st.ox, st.oy, st.oz = 0, 0, 0
 
 	-- QUE NO CHOQUE CON NADA QUE NO SEA NUESTRO SUELO.
 	--
@@ -1025,6 +1240,7 @@ end
 function F:Stop()
 	if not self.active then return true end
 	self.active = false
+	self.lock = false
 	-- CAPTURAR Y DEVOLVER, con la unica pega de que aqui no hay de donde
 	-- capturar: el cliente no publica un getter de esto. Asi que se devuelve al
 	-- valor MEDIDO, no supuesto -- `0x0056BC80` escribe 1 en ese campo al
@@ -1083,6 +1299,15 @@ function F:Home()
 	st.z = RTS_PZ + c.height
 	st.gz, st.gstep, st.buried = nil, 0, 0
 	st.vx, st.vy = 0, 0
+	-- Y CON EL CANDADO PUESTO HAY QUE REHACER EL ENCUADRE, o esto no haria
+	-- nada: con el candado, la posicion de la camara se recalcula entera cada
+	-- frame desde el ancla, asi que las tres lineas de arriba se perderian en
+	-- el tick siguiente. La salida de emergencia dejaria de salvar justo en el
+	-- modo en el que uno se puede quedar colgado de un heroe que se ha ido.
+	if self.lock then
+		st.ax, st.ay, st.az = RTS_PX, RTS_PY, RTS_PZ
+		st.ox, st.oy, st.oz = 0, 0, c.height
+	end
 	ns.Print(("|cff33ccffcamara RTS:|r camara devuelta sobre tu heroe (%.0f %.0f %.0f)."):format(
 		st.x, st.y, st.z))
 	return true
@@ -1108,6 +1333,7 @@ local LABEL = {
 	push = "lo mas deprisa que el suelo duro puede empujar la camara (yd/s)",
 	yawSign = "signo del giro con Q/E (1 o -1)",
 	ease = "suavizado del arranque/parada en el plano (k)",
+	lockSmooth = "con que fuerza el candado persigue al heroe (k)",
 }
 
 function F:Set(key, value)
@@ -1156,6 +1382,19 @@ function F:Report()
 	if st.x then
 		ns.Print(("  pos %.1f %.1f %.1f   yaw %.0f   pitch %.0f   offset %.1f"):format(
 			st.x, st.y, st.z, st.yaw, st.pitch or 0, st.offset or 0))
+	end
+	-- EL CANDADO, CON LA DISTANCIA MEDIDA Y NO LA PEDIDA. "No me sigue" y "me
+	-- sigue mal" son dos averias distintas: la primera se ve en el ON/OFF, la
+	-- segunda en que la distancia de ahora no sea la que se capturo.
+	if self.lock then
+		local hx, hy, hz = HeroPos()
+		local d = hx and math.sqrt((st.x - hx) ^ 2 + (st.y - hy) ^ 2 + (st.z - hz) ^ 2)
+		ns.Print(("  candado |cff00ff00PUESTO|r: encuadre %.1f %.1f %.1f (%.1f yd)   ahora %s"):format(
+			st.ox, st.oy, st.oz,
+			math.sqrt(st.ox * st.ox + st.oy * st.oy + st.oz * st.oz),
+			d and ("%.1f yd"):format(d) or "|cffff8800sin heroe publicado|r"))
+	else
+		ns.Print("  candado suelto |cff888888(casilla Candado del panel)|r")
 	end
 	-- LOS DOS RAYOS, SIEMPRE LOS DOS, y no solo el que este en uso.
 	--

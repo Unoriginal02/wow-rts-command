@@ -5,8 +5,17 @@
 
 	    Seguir   Quieto    Reunir    Atacar
 	    Control  A saco    Beber     Reset
-	    Tanque   Revivir   Formar    SALIR
+	    Candado  Revivir   Formar    SALIR
 	    Bolsas   Misiones  Matar     Contro
+
+	Y LA NOVENA CASILLA NO ES UNA ORDEN DESDE EL 2026-09-13. Era "Tanque"
+	(`tank attack`) y ahora es el CANDADO de la camara: la clava a tu heroe a la
+	distancia que tenga y viaja con el, para acompanar al grupo por el camino.
+	La razon de que le tocara a esa y no a otra esta junto a la casilla.
+
+	Es ademas la unica casilla de la rejilla con ESTADO -- se enciende y se
+	apaga -- asi que trae consigo la marca de "puesto" que `Paint` dibuja. Las
+	otras quince disparan y se olvidan.
 
 	LA CUARTA FILA HA SIDO TRES COSAS. Primero los botones pequenos del cliente
 	-- funcionaban (PRUEBAS-13 A3/A4/A6) y aun asi era el sitio equivocado, y se
@@ -95,7 +104,11 @@ local host, buttons, flyout = nil, {}, nil
 
 local I = {
 	follow = "Interface\\Icons\\Ability_Rogue_Sprint",
-	taunt  = "Interface\\Icons\\Ability_Defend",
+	-- EL CATALEJO NO ESTA ESCRITO DE MEMORIA, que es la regla de este fichero
+	-- desde la etapa 5i: una ruta de icono que no existe NO da error, dibuja
+	-- nada. Sale de leer el `(listfile)` de los MPQ de ESTE cliente --
+	-- `Interface\Icons\INV_Misc_Spyglass_03.blp`, que esta en `locale-esES.MPQ`.
+	lock   = "Interface\\Icons\\INV_Misc_Spyglass_03",
 	drink  = "Interface\\Icons\\INV_Drink_07",
 	hold   = "Interface\\Icons\\Ability_Warrior_DefensiveStance",
 	attack = "Interface\\Icons\\Ability_Warrior_Cleave",
@@ -261,8 +274,35 @@ local CELLS = {
 		end
 	  end },
 
-	{ short = "Tanque",  icon = I.taunt,  tip = "Que los tanques cojan tu objetivo.",
-	  fn = function() Dispatch("tank attack", "Tanques al objetivo") end },
+	-- LA NOVENA ERA "TANQUE" (`tank attack`) Y SE VA EL 2026-09-13, a peticion
+	-- del jugador, para hacerle sitio al candado de la camara.
+	--
+	-- Es la que menos cuesta de las dieciseis, y no por casualidad: "Atacar" ya
+	-- manda a TODO el grupo contra tu objetivo, tanques incluidos, asi que esta
+	-- era el mismo gesto para un subconjunto -- y un subconjunto se pide igual
+	-- desde la sala, que es donde vive lo que va a UNO. El verbo `tank attack`
+	-- sigue existiendo en playerbots y volver a poner la casilla es una linea.
+	--
+	-- Y EL CANDADO PEDIA CASILLA MAS QUE NINGUNA ORDEN, por lo mismo que las dos
+	-- ventanas se bajaron a la cuarta fila: el modo RTS esconde el chat, y una
+	-- funcion que solo se alcanza escribiendo esta a un gesto de no existir.
+	--
+	-- Y ES LA UNICA BOCA, a peticion del jugador: se penso ademas una tecla y
+	-- no la quiso. Asi que el candado no coge ninguna -- una tecla que no se
+	-- coge no se puede quedar mal devuelta.
+	{ short = "Candado", icon = I.lock, global = true,
+	  -- LA UNICA CASILLA CON ESTADO, y por eso `lit` no existia hasta hoy: las
+	  -- otras quince disparan y se olvidan, asi que el boton no tenia nada que
+	  -- ensenar. Un interruptor que no dice si esta puesto obliga a probarlo
+	  -- para saber en que estaba.
+	  lit = function() return ns.FreeCam and ns.FreeCam.lock end,
+	  tip = "La camara VIAJA CON TU HEROE, a la distancia que tenga ahora." ..
+	        "\nPara acompanar al grupo por el camino sin conducirla a mano." ..
+	        "\n\nEncuadra antes como quieras (raton, WASD, ESPACIO/C): el" ..
+	        "\ncandado no toca ni el angulo ni la altura, solo deja de soltar." ..
+	        "\n\nCon el puesto esas mismas teclas retocan el encuadre, y lo" ..
+	        "\nretocado se queda.",
+	  fn = function() ns.FreeCam:ToggleLock() end },
 
 	{ short = "Revivir", icon = I.revive, global = true,
 	  tip = "Los muertos van al sanador de espiritus.",
@@ -420,6 +460,24 @@ local function LayoutOrder(i, c)
 		-- registran los dos siempre y aqui se tira el derecho. Sin eso, click
 		-- derecho sobre "Atacar" atacaria.
 		b:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+
+		-- LA MARCA DE "PUESTO", y es la de Blizzard a proposito: el mismo brillo
+		-- que lleva un hechizo activo en la barra de acciones, asi que no hay que
+		-- aprender lo que significa.
+		--
+		-- Se crea SIEMPRE, aunque la casilla no tenga estado: los botones se
+		-- reutilizan entre distribuciones, y una textura que solo existe en
+		-- algunos es la misma trampa que `Paint` ya documenta para los colores.
+		--
+		-- Y `SetAllPoints` en vez de un tamano: la celda cambia de lado con la
+		-- resolucion (`Bar:Cells`), asi que cualquier medida escrita aqui estaria
+		-- mal en la mitad de las pantallas.
+		b.lit = b:CreateTexture(nil, "OVERLAY")
+		b.lit:SetTexture("Interface\\Buttons\\CheckButtonHilight")
+		b.lit:SetBlendMode("ADD")
+		b.lit:SetAllPoints()
+		b.lit:Hide()
+
 		b:SetScript("OnClick", function(self, button)
 			local act = self.act
 			if not act or not act.fn then return end
@@ -467,6 +525,12 @@ end
 -- rejilla en rojo y nadie sabe por que. Ese fallo ya estaba escrito aqui antes
 -- de que hubiera tres colores; con tres es mas facil de provocar.
 function Paint(b, spec)
+	-- SE APAGA LO PRIMERO Y PARA TODAS, por la misma razon que los colores van
+	-- con `else`: el boton de una casilla se reutiliza, asi que una marca que
+	-- solo se apaga en la rama que la enciende amanece un dia encendida sobre
+	-- una casilla que no tiene estado, y nadie sabe por que.
+	if b.lit then b.lit:Hide() end
+
 	if spec.exit then
 		b.icon:SetVertexColor(1, 0.6, 0.6)
 		b.label:SetTextColor(1, 0.5, 0.5)
@@ -476,11 +540,24 @@ function Paint(b, spec)
 	b.icon:SetVertexColor(1, 1, 1)
 	b.label:SetTextColor(1, 1, 1)
 
+	-- EL ESTADO SE PREGUNTA, NO SE GUARDA. `lit` es una funcion y no una
+	-- bandera porque el dueno del candado es `FreeCam`, no este fichero: una
+	-- copia aqui se quedaria vieja en cuanto el candado se apague por su cuenta
+	-- -- al salir del modo, sin pasar por este boton. Lo que se guarda es DONDE
+	-- preguntarlo.
+	local on = spec.lit and spec.lit()
+	if on then
+		if b.lit then b.lit:Show() end
+		b.label:SetTextColor(0.45, 1, 0.45)
+	end
+
 	-- Y EL TOOLTIP LO SIGUE DICIENDO, aunque ya no haya dos colores. "Todo el
 	-- grupo" escrito es lo que hace que no haya que acordarse de la regla, y lo
 	-- que separa esta rejilla de los cuatro botones de accion de la sala, que
 	-- dicen "-> Kirinah" en el suyo.
 	ns.W:Tip(b, spec.short, spec.tip ..
+		(spec.lit and (on and "\n\n|cff00ff00Puesto ahora mismo.|r"
+		               or "\n\n|cff999999Suelto.|r") or "") ..
 		(spec.global and "" or "\n|cff999999-> todo el grupo|r"))
 end
 
