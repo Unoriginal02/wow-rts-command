@@ -302,6 +302,19 @@ local function ConsoleTopIn(frame)
 	return top * bar:GetEffectiveScale() / es
 end
 
+-- Y el borde derecho, contado desde el borde derecho de la PANTALLA -- o sea,
+-- cero o negativo -- porque asi es como se escribe una `x` en un ancla
+-- `BOTTOMRIGHT` contra `UIParent`, que es la que trae el tooltip de fabrica.
+local function ConsoleRightIn(frame)
+	local bar = _G.RTSBar
+	if not bar or not bar:IsShown() then return nil end
+	local right, screen = bar:GetRight(), UIParent:GetRight()
+	if not right or not screen then return nil end
+	local es = frame:GetEffectiveScale()
+	if not es or es == 0 then return nil end
+	return (right * bar:GetEffectiveScale() - screen * UIParent:GetEffectiveScale()) / es
+end
+
 local function LiftDown()
 	if not lifted then return true end
 	local f = _G[LIFT_ANCHOR]
@@ -411,10 +424,18 @@ end
 -- entera en cada aparicion, asi que en cuanto esto deja de correr el tooltip
 -- vuelve solo a su esquina.
 --
--- La `x` se respeta TAL CUAL viene. Es `CONTAINER_OFFSET_X`, que el cliente ya
--- mueve segun cuantas barras verticales haya a la derecha: escribirla nosotros
--- seria volver a resolver -- peor -- algo que ya viene resuelto.
-local TIP_GAP = 10   -- pixeles entre el techo de la consola y el tooltip
+-- Y SE ALINEA CON EL BORDE DERECHO DE LA CONSOLA, no con el de la pantalla.
+-- Encima de la barra pero sobresaliendo por la derecha se lee como algo que se
+-- ha quedado torcido; cuadrado con el canto de la consola se lee como parte de
+-- la misma pieza. El numero sale de la barra, asi que sigue cuadrado cuando la
+-- consola cambia de ancho -- `grow`, la resolucion, `/rts bar share`.
+--
+-- NUNCA MAS A LA DERECHA DE DONDE VENIA. Con una consola casi tan ancha como la
+-- pantalla, su canto cae a la derecha de la `x` de fabrica, y esa `x` es
+-- `CONTAINER_OFFSET_X`: lo que el cliente ya aparta para no meterse debajo de
+-- las barras verticales. Alinear ahi seria taparlas, asi que se coge la que
+-- quede mas a la izquierda de las dos.
+local TIP_GAP = 20   -- pixeles entre el techo de la consola y el tooltip
 
 local function LiftWorldTip(tip)
 	if not C.active or not tip or not tip.GetNumPoints then return end
@@ -436,8 +457,11 @@ local function LiftWorldTip(tip)
 	-- tenga escondida. Subirlo igualmente seria bajarlo.
 	if (y or 0) >= want then return end
 
+	local wx = ConsoleRightIn(tip)
+	if wx then wx = math.min(wx, x or 0) else wx = x or 0 end
+
 	tip:ClearAllPoints()
-	tip:SetPoint(point, rel, relPoint, x or 0, want)
+	tip:SetPoint(point, rel, relPoint, wx, want)
 end
 
 -- Un unico sitio que decide, para cada frame, si deberia estar aparcado ahora
