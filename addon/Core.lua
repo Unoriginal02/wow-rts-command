@@ -10,31 +10,20 @@ function ns.Print(msg)
 	DEFAULT_CHAT_FRAME:AddMessage(PREFIX .. tostring(msg))
 end
 
--- ¿Este frame es NUESTRO? Se sube por los padres buscando un nombre que empiece
--- por "RTS", que es como se llaman las dos raices de la consola (`RTSBar` y
--- `RTSHUD`) y todo lo que cuelga con nombre propio.
+-- HUBO AQUI UN `ns.IsOurs(frame)` Y SE FUE CON EL FALLO QUE LO PARIO.
 --
--- EXISTE POR EL TOOLTIP, y el fallo que arregla merece quedar escrito: el modo
--- RTS esconde `GameTooltip` -- correctamente, porque el tooltip de unidad del
--- mundo es parte del cromo de Blizzard -- y lo hace negandole el `OnShow`. Pero
--- `GameTooltip` es UNO SOLO: el mismo objeto que dibuja "Lobo, nivel 8" sobre el
--- mundo es el que `W:Tip` usa para los botones de la consola. Asi que esconderlo
--- escondia TAMBIEN todos los tooltips de la barra de control, y desde la etapa
--- 5i hasta PRUEBAS-18 C4 no hubo ni uno solo -- pasaba por "no se escribieron",
--- no por "se estan escondiendo".
+-- Subia por los padres buscando un nombre que empezara por "RTS" para decidir
+-- si un tooltip era de la consola. Existia porque el modo RTS esconde
+-- `GameTooltip` -- correctamente, el tooltip de unidad del mundo es cromo de
+-- Blizzard -- y lo hacia negandole el `OnShow` a TODO: `GameTooltip` es UNO
+-- SOLO, el mismo objeto que dibuja "Lobo, nivel 8" es el que `W:Tip` usa para
+-- los botones de la consola, asi que desde la etapa 5i hasta PRUEBAS-18 C4 la
+-- barra de control no tuvo ni un tooltip.
 --
--- Un frame sin nombre no dice nada de si mismo, asi que se pregunta a sus
--- padres; el bucle esta acotado por si algun dia alguien se ancla en circulo.
-function ns.IsOurs(frame)
-	local hops = 0
-	while frame and hops < 12 do
-		local n = frame.GetName and frame:GetName()
-		if n and n:sub(1, 3) == "RTS" then return true end
-		frame = frame.GetParent and frame:GetParent()
-		hops = hops + 1
-	end
-	return false
-end
+-- La excepcion arreglaba la consola y dejaba fuera todo lo demas: el botin, el
+-- vendedor, la ficha, el registro de misiones. `Chrome.lua` ya no pregunta de
+-- quien es el tooltip sino DONDE esta el raton (`IsWorldTip`), y con eso esto
+-- no tiene a quien servir.
 
 local DEFAULTS = {
 	groups = {},

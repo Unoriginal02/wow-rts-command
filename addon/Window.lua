@@ -31,11 +31,16 @@
 
 	Cinco cosas, y las cinco salen de fallos que este proyecto ya ha pagado:
 
-	1. EL NOMBRE EMPIEZA POR "RTS". `ns.IsOurs` sube por los padres buscando ese
-	   prefijo, y es lo unico que deja pasar un tooltip con el cromo de Blizzard
-	   escondido (etapa 5o: `GameTooltip` es UN objeto y el modo RTS lo apaga).
-	   Una ventana llamada de otra forma sale entera sin tooltips, y el sintoma
-	   aparece lejos de la causa.
+	1. EL NOMBRE EMPIEZA POR "RTS". La ventana y sus tres hijos se crean CON
+	   nombre, o sea que son globales del cliente, y un nombre sin prefijo es
+	   una global suelta que puede pisar a la de otro addon -- o que otro addon
+	   nos pise a nosotros. El prefijo es lo que hace que eso no pase.
+
+	   Esto lo pedia ademas `ns.IsOurs`, que miraba el prefijo para dejar pasar
+	   los tooltips con el cromo de Blizzard escondido: una ventana llamada de
+	   otra forma salia entera SIN tooltips, tres ficheros mas alla de la causa.
+	   Ese motivo ya no existe -- `Chrome.lua` esconde solo el tooltip del
+	   mundo, mire quien mire -- pero el de las globales se queda.
 
 	2. SE ESCONDE AL SALIR DEL MODO. Se registra UNA vez en `Bar:Register` -- el
 	   gestor, no cada ventana -- para no repetir el enganche tres veces.
@@ -210,14 +215,14 @@ end
 --- Fabrica -----------------------------------------------------------------
 
 -- `name` TIENE que empezar por "RTS" -- ver el punto 1 de la cabecera. No se
--- corrige en silencio: se avisa y se corrige, porque un nombre mal puesto se
--- manifiesta como "esta ventana no tiene tooltips" tres ficheros mas alla.
+-- corrige en silencio: se avisa y se corrige, porque el frame y sus tres hijos
+-- se crean con nombre y sin prefijo son globales sueltas del cliente.
 function W:New(name, title, w, h)
 	if windows[name] then return windows[name] end
 
 	if type(name) ~= "string" or name:sub(1, 3) ~= "RTS" then
 		ns.Print("|cffff0000ventana:|r el nombre '" .. tostring(name) ..
-		         "' no empieza por RTS; sin eso no tendria tooltips. Corregido.")
+		         "' no empieza por RTS; sin eso son globales sueltas. Corregido.")
 		name = "RTS" .. tostring(name)
 	end
 

@@ -159,7 +159,7 @@ local SETS = {
 	{ k = "chat",    d = "ventanas de chat y sus botones" },
 	{ k = "quest",   d = "seguimiento de misiones" },
 	{ k = "misc",    d = "durabilidad, avisos, marcadores de zona" },
-	{ k = "tooltip", d = "tooltip de unidad" },
+	{ k = "tooltip", d = "tooltip de unidad (de fabrica SE QUEDA)" },
 }
 
 C.SETS = SETS
@@ -184,10 +184,20 @@ C.SETS = SETS
 -- dejarlo puesto era que no estorbaba, y estorba. El objetivo del objetivo y el
 -- foco son hijos suyos y se van con el.
 --
--- Lo unico que se queda de fabrica es `side`: las dos barras verticales de la
--- derecha, que son donde el jugador pone sus macros de mando (`/rts macros`).
+-- Se quedan de fabrica dos:
+--
+--   `side`, las dos barras verticales de la derecha, que son donde el jugador
+--   pone sus macros de mando (`/rts macros`).
+--
+--   `tooltip`, el rotulo de unidad de abajo a la derecha, DESDE 2026-09-13 y
+--   pedido por el jugador. Entro en la lista con el resto del cromo por ser
+--   cromo, y esa razon era floja: no ocupa sitio fijo, no duplica nada de la
+--   sala y es lo UNICO que dice quien es el bicho que tienes debajo del raton
+--   -- nivel, faccion, si es un vendedor. El modo RTS es un modo de mando y
+--   mandar sobre algo sin nombre no se puede.
+--
 -- Se siguen pudiendo cambiar todos con /rts ui <conjunto>.
-local SHOW_BY_DEFAULT = { side = true }
+local SHOW_BY_DEFAULT = { side = true, tooltip = true }
 
 -- Se sube cuando cambia lo que significa una clave guardada de `uiHide`.
 --
@@ -200,7 +210,13 @@ local SHOW_BY_DEFAULT = { side = true }
 -- (encendido o apagado) llevaria ese valor a un conjunto que ya no significa lo
 -- mismo. Es exactamente el caso que el sello existe para cubrir: comparar el
 -- rango no basta cuando lo que cambia es lo que la clave SIGNIFICA.
-local UIHIDE_GEN = 4
+--
+-- A 5 el 2026-09-13: `tooltip` pasa a quedarse. Aqui no cambia lo que la clave
+-- significa, cambia el valor de fabrica -- el mismo caso que `player` y `party`
+-- en la generacion 3 -- y sin subir el sello quien haya entrado alguna vez en
+-- modo RTS llevaria el `true` viejo guardado y seguiria sin tooltip para
+-- siempre, buscando el fallo en el codigo que ya esta arreglado.
+local UIHIDE_GEN = 5
 
 C.hide = {}
 for _, s in ipairs(SETS) do C.hide[s.k] = not SHOW_BY_DEFAULT[s.k] end
@@ -343,6 +359,87 @@ local function ApplyLift()
 	return LiftDown()
 end
 
+--- QUE TOOLTIP ES EL DE UNIDAD -------------------------------------------
+--
+-- El conjunto `tooltip` dice "tooltip de unidad", y eso es lo unico que tenia
+-- que esconder: el rotulo que sale sobre un bicho del mundo, que es cromo de
+-- Blizzard igual que el marco del objetivo.
+--
+-- LA REGLA ANTERIOR ERA LA CONTRARIA: se escondia TODO lo que no fuera nuestro.
+-- `GameTooltip` es un objeto UNICO, asi que esa regla no se llevaba solo el
+-- tooltip del mundo -- se llevaba el del botin, el del vendedor, el de la
+-- ficha, el de la bolsa de Blizzard y el del boton de compartir mision del
+-- registro. Ventanas que el modo RTS deja a la vista a proposito (`Chrome`
+-- esconde una lista escrita a mano y el botin no esta en ella) y que sin
+-- tooltip no sirven para nada: un cadaver con cuatro iconos y ni un nombre.
+--
+-- El sintoma llega siempre igual de lejos de la causa -- "no hay tooltip" se
+-- lee como "no se escribio" -- y ya paso una vez con la barra de control
+-- (PRUEBAS-18 C4, el motivo por el que nacio `ns.IsOurs`). Aquello arreglo
+-- media excepcion; esta es la otra mitad.
+--
+-- EL DUENO ES QUIEN LO SEPARA. Cualquier tooltip que salga porque el raton
+-- esta encima de un frame tiene por dueno ESE frame: el boton del botin, la
+-- casilla del vendedor, el micro-boton del rail. El del mundo no tiene frame
+-- debajo, asi que el cliente lo ancla por defecto y su dueno es `UIParent`
+-- -- es el mismo `GameTooltip_SetDefaultAnchor(GameTooltip, UIParent)` que
+-- cualquier addon de tooltips engancha para moverlo de sitio.
+--
+-- `WorldFrame` y el dueno vacio entran por si acaso: los dos significan lo
+-- mismo (nadie lo pidio desde un frame de interfaz) y ninguno es una ventana.
+local function IsWorldTip(tip)
+	local owner = tip:GetOwner()
+	return owner == nil or owner == UIParent or owner == WorldFrame
+end
+
+--- EL TOOLTIP DE UNIDAD, POR ENCIMA DE LA CONSOLA -------------------------
+--
+-- Sale abajo a la derecha -- `GameTooltip_SetDefaultAnchor` lo clava en la
+-- esquina -- y ahi es donde esta la consola: el rotulo caia ENCIMA de las
+-- ordenes, tapando media rejilla justo cuando estas mirando al bicho al que se
+-- las vas a dar. Se sube al mismo sitio al que se suben las dos barras
+-- verticales, con el mismo hueco, que es lo que hace que los tres se alineen
+-- sin que nadie lo calcule dos veces.
+--
+-- SE RECONOCE POR EL ANCLA, NO POR EL DUENO. Lo que hay que subir es todo lo
+-- que este aparcado en la esquina de abajo a la derecha, venga de donde venga:
+-- el del mundo y cualquier otro que use el ancla por defecto acaban igual de
+-- tapados. Y un tooltip que no este en esa esquina es que alguien lo puso a
+-- mano en otro sitio -- suyo es, no se toca.
+--
+-- NO HAY NADA QUE DEVOLVER al salir del modo: el ancla se vuelve a escribir
+-- entera en cada aparicion, asi que en cuanto esto deja de correr el tooltip
+-- vuelve solo a su esquina.
+--
+-- La `x` se respeta TAL CUAL viene. Es `CONTAINER_OFFSET_X`, que el cliente ya
+-- mueve segun cuantas barras verticales haya a la derecha: escribirla nosotros
+-- seria volver a resolver -- peor -- algo que ya viene resuelto.
+local TIP_GAP = 10   -- pixeles entre el techo de la consola y el tooltip
+
+local function LiftWorldTip(tip)
+	if not C.active or not tip or not tip.GetNumPoints then return end
+	if tip:GetNumPoints() ~= 1 then return end
+
+	-- `rel` vacio es `UIParent` igual: el tooltip cuelga de el, y un ancla sin
+	-- `relativeTo` se lee contra el padre. Lo que descarta de verdad es un ancla
+	-- a OTRO frame, que significa que alguien lo puso a mano.
+	local point, rel, relPoint, x, y = tip:GetPoint(1)
+	if relPoint ~= "BOTTOMRIGHT" then return end
+	if rel and rel ~= UIParent then return end
+	rel = rel or UIParent
+
+	local want = ConsoleTopIn(tip)
+	if not want then return end
+	want = want + TIP_GAP
+
+	-- Ya esta por encima: puede ser que la consola sea baja o que el jugador la
+	-- tenga escondida. Subirlo igualmente seria bajarlo.
+	if (y or 0) >= want then return end
+
+	tip:ClearAllPoints()
+	tip:SetPoint(point, rel, relPoint, x or 0, want)
+end
+
 -- Un unico sitio que decide, para cada frame, si deberia estar aparcado ahora
 -- mismo. Entrar, salir, encender un conjunto y el aviso de fin de combate son
 -- todos la misma operacion, que es lo que impide que se desincronicen.
@@ -359,7 +456,7 @@ function C:Apply()
 	if not ApplyLift() then blocked = true end
 
 	if self.active and self.hide.tooltip and GameTooltip:IsShown()
-	   and not ns.IsOurs(GameTooltip:GetOwner()) then
+	   and IsWorldTip(GameTooltip) then
 		GameTooltip:Hide()
 	end
 
@@ -555,8 +652,9 @@ function C:Create()
 	if RTSCommandDB.uiHideGen ~= UIHIDE_GEN then
 		if type(RTSCommandDB.uiHide) == "table" and next(RTSCommandDB.uiHide) then
 			ns.Print("|cff888888ui: los ajustes de que se esconde vuelven a fabrica " ..
-			         "(el objetivo pasa a esconderse y las dos barras verticales " ..
-			         "de la derecha se quedan; /rts ui <conjunto> lo cambia).|r")
+			         "(el tooltip de unidad y las dos barras verticales de la " ..
+			         "derecha se quedan, el objetivo se esconde; " ..
+			         "/rts ui <conjunto> lo cambia).|r")
 		end
 		RTSCommandDB.uiHide = {}
 		RTSCommandDB.uiHideGen = UIHIDE_GEN
@@ -571,20 +669,32 @@ function C:Create()
 	-- El tooltip vuelve solo en cada mouseover, asi que no se aparca: se le
 	-- niega el OnShow mientras el modo esta activo. Enganchado una sola vez y
 	-- para siempre; la condicion vive dentro.
-	-- SALVO CUANDO EL DUENO ES NUESTRO, y esa excepcion es la mitad que faltaba.
-	-- `GameTooltip` es un objeto UNICO: el mismo que dibuja el tooltip de unidad
-	-- del mundo es el que `W:Tip` usa para cada boton de la consola. Negarle el
-	-- OnShow a secas escondia los dos, asi que desde la etapa 5i la barra de
-	-- control no tuvo NI UN tooltip -- reportado en PRUEBAS-18 C4 como "no hay
-	-- tooltip", que se lee como "no se escribio" y no como "se esta escondiendo".
 	--
-	-- `GetOwner()` sirve porque `W:Tip` hace `SetOwner` ANTES de `Show`, asi que
-	-- para cuando corre este gancho el dueno ya esta puesto.
+	-- SOLO EL DEL MUNDO, que es lo que `IsWorldTip` decide y ahi esta contado
+	-- por que. Todo tooltip que tenga un frame debajo -- el nuestro, el del
+	-- botin, el del vendedor -- pasa.
+	--
+	-- `GetOwner()` sirve porque el `SetOwner` va SIEMPRE antes del `Show`, tanto
+	-- en `W:Tip` como en el codigo de Blizzard, asi que para cuando corre este
+	-- gancho el dueno ya esta puesto.
 	GameTooltip:HookScript("OnShow", function(tip)
-		if not (C.active and C.hide.tooltip) then return end
-		if ns.IsOurs(tip:GetOwner()) then return end
-		tip:Hide()
+		if C.active and C.hide.tooltip and IsWorldTip(tip) then
+			tip:Hide()
+			return
+		end
+		LiftWorldTip(tip)
 	end)
+
+	-- Y EL SITIO SE CORRIGE DONDE SE ESCRIBE, que es esta funcion: el cliente la
+	-- llama en cada raton encima, tambien cuando el tooltip YA ESTA puesto y
+	-- solo cambia de bicho -- y en ese caso no hay `OnShow` que valga, asi que
+	-- sin este gancho el rotulo se caeria a la esquina en cuanto pasas de un
+	-- mob al de al lado sin soltar.
+	if type(GameTooltip_SetDefaultAnchor) == "function" then
+		hooksecurefunc("GameTooltip_SetDefaultAnchor", function(tip)
+			if tip == GameTooltip then LiftWorldTip(tip) end
+		end)
+	end
 
 	-- Intro. Ver el bloque de Peek: sin esto se escribe a ciegas.
 	hooksecurefunc("ChatFrame_OpenChat", function()
