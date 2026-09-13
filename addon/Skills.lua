@@ -2,20 +2,21 @@
 	Skills.lua -- los hechizos de cada personaje, los huecos configurables y
 	lanzarlos.
 
-	=== SIGUE SIN DIBUJAR NADA, Y AHORA POR OTRA RAZON ======================
+	=== NO DIBUJA NADA ======================================================
 
-	Antes era porque la sala estaba vacia y poner botones aqui la habria
-	predecidido. Ahora la sala existe (`Hall.lua`) y quien dibuja es `Cast.lua`.
-	La separacion se queda porque es la buena: aqui viven los DATOS, las
-	ACCIONES y la PERSISTENCIA, y `Cast` solo pinta lo que le den. En el estado
-	B hay cinco columnas pidiendo lo mismo a la vez, y con la logica dentro del
-	panel serian cinco copias.
+	Quien dibuja es `Cast.lua`, sobre las areas que reparte `Dock.lua`. Aqui
+	viven los DATOS, las ACCIONES y la PERSISTENCIA. En el estado de varios
+	cogidos hay cinco columnas pidiendo lo mismo a la vez, y con la logica
+	dentro del panel serian cinco copias.
 
-	    ns.Skills:Available(name)   -> todo lo que ese personaje puede ofrecer
-	    ns.Skills:Slots(name)       -> los huecos configurados, 1..6, con agujeros
-	    ns.Skills:SetSlot(name,i,id)-> configurar uno (nil lo vacia)
-	    ns.Skills:Use(name, i)      -> lanzar el hueco i de ese personaje
-	    ns.Skills:Subscribe(fn)     -> aviso de que algo cambio
+	    ns.Skills:Available(name)        -> todo lo que ese personaje ofrece
+	    ns.Skills:Slots(name, n, set)    -> los huecos configurados, con agujeros
+	    ns.Skills:SetSlot(name,i,id,set) -> configurar uno (nil lo vacia)
+	    ns.Skills:Use(name, i, set)      -> lanzar el hueco i de ese personaje
+	    ns.Skills:Subscribe(fn)          -> aviso de que algo cambio
+
+	`set` son los DOS JUEGOS de huecos: "main" son los diez que salen con uno
+	cogido y "group" los cuatro del 2x2 de cuando llevas varios.
 
 	=== DE DONDE SALEN LOS HECHIZOS ========================================
 
@@ -99,6 +100,29 @@ ns.Skills = K
 -- Con varios personajes cogidos se ensenan cuatro (el 2x2), y son los mismos
 -- cuatro PRIMEROS de esta lista -- no otra configuracion.
 K.MAX_SLOTS = 20
+
+-- Y CUATRO EN GRUPO, QUE SON OTROS CUATRO. Desde el 2026-09-13 el 2x2 que sale
+-- con varios cogidos NO ensena los cuatro primeros de los diez: es un juego
+-- aparte, guardado aparte (`group`).
+--
+-- El argumento viejo era que dos listas son dos sitios donde configurar lo
+-- mismo. El nuevo es mas fuerte: con cuatro cogidos no quieres los cuatro
+-- primeros hechizos de cada uno, quieres LO QUE SE MANDA EN GRUPO -- el
+-- aturdimiento, la curacion de emergencia, el escudo -- que casi nunca son los
+-- que usas llevando a uno solo.
+K.GROUP_SLOTS = 4
+
+-- Los dos juegos, y como se llama cada uno donde se guarda. Escrito una vez:
+-- una cadena "spells"/"group" repartida por el fichero es la forma tipica de
+-- acabar guardando en un sitio y leyendo de otro.
+local SET = {
+	main  = { key = "spells", n = 20 },
+	group = { key = "group",  n = 4  },
+}
+
+local function SetInfo(set)
+	return SET[set or "main"] or SET.main
+end
 
 --- Estado ------------------------------------------------------------------
 
@@ -304,9 +328,10 @@ local function Store(name, create)
 	hall.who = hall.who or {}
 	local w = hall.who[name]
 	if not w and create then
-		w = { spells = {}, actions = {} }
+		w = { spells = {}, group = {}, actions = {} }
 		hall.who[name] = w
 	end
+	if w and create then w.group = w.group or {} end
 	return w
 end
 
@@ -315,10 +340,13 @@ end
 --
 -- SIN CONFIGURAR, LOS PRIMEROS DE SU BARRA. Ver la cabecera: un hueco vacio
 -- nada mas seleccionar a alguien se lee como que la barra no funciona.
--- `n` POR DEFECTO ES EL TOPE, NO LO QUE HAYA DIBUJADO, y esto fue un fallo de
--- verdad que duro un dia.
+-- `set` ELIGE EL JUEGO: "main" son los diez de cuando llevas a uno, "group" los
+-- cuatro del 2x2 de cuando llevas varios. Sin decir nada, los diez.
 --
--- Antes caia a `ns.Hall.shown`, o sea "cuantos huecos hay pintados en la fila
+-- `n` POR DEFECTO ES EL TOPE DE SU JUEGO, NO LO QUE HAYA DIBUJADO, y esto fue
+-- un fallo de verdad que duro un dia.
+--
+-- Antes caia a `Hall.shown` (fichero ya borrado), o sea "cuantos huecos hay pintados en la fila
 -- del estado A". Con dos o mas personajes cogidos la sala esta en el estado B y
 -- no hay fila: desde el 2026-09-05 `Recompute` deja `shown` en **0** -- y cero
 -- en Lua es CIERTO, asi que `n` valia 0, el bucle no daba una vuelta y
@@ -331,16 +359,17 @@ end
 --
 -- Resolver un hueco no tiene nada que ver con cuantos se dibujan: quien dibuja
 -- ya pasa su cuenta. El tope es el unico valor que no puede envejecer.
-function K:Slots(name, n)
+function K:Slots(name, n, set)
 	name = name or ns.Selection:GetPrimary()
-	n = n or K.MAX_SLOTS
+	local info = SetInfo(set)
+	n = n or info.n
 
 	local cat = self:Available(name)
 	local byId = {}
 	for _, s in ipairs(cat) do byId[s.spellId] = s end
 
 	local w = Store(name, false)
-	local cfg = w and w.spells
+	local cfg = w and w[info.key]
 
 	local out = {}
 	if cfg and next(cfg) then
@@ -370,30 +399,33 @@ function K:Describe(id, stale)
 	         type = "?", stale = stale or nil }
 end
 
-function K:SetSlot(name, i, spellId)
+function K:SetSlot(name, i, spellId, set)
 	if not name or not i then return end
 	local w = Store(name, true)
 	if not w then return end
+	local info = SetInfo(set)
+	local cfg = w[info.key]
 
 	-- La primera vez que se toca un hueco hay que CONGELAR lo que se estaba
 	-- ensenando, o cambiar el hueco 3 borraria el 1, el 2 y el 4 -- que eran
 	-- los primeros de la barra y no estaban guardados. Es el fallo clasico de
 	-- pasar de un valor derivado a uno guardado.
-	if not next(w.spells) then
-		local shown = self:Slots(name, self.MAX_SLOTS)
-		for k = 1, self.MAX_SLOTS do
-			if shown[k] then w.spells[k] = shown[k].spellId end
+	if not next(cfg) then
+		local shown = self:Slots(name, info.n, set)
+		for k = 1, info.n do
+			if shown[k] then cfg[k] = shown[k].spellId end
 		end
 	end
 
-	w.spells[i] = spellId and tonumber(spellId) or nil
+	cfg[i] = spellId and tonumber(spellId) or nil
 	Notify()
 end
 
-function K:ClearSlots(name)
+function K:ClearSlots(name, set)
 	local w = Store(name, false)
 	if not w then return end
-	w.spells = {}
+	local info = SetInfo(set)
+	w[info.key] = {}
 	Notify()
 	ns.Print(("huecos de |cff33ccff%s|r a los de fabrica."):format(name))
 end
@@ -411,13 +443,17 @@ function K:Load()
 			hall.who[name] = nil
 		else
 			w.spells = type(w.spells) == "table" and w.spells or {}
+			w.group = type(w.group) == "table" and w.group or {}
 			w.actions = type(w.actions) == "table" and w.actions or {}
-			for i, id in pairs(w.spells) do
-				local n = tonumber(i)
-				if not n or n < 1 or n > self.MAX_SLOTS or
-				   not tonumber(id) or not GetSpellInfo(tonumber(id)) then
-					w.spells[i] = nil
-					malos = malos + 1
+			for _, info in pairs(SET) do
+				local cfg = w[info.key]
+				for i, id in pairs(cfg) do
+					local n = tonumber(i)
+					if not n or n < 1 or n > info.n or
+					   not tonumber(id) or not GetSpellInfo(tonumber(id)) then
+						cfg[i] = nil
+						malos = malos + 1
+					end
 				end
 			end
 		end
@@ -490,9 +526,9 @@ end
 -- clasificacion no es infalible y el servidor rechaza lo imposible de todas
 -- formas.
 
-function K:Use(name, i)
+function K:Use(name, i, set)
 	name = name or ns.Selection:GetPrimary()
-	local s = self:Slots(name)[i]
+	local s = self:Slots(name, nil, set)[i]
 	if not s then
 		if self:Pending(name) then
 			ns.Print("|cff888888habilidades:|r pidiendo la barra de " .. name .. "...")
@@ -527,8 +563,11 @@ function K:Use(name, i)
 		return
 	end
 
-	aiming = { owner = name, slot = i, spellId = s.spellId, name = s.name,
-	           type = letter, at = GetTime() }
+	-- EL JUEGO VA EN LO ARMADO. El hueco 2 de los diez y el hueco 2 del 2x2 son
+	-- hechizos distintos, asi que sin esto el 2x2 se dibujaba armado cuando lo
+	-- armado era el otro.
+	aiming = { owner = name, slot = i, set = set or "main", spellId = s.spellId,
+	           name = s.name, type = letter, at = GetTime() }
 	ns.Print(("|cffffd100%s|r (%s): elige objetivo con el click izquierdo; " ..
 	          "el derecho cancela."):format(s.name,
 		(not info.ask) and (info.label .. ", forzado con shift") or info.label))
@@ -546,7 +585,7 @@ function K:CancelAim()
 	return true
 end
 
--- Llamada desde `RTSMode` (mundo) y desde `Party` (la lista) cuando hay una
+-- Llamada desde `RTSMode` (el mundo 3D) cuando hay una
 -- habilidad armada y pinchas algo. Un guid vacio la cancela: pinchar el suelo
 -- con algo armado significa "olvida".
 -- `hostile` es opcional: true, false, o nil cuando quien llama no lo sabe. Los
@@ -678,22 +717,23 @@ end
 
 function K:Report()
 	local name = ns.Selection:GetPrimary()
-	-- LA MISMA TRAMPA QUE EN `Slots`, y aqui dolia mas: con varios cogidos la
-	-- sala esta en el estado B, `shown` vale 0, y cero es CIERTO en Lua -- asi
-	-- que el diagnostico decia "0 huecos" y no listaba ninguno, justo en el caso
-	-- en el que se abre para averiguar por que un boton no hace nada.
-	local n = ns.Hall.shown or 0
-	if n <= 0 then n = K.MAX_SLOTS end
-	local slots = self:Slots(name, n)
-	ns.Print(("habilidades de |cff33ccff%s|r: %d huecos%s"):format(
-		name, n, self:Pending(name) and " (pidiendo...)" or ""))
-	for i = 1, n do
-		local s = slots[i]
-		if s then
-			ns.Print(("  %d. %s (%d) |cff888888%s%s|r"):format(
-				i, s.name, s.spellId, s.type or "?", s.stale and " -- ya no en su barra" or ""))
-		else
-			ns.Print(("  %d. |cff666666vacio|r"):format(i))
+	-- LOS DOS JUEGOS, Y DICIENDO CUAL ES CUAL. El diagnostico se abre justo
+	-- cuando un boton no hace lo que se esperaba, y "el hueco 2" significa dos
+	-- hechizos distintos segun cuantos lleves cogidos.
+	for _, which in ipairs({ { "main", ns.Dock.MAIN_N, "tuyos (uno cogido)" },
+	                         { "group", K.GROUP_SLOTS, "de grupo (dos o mas)" } }) do
+		local set, n, label = which[1], which[2], which[3]
+		local slots = self:Slots(name, n, set)
+		ns.Print(("habilidades de |cff33ccff%s|r, %s: %d huecos%s"):format(
+			name, label, n, self:Pending(name) and " (pidiendo...)" or ""))
+		for i = 1, n do
+			local s = slots[i]
+			if s then
+				ns.Print(("  %d. %s (%d) |cff888888%s%s|r"):format(
+					i, s.name, s.spellId, s.type or "?", s.stale and " -- ya no en su barra" or ""))
+			else
+				ns.Print(("  %d. |cff666666vacio|r"):format(i))
+			end
 		end
 	end
 

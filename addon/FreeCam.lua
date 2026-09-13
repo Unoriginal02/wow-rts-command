@@ -706,7 +706,9 @@ end
 -- Va en `SetLock` y no en la casilla porque el estado se cambia AQUI: quien
 -- repinta tiene que colgar de quien decide, no de quien pulsa.
 local function Repaint()
-	if ns.Panel and ns.Panel.Refresh then ns.Panel:Refresh() end
+	-- El candado se dibujaba en una casilla de la rejilla 4x4, que ya no existe;
+	-- desde el 2026-09-13 es un macro y no hay ningun boton que repintar.
+	if ns.Cast and ns.Cast.Refresh then ns.Cast:Refresh() end
 end
 
 -- Encender y apagar. Devuelve si el candado ha quedado como se pedia.

@@ -413,13 +413,10 @@ local function Initialise()
 		ns.Calib.samples = RTSCommandDB.calSamples
 	end
 
-	ns.Rails:Load()
-
-	-- LA SALA Y SUS HUECOS. Las dos acotan al LEER y no solo al escribir, que
-	-- es la cuarta vez que hace falta en este addon: un fichero de
-	-- SavedVariables no olvida ninguna clave y sobrevive a la version que la
-	-- escribio, y los `Set*` solo corren cuando el jugador teclea.
-	ns.Hall:Load()
+	-- LOS HUECOS DE HABILIDAD. Acota al LEER y no solo al escribir, que es la
+	-- cuarta vez que hace falta en este addon: un fichero de SavedVariables no
+	-- olvida ninguna clave y sobrevive a la version que la escribio, y los
+	-- `Set*` solo corren cuando el jugador teclea.
 	ns.Skills:Load()
 
 	-- LO QUE LA SALA VIEJA DEJO GUARDADO, TIRADO AL CARGAR, Y SIGUE HACIENDO
@@ -624,7 +621,9 @@ local function Initialise()
 	ns.Camera:Create()
 	ns.FreeCam:Create()
 	ns.Chrome:Create()
-	ns.HUD:Create()
+	-- La escala de pixel. No dibuja nada: es el contenedor del que cuelgan la
+	-- barra de abajo y las ventanas propias.
+	ns.Pixels:Create()
 	-- Skills se crea SIEMPRE, aunque nadie dibuje todavia sus huecos: registra
 	-- verbos en el canal y se suscribe a la seleccion, y las dos cosas tienen
 	-- que estar puestas antes del primer cambio de primario. Bags no esta aqui a
@@ -853,6 +852,10 @@ BINDING_NAME_RTSCOMMAND_SKILL3 = "Habilidad 3 (alt: sobre ti)"
 BINDING_NAME_RTSCOMMAND_SKILL4 = "Habilidad 4 (alt: sobre ti)"
 BINDING_NAME_RTSCOMMAND_SKILL5 = "Habilidad 5 (alt: sobre ti)"
 BINDING_NAME_RTSCOMMAND_SKILL6 = "Habilidad 6 (alt: sobre ti)"
+BINDING_NAME_RTSCOMMAND_SKILL7 = "Habilidad 7 (alt: sobre ti)"
+BINDING_NAME_RTSCOMMAND_SKILL8 = "Habilidad 8 (alt: sobre ti)"
+BINDING_NAME_RTSCOMMAND_SKILL9 = "Habilidad 9 (alt: sobre ti)"
+BINDING_NAME_RTSCOMMAND_SKILL10 = "Habilidad 10 (alt: sobre ti)"
 BINDING_HEADER_RTSCOMMAND_WINDOWS = "RTS Command - ventanas"
 BINDING_NAME_RTSCOMMAND_GROUP3 = "Control group 3 (alt: store)"
 BINDING_NAME_RTSCOMMAND_GROUP4 = "Control group 4 (alt: store)"
@@ -904,11 +907,15 @@ function RTSCommand_OrderAttackMove() ns.RTSMode:AttackMoveToCursor() end
 -- Nota: los diez `RTSCommand_CommandSlot` YA estaban colgando de esa forma
 -- desde que se borro `CommandMode.lua`. Se vio al quitar los otros dos.
 
--- Los paneles flotantes que esta tecla encendia y apagaba estan borrados. Lo
--- unico que queda que se pueda ensenar y esconder es la barra de la consola,
--- asi que la tecla es suya.
+-- Los paneles flotantes que esta tecla encendia y apagaba estan borrados, y la
+-- consola que la heredo tambien. Lo que queda que se pueda ensenar y esconder es
+-- la barra de abajo, asi que la tecla es suya.
 function RTSCommand_ToggleUI()
-	ns.Bar:Toggle()
+	if not ns.RTSMode:IsActive() then
+		ns.Print("|cff888888la barra solo esta puesta en modo RTS.|r")
+		return
+	end
+	if ns.Dock.active then ns.Dock:Leave() else ns.Dock:Enter() end
 end
 
 function RTSCommand_ToggleRTSMode()
@@ -947,9 +954,28 @@ end
 
 -- Las seis habilidades rapidas del primario. Sin Alt preguntan a quien; con Alt
 -- van sobre ti.
+-- LAS TECLAS VAN SOBRE LO QUE HAY DELANTE, que no es siempre lo mismo:
+--
+--   con uno cogido (o ninguno)  los DIEZ huecos del dueno de la barra
+--   con dos o mas               los CUATRO de grupo, a TODOS los cogidos
+--
+-- La segunda mitad es la que no es obvia y es la que hace util la tecla: con
+-- cuatro columnas en pantalla, "el hueco 2" pulsado a mano son cuatro clicks.
+-- Y por eso las teclas 5..10 no hacen nada con varios cogidos: no existe un
+-- quinto hueco de grupo, y mandar el quinto de OTRO juego seria lanzar un
+-- hechizo que el jugador no esta viendo.
 function RTSCommand_Skill(i)
-	-- Sin dueno explicito: el primario, que es de quien es la fila de la sala.
-	ns.Skills:Use(nil, i)
+	if ns.Dock:State() == "B" then
+		if i > ns.Dock.B_SLOTS then
+			ns.Print(("|cff888888con varios cogidos solo hay %d huecos.|r"):format(ns.Dock.B_SLOTS))
+			return
+		end
+		for _, m in ipairs(ns.Dock:Columns()) do
+			ns.Skills:Use(m.name, i, "group")
+		end
+		return
+	end
+	ns.Skills:Use(ns.Dock:Subject(), i, "main")
 end
 
 function RTSCommand_Calibrate()
@@ -963,7 +989,7 @@ end
 --- Slash commands ----------------------------------------------------------
 
 local HELP = {
-	"|cffffff00/rts mode|r - entrar y salir del modo RTS (camara, raton, consola)",
+	"|cffffff00/rts mode|r - entrar y salir del modo RTS (camara, raton, barra de abajo)",
 	"|cffffff00/rts all|r - select every bot",
 	"|cffffff00/rts clear|r - clear selection",
 	"|cffffff00/rts list|r - list the roster",
@@ -992,31 +1018,32 @@ local HELP = {
 	"|cffffff00/rts cam colision|r - la camara atraviesa geometria (cuevas); |cffffff00geo|r inventaria el resto",
 	"|cffffff00/rts cam speed <n>|r - how fast it flies",
 	"|cffffff00/rts cam shadow <0-5>|r - sombra bajo los personajes (-1 no tocarla)",
-	"|cffffff00/rts rails|r - los botones pequenos del cliente en los railes; |cffffff00scale <k>|r su tamano, |cffffff00crop|r la ventana del glifo",
 	"|cffffff00/rts channel|r - what the DLL is being told about your selection",
 	"|cffffff00/rts state|r - the tint colour each selected unit is being given",
 	"|cffffff00/rts cal|r - measure the projection (fixes rings that sit short)",
 	"|cffffff00/rts aim|r - por que el punto de suelo cae donde cae (cursor vs rayo del DLL)",
-	"|cffffff00/rts panel|r - los botones del cliente de la cuarta fila (mapa, talentos, bolsas)",
 	"|cffffff00/rts version|r - versions of all three pieces (addon, server, DLL)",
 	"|cffffff00/rts pick|r / |cffffff00pick on|r - what is under the cursor, once or continuously",
 	"|cffffff00/rts debug|r - echo every message to and from the server module",
 	"|cffffff00/rts native|r - rts_core.dll status + offset self-test",
-	"|cffffff00/rts ui|r - que se esconde al entrar en modo RTS, y las medidas de la HUD",
-	"|cffffff00/rts macros|r - crea los macros de mando a los bots (arrastralos a las barras de la derecha)",
+	"|cffffff00/rts ui|r - que se esconde al entrar en modo RTS (de fabrica, solo las barras de accion)",
+	"|cffffff00/rts macros|r - crea los macros de mando (arrastralos a las ocho casillas de la bandeja)",
 	"|cffffff00/rtscmd <cmd>|r - manda un comando de playerbots a los SELECCIONADOS; |cffffff00/rtsall|r al grupo",
-	"|cffffff00/rts art|r - visor de texturas del cliente (para vestir la HUD sin dibujar)",
+	"|cffffff00/rts art|r - visor de texturas del cliente (para vestir la barra sin dibujar)",
 	"|cffffff00/rts bags|r - las bolsas de todo el grupo (tambien con su tecla)",
 	"|cffffff00/rts quests|r - abre el registro; su boton Compartir FUERZA la mision al grupo",
 	"|cffffff00/rts quests force|r - al entregar tu, el grupo completa y cobra tambien",
 	"|cffffff00/rts quests ai|r - devuelve (o quita) la entrega automatica de playerbots",
-	"|cffffff00/rts skills|r - las habilidades del primario (lo pone seleccionar a UNO)",
+	"|cffffff00/rts skills|r - los huecos de habilidad: los diez tuyos y los cuatro de grupo",
 	"|cffffff00/rts chain|r - la cadena de ataque; |cffffff00/rts chain off|r la limpia",
 	"|cffffff00/rts npc|r - entrenador y vendedor, actuando como el primario",
 	"|cffffff00/rts swap <nombre>|r - CAMBIAS a ese personaje de tu cuenta (con carga)",
 	"|cffffff00/rts win|r - las ventanas flotantes; |cffffff00/rts win reset|r las recentra",
 	"|cffffff00/rts skin|r - aspecto WC3 o plano; |cffffff00/rts skin wall <ruta>|r cambia una pieza",
-	"|cffffff00/rts bar|r - la barra de abajo: |cffffff00share|r alto, |cffffff00side|r margen, |cffffff00grow|r paneles, |cffffff00guides|r medidas",
+	"|cffffff00/rts dock|r - la barra de abajo: estado, tamano del hueco, columnas",
+	"|cffffff00/rts tray|r - las ocho casillas de macro; |cffffff00vaciar|r las limpia",
+	"|cffffff00/rts marcos|r - los marcos del juego que seleccionan al pincharlos",
+	"|cffffff00/rts focus|r - el seleccionado cuida de quien pinches; |cffffff00unfocus|r lo suelta",
 	"Bind keys under Key Bindings -> RTS Command.",
 }
 
@@ -1224,40 +1251,17 @@ SlashCmdList["RTSCOMMAND"] = function(msg)
 		end
 
 	elseif cmd == "ui" then
-		-- El interruptor de la opcion B del estudio: ocultado selectivo, mas
-		-- las medidas del prototipo de HUD. Todo por el mismo comando porque
-		-- son la misma pregunta -- que se ve en pantalla en modo RTS.
-		local sub, arg = rest:match("^(%S*)%s*(%S*)$")
-		sub = (sub or ""):lower()
+		-- El interruptor de la opcion B del estudio: ocultado selectivo. Desde
+		-- el rediseno del 2026-09-13 ya no lleva medidas: la HUD que las tenia
+		-- se ha borrado y lo que dibuja el addon abajo se mide solo (el hueco
+		-- vale lo que un boton de accion del juego).
+		local sub = (rest or ""):lower():match("^(%S*)") or ""
 
 		if sub == "" or sub == "status" or sub == "?" then
 			ns.Chrome:Status()
-			ns.HUD:Report()
-
-		elseif sub == "hud" then
-			ns.HUD:Toggle()
 
 		elseif sub == "what" or sub == "que" then
 			ns.Chrome:What()
-
-		elseif sub == "chatline" or sub == "chatlinea" then
-			ns.HUD:MirrorChat()
-
-		elseif sub == "fit" then
-			-- El alto que hace que los botones midan lo mismo que los de la
-			-- barra de acciones del juego.
-			ns.HUD:Fit()
-
-		elseif sub == "default" or sub == "defaults" then
-			ns.HUD:Reset()
-			ns.Print("medidas de la HUD devueltas a las de fabrica.")
-
-		elseif ns.HUD.cfg[sub] ~= nil then
-			if ns.HUD:Set(sub, arg) then
-				ns.HUD:Report()
-			else
-				ns.Print(("|cffffff00/rts ui %s <px>|r - ahora %d"):format(sub, ns.HUD.cfg[sub]))
-			end
 
 		elseif ns.Chrome.hide[sub] ~= nil then
 			ns.Chrome:SetHidden(sub)
@@ -1266,20 +1270,42 @@ SlashCmdList["RTSCOMMAND"] = function(msg)
 				or "|cff40ff40se deja como esta|r"))
 
 		else
-			ns.Print("|cffffff00/rts ui|r - estado y medidas")
+			ns.Print("|cffffff00/rts ui|r - que se esconde en modo RTS")
 			local names = {}
 			for _, sset in ipairs(ns.Chrome.SETS) do names[#names + 1] = sset.k end
 			ns.Print("|cffffff00/rts ui <conjunto>|r - " .. table.concat(names, ", "))
-			ns.Print("|cffffff00/rts ui hud|r - encender o apagar el prototipo de HUD")
 			ns.Print("|cffffff00/rts ui what|r - nombrar lo que sigue visible en pantalla")
-			ns.Print("|cffffff00/rts ui fit|r - botones del tamano de la barra de acciones")
-			ns.Print("|cffffff00/rts ui chatline|r - copiar el chat a la linea de mensajes")
-			ns.Print("|cffffff00/rts ui height / mini / pad / gap / right <px>|r - medidas")
-			ns.Print("|cffffff00/rts ui default|r - devolver las medidas")
+			ns.Print("De fabrica solo se esconden |cffffff00bars|r y |cffffff00side|r, " ..
+				"que son las que sustituye la barra de abajo.")
 		end
 
-	elseif cmd == "panel" then
-		ns.Panel:Status()
+	elseif cmd == "dock" or cmd == "barra" then
+		ns.Dock:Report()
+
+	elseif cmd == "tray" or cmd == "bandeja" then
+		local sub = (rest or ""):lower():match("^(%S*)") or ""
+		if sub == "clear" or sub == "vaciar" then
+			ns.Tray:Clear()
+		else
+			ns.Tray:Report()
+		end
+
+	elseif cmd == "pixels" or cmd == "pixeles" then
+		ns.Pixels:Report()
+
+	elseif cmd == "marcos" or cmd == "portraits" then
+		ns.Portraits:Report()
+
+	-- CUIDAR, EN DOS TIEMPOS. Esta aqui y no en un boton porque el boton se
+	-- fue con la rejilla: ahora es un macro (`/rts macros` crea "Cuidar"), y un
+	-- macro no puede preguntar sobre quien. Asi que el comando ARMA el gesto y
+	-- el segundo click, en el mundo, elige.
+	elseif cmd == "focus" or cmd == "cuidar" then
+		ns.Cast:StartFocus()
+
+	elseif cmd == "unfocus" or cmd == "suelta" then
+		local who = ns.Dock:Subject()
+		if who then ns.Cast:ClearFocus(who) end
 
 	elseif cmd == "fc" or cmd == "freecam" then
 		-- Se corta la primera palabra y el RESTO se deja entero en vez de exigir
@@ -1298,89 +1324,13 @@ SlashCmdList["RTSCOMMAND"] = function(msg)
 		-- parece roto justo cuando hace falta.
 		elseif sub == "home" or sub == "casa" then
 			ns.FreeCam:Home()
+		-- EL CANDADO, que hasta el 2026-09-13 solo tenia boton (la casilla nueve
+		-- de la rejilla). La rejilla se borro y su sitio es un macro, asi que
+		-- necesita un comando por el que hablar.
+		elseif sub == "lock" or sub == "candado" then
+			ns.FreeCam:ToggleLock()
 		else
 			ns.FreeCam:Set(sub, arg)
-		end
-
-	elseif cmd == "rails" or cmd == "railes" then
-		-- Los botones pequenos DE BLIZZARD alojados en las dos barras
-		-- verticales. Esto dice cual encontro, cual no y a que tamano de
-		-- pantalla sale cada uno: un nombre de frame que no existe no da error,
-		-- deja la casilla vacia.
-		-- `(.-)$` y no `(%S*)$`: `crop 0.10 0.58` son DOS palabras de argumento y
-		-- con el patron de una sola el match falla entero y no entra por ningun
-		-- lado -- ni por el bueno ni por la ayuda.
-		local sub, arg = rest:match("^(%S*)%s*(.-)$")
-		sub = (sub or ""):lower()
-		if sub == "scale" or sub == "escala" or sub == "size" then
-			ns.Rails:SetScale(arg)
-		elseif sub == "crop" or sub == "recorte" or sub == "glifo" then
-			ns.Rails:SetCrop(arg)
-		else
-			ns.Rails:Status()
-		end
-
-	elseif cmd == "bar" or cmd == "barra" then
-		-- El arte de verdad de la barra inferior: siete TGA a tamano nativo,
-		-- con la pieza central repetible.
-		-- Separado de /rts ui porque aquel mide huecos y este ensena el dibujo;
-		-- encender uno aparta la huella del otro.
-		local sub, arg = rest:match("^(%S*)%s*(%S*)$")
-		sub = (sub or ""):lower()
-		if sub == "" then
-			ns.Bar:Toggle()
-		elseif sub == "status" or sub == "?" then
-			ns.Bar:Report()
-		elseif sub == "guides" or sub == "guias" then
-			ns.Bar:ToggleGuides()
-		elseif sub == "scale" or sub == "escala" or sub == "size" then
-			-- Acepta multiplicador (0.55) o alto en pixeles (288). Apaga el
-			-- derivado del alto; `/rts bar share 20` lo devuelve.
-			if not ns.Bar:SetScale(arg) then
-				ns.Print("|cffffff00/rts bar scale <n>|r multiplicador, o " ..
-					"|cffffff00<px>|r alto en pixeles. Prueba 0.56, 0.5, 288")
-				ns.Bar:Report()
-			end
-		elseif sub == "share" or sub == "alto" then
-			-- El alto, que es la escala. `grow` se elige DESPUES con esa
-			-- escala, asi que cambiar el alto puede cambiar los paneles.
-			if not ns.Bar:SetShare(arg) then
-				ns.Print("|cffffff00/rts bar share <%>|r - alto en % de la " ..
-					"pantalla. WC3 ~25, SC2 ~22. Prueba 20, 22, 25")
-				ns.Bar:Report()
-			end
-		elseif sub == "grow" or sub == "crecer" or sub == "paneles" then
-			-- Cuantas copias de la pieza central. Es la unica que empalma sin
-			-- costura, asi que es por donde la barra se hace mas ancha. Por
-			-- defecto la cuenta la elige `side`; esto la fija a mano.
-			if not ns.Bar:SetGrow(arg) then
-				ns.Print("|cffffff00/rts bar grow <n>|r - copias del panel " ..
-					"central, de 1 a 8, o |cffffff00auto|r para que la elija " ..
-					"el margen. Cada copia son 512 px mas de arte.")
-				ns.Bar:Report()
-			end
-		elseif sub == "side" or sub == "lados" then
-			-- No recorta: elige cuantos paneles centrales se dibujan para
-			-- acercarse a ese margen. `pad` es solo el suelo.
-			if not ns.Bar:SetSide(arg) then
-				ns.Print("|cffffff00/rts bar side <%>|r - margen que se quiere " ..
-					"a cada lado. Decide los paneles del centro, no recorta. " ..
-					"Prueba 10, 8, 6")
-				ns.Bar:Report()
-			end
-		elseif sub == "wide" or sub == "ancho" or sub == "fill" then
-			-- Todo lo ancho que quepa: es pedir el margen minimo, no un modo.
-			ns.Bar:FitWidth()
-		elseif sub == "default" or sub == "defaults" then
-			ns.Bar:Reset()
-		elseif sub == "pad" then
-			if ns.Bar:SetPad(arg) then
-				ns.Bar:Report()
-			else
-				ns.Print(("|cffffff00/rts bar pad <px>|r - ahora %d"):format(ns.Bar.cfg.pad))
-			end
-		else
-			ns.Bar:Report()
 		end
 
 	elseif cmd == "bars" or cmd == "barras" then
@@ -1530,17 +1480,6 @@ SlashCmdList["RTSCOMMAND"] = function(msg)
 			ns.Skills:Report()
 		end
 
-	elseif cmd == "hall" or cmd == "sala" then
-		local sub, arg = (rest or ""):match("^(%S*)%s*(.*)$")
-		sub = (sub or ""):lower()
-		if sub == "slots" or sub == "huecos" then
-			ns.Hall:SetSlots(arg)
-		elseif sub == "acciones" or sub == "actions" then
-			ns.Cast:Report()
-		else
-			ns.Hall:Report()
-		end
-
 	elseif cmd == "quests" or cmd == "misiones" then
 		local sub = (rest or ""):lower():match("^(%S*)") or ""
 		if sub == "ai" or sub == "ia" then
@@ -1587,7 +1526,7 @@ SlashCmdList["RTSCOMMAND"] = function(msg)
 		end
 
 	elseif cmd == "skin" or cmd == "piel" then
-		-- El aspecto de la HUD. Pensado para usarse con /rts art al lado:
+		-- El aspecto de las ventanas. Pensado para usarse con /rts art al lado:
 		-- se mira una textura, se copia su ruta con un click, se pega aqui.
 		local sub, arg = rest:match("^(%S*)%s*(.-)$")
 		sub = (sub or ""):lower()
@@ -1608,7 +1547,7 @@ SlashCmdList["RTSCOMMAND"] = function(msg)
 
 	elseif cmd == "art" then
 		-- Que texturas del cliente existen de verdad, mirandolas. Es el paso
-		-- previo a vestir la HUD: una ruta que no carga no da error, dibuja
+		-- previo a vestir una ventana: una ruta que no carga no da error, dibuja
 		-- nada, y construir encima de eso se descubre tarde.
 		local sub = (rest or ""):lower()
 		if sub == "" then

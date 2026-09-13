@@ -4,7 +4,7 @@
 	POR QUE EXISTE. Un addon puede usar CUALQUIER textura que venga en el
 	cliente con solo escribir su ruta `Interface\...`: son miles, no ocupan un
 	byte en el addon y se saltan la regla de potencias de dos porque ya estan
-	en formato del juego. Es lo que hace posible vestir la HUD al estilo WC3
+	en formato del juego. Es lo que hace posible vestir la interfaz al estilo WC3
 	sin dibujar arte -- WC3 y WoW comparten lenguaje visual (piedra gris, oro
 	repujado, ranuras negras con marco dorado), asi que las piezas existen.
 
@@ -23,7 +23,7 @@
 	el ojo. Contestar eso cuesta un comando y cambia como se hace todo lo
 	demas, asi que va primero.
 
-	Se dibuja a ESCALA DE PIXEL, la misma que la HUD, porque juzgar arte a otra
+	Se dibuja a ESCALA DE PIXEL, la de `Pixels.lua`, porque juzgar arte a otra
 	escala es juzgar otra cosa.
 ]]
 
@@ -229,9 +229,9 @@ local function Build()
 	panel:SetScript("OnDragStop", panel.StopMovingOrSizing)
 	panel:Hide()
 
-	-- La misma escala de pixel que la HUD: juzgar arte a otra escala es juzgar
+	-- La misma escala de pixel que el resto: juzgar arte a otra escala es juzgar
 	-- otra cosa.
-	ns.HUD:ScaleFrame(panel)
+	ns.Pixels:ScaleFrame(panel)
 
 	local font = GameFontNormal:GetFont()
 
@@ -320,7 +320,7 @@ function A:Toggle()
 	if panel:IsShown() then
 		panel:Hide()
 	else
-		ns.HUD:ScaleFrame(panel)
+		ns.Pixels:ScaleFrame(panel)
 		Paint()
 		panel:Show()
 	end

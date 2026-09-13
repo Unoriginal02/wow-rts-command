@@ -27,11 +27,12 @@
 	  mouseover, asi que se engancha su OnShow. Por eso es el unico caso
 	  especial de la tabla.
 
-	El chat entra en la lista porque estaba rodeado en el boceto, y eso deja al
-	addon sin su canal de diagnostico -- que es justo lo que el estudio marcaba
-	como "no opcional". La respuesta es la linea de mensajes de HUD.lua, que
-	replica ns.Print sobre el mundo. Si algo va mal y hace falta el chat de
-	verdad: /rts ui chat.
+	EL CHAT YA NO SE ESCONDE DE FABRICA (2026-09-13). Estuvo en la lista desde el
+	principio porque salia rodeado en el boceto, y eso dejaba al addon sin su
+	canal de diagnostico -- lo que obligo a escribir una linea de mensajes propia
+	en la HUD que replicaba `ns.Print` sobre el mundo. Con el rediseno la HUD se
+	fue entera, asi que el chat se queda: es el canal de diagnostico y ahora es
+	el unico. Quien lo quiera fuera: /rts ui chat.
 ]]
 
 local ADDON, ns = ...
@@ -87,9 +88,9 @@ local ITEMS = {
 	{ n = "TemporaryEnchantFrame",  s = "buffs"             },
 
 	-- Arriba derecha: el minimapa entero (reloj, tracking, correo, zoom).
-	-- HUD.lua saca el Minimap de aqui ANTES de que esto se esconda, asi que
-	-- esconder el cluster no se lleva el mapa: se lleva su marco y sus botones,
-	-- que es lo que se queria.
+	-- DE FABRICA SE QUEDA desde 2026-09-13: el minimapa propio se fue con la
+	-- consola y este vuelve a ser el unico que hay. Nadie le saca el `Minimap`
+	-- de dentro, asi que esconder el cluster ya no se lleva nada a medias.
 	{ n = "MinimapCluster",         s = "minimap"           },
 	{ n = "BattlefieldMinimap",     s = "minimap"           },
 
@@ -153,9 +154,9 @@ local SETS = {
 	{ k = "party",   d = "marcos de los companeros" },
 	{ k = "cast",    d = "barra de casteo y temporizadores" },
 	{ k = "buffs",   d = "buffs y debuffs" },
-	{ k = "minimap", d = "minimapa de Blizzard (el nuestro lo sustituye)" },
-	{ k = "bars",    d = "barras de accion, bolsas, XP, menu de iconos" },
-	{ k = "side",    d = "las dos verticales de la derecha (de fabrica SE QUEDAN)" },
+	{ k = "minimap", d = "minimapa de Blizzard (de fabrica SE QUEDA)" },
+	{ k = "bars",    d = "barras de accion, bolsas, XP (las sustituye el dock)" },
+	{ k = "side",    d = "las dos verticales de la derecha" },
 	{ k = "chat",    d = "ventanas de chat y sus botones" },
 	{ k = "quest",   d = "seguimiento de misiones" },
 	{ k = "misc",    d = "durabilidad, avisos, marcadores de zona" },
@@ -164,40 +165,32 @@ local SETS = {
 
 C.SETS = SETS
 
--- ESCONDIDOS POR DEFECTO, INCLUIDOS TU MARCO Y LOS DEL GRUPO desde 2026-09-06.
+-- LO UNICO QUE SE ESCONDE SON LAS BARRAS DE ACCION, desde 2026-09-13.
 --
--- Estuvieron a la vista desde el 2026-09-02 por un motivo que ya no existe: la
--- sala del centro se habia vaciado para redisenarla, y con ella se fue lo unico
--- que decia tu vida, tu poder y la del grupo -- esconder ademas los marcos de
--- Blizzard habria dejado el modo RTS sin NINGUN estado en pantalla. El
--- comentario de entonces lo decia entero: *"donde acaben viviendo es una
--- decision del rediseno de la sala, no de este fichero"*.
+-- Es la vuelta atras mas grande de este fichero, y la pide el rediseno de la
+-- interfaz. Hasta hoy el modo RTS escondia casi todo el cromo de Blizzard --
+-- tu marco, el objetivo, el grupo, el minimapa, el chat -- porque la consola
+-- de una pieza los DUPLICABA: dibujaba su propio retrato del heroe, su propia
+-- columna de cinco, su propio minimapa. Dos dibujos de lo mismo, uno encima del
+-- otro.
 --
--- La sala se lleno el 2026-09-04: el retrato del heroe con su vida y su poder, y
--- la columna de cinco con la de cada companero. La razon de la excepcion se
--- cumplio, asi que la excepcion se va -- y ahora eran DOS dibujos de lo mismo,
--- uno encima del otro.
+-- Esa consola se ha borrado. Los marcos de jugador, objetivo y grupo vuelven a
+-- ser los del juego; el minimapa vuelve a su esquina; el chat se queda, y con
+-- el se va la linea de mensajes de la HUD, que existia solo porque el chat no
+-- estaba.
 --
--- EL OBJETIVO TAMBIEN SE ESCONDE desde 2026-09-11, pedido por el jugador.
--- Estaba a la vista porque la sala ensena el objetivo del BOT seleccionado, que
--- no es el tuyo, asi que no habia duplicado que quitar -- pero la razon para
--- dejarlo puesto era que no estorbaba, y estorba. El objetivo del objetivo y el
--- foco son hijos suyos y se van con el.
+-- Lo unico que el addon sigue sustituyendo son las BARRAS DE ACCION, que es
+-- exactamente lo que el `Dock` dibuja abajo. Asi que solo se esconden esas:
+-- `bars` (la principal con su arte, sus bolsas, su XP) y `side` (las dos
+-- verticales de la derecha, que antes se quedaban por ser el sitio donde el
+-- jugador ponia sus macros -- ahora ese sitio es la bandeja).
 --
--- Se quedan de fabrica dos:
---
---   `side`, las dos barras verticales de la derecha, que son donde el jugador
---   pone sus macros de mando (`/rts macros`).
---
---   `tooltip`, el rotulo de unidad de abajo a la derecha, DESDE 2026-09-13 y
---   pedido por el jugador. Entro en la lista con el resto del cromo por ser
---   cromo, y esa razon era floja: no ocupa sitio fijo, no duplica nada de la
---   sala y es lo UNICO que dice quien es el bicho que tienes debajo del raton
---   -- nivel, faccion, si es un vendedor. El modo RTS es un modo de mando y
---   mandar sobre algo sin nombre no se puede.
+-- LOS BOTONES DEL MENU PEQUENO NO SE VAN CON `bars` aunque sean hijos de
+-- `MainMenuBarArtFrame`: `Tray.lua` los reparenta a su fila ANTES de que esto
+-- corra, asi que para cuando se esconde la barra ya no cuelgan de ella.
 --
 -- Se siguen pudiendo cambiar todos con /rts ui <conjunto>.
-local SHOW_BY_DEFAULT = { side = true, tooltip = true }
+local HIDE_BY_DEFAULT = { bars = true, side = true }
 
 -- Se sube cuando cambia lo que significa una clave guardada de `uiHide`.
 --
@@ -216,10 +209,16 @@ local SHOW_BY_DEFAULT = { side = true, tooltip = true }
 -- en la generacion 3 -- y sin subir el sello quien haya entrado alguna vez en
 -- modo RTS llevaria el `true` viejo guardado y seguiria sin tooltip para
 -- siempre, buscando el fallo en el codigo que ya esta arreglado.
-local UIHIDE_GEN = 5
+--
+-- A 6 el 2026-09-13: cambian de valor de fabrica NUEVE de los doce conjuntos.
+-- Todo lo que no sean barras de accion pasa a quedarse, y una preferencia
+-- guardada bajo los defectos viejos dejaria al jugador con el marco, el grupo y
+-- el minimapa escondidos para siempre -- o sea, con la interfaz nueva a medias
+-- y sin nada que lo explicara.
+local UIHIDE_GEN = 6
 
 C.hide = {}
-for _, s in ipairs(SETS) do C.hide[s.k] = not SHOW_BY_DEFAULT[s.k] end
+for _, s in ipairs(SETS) do C.hide[s.k] = HIDE_BY_DEFAULT[s.k] and true or false end
 
 --- Aparcar y devolver ------------------------------------------------------
 
@@ -266,13 +265,14 @@ end
 
 --- LEVANTAR LAS DOS VERTICALES SOBRE LA CONSOLA ---------------------------
 --
--- Dejarlas visibles no basta: `MultiBarRight` esta anclada a 98 pixeles del
--- borde de abajo (`MultiActionBars.xml` del cliente) y la consola ocupa el 20%
--- del alto de pantalla, o sea unos 216 en 1080p. Los tres botones de abajo de
--- cada columna quedan DETRAS de la barra -- visibles a medias y sin poder
--- pulsarlos, que es la version cara de "esta puesto pero no funciona".
+-- De fabrica ya no se quedan (son barras de accion y las sustituye el dock),
+-- pero el jugador puede volver a encenderlas con `/rts ui side`, y entonces
+-- estorban igual que antes: `MultiBarRight` esta anclada a 98 pixeles del borde
+-- de abajo (`MultiActionBars.xml` del cliente) y la bandeja de macros ocupa esa
+-- misma esquina. Los botones de abajo quedarian DETRAS -- visibles a medias y
+-- sin poder pulsarlos, que es la version cara de "esta puesto pero no funciona".
 --
--- Asi que se sube el ancla justo por encima de la consola mientras dure el modo
+-- Asi que se sube el ancla justo por encima de la bandeja mientras dure el modo
 -- RTS, y se devuelve al salir. Capturar y devolver, como todo lo demas de este
 -- fichero: se guarda el punto EXACTO que tenia antes del primer cambio.
 --
@@ -289,30 +289,22 @@ local LIFT_GAP = 10        -- pixeles entre el techo de la consola y la barra
 local lifted = nil         -- { point, rel, relPoint, x, y } de ANTES de tocarla
 local liftedTo = nil       -- el y que se aplico, para no reescribirlo cada tick
 
--- El techo de la consola, en las coordenadas de `frame`. Sin esto sale mal en
--- cuanto la barra tiene escala propia, que la tiene: `HUD:ScaleFrame` se la
--- pone y `ArtScale` la multiplica.
+-- El techo de LO NUESTRO EN ESA ESQUINA, en las coordenadas de `frame`. Es el
+-- bloque de macros de la bandeja (`RTSDockRight`), que es lo que ocupa la
+-- esquina de abajo a la derecha desde el rediseno del 2026-09-13 -- antes era la
+-- consola entera (`RTSBar`), y de ahi vienen los nombres.
+--
+-- El cambio de escala no es opcional: el dock cuelga del contenedor de pixel y
+-- el frame que se coloca no, asi que sin pasar por la escala efectiva de los
+-- dos el numero sale de otra pantalla.
 local function ConsoleTopIn(frame)
-	local bar = _G.RTSBar
+	local bar = _G.RTSDockRight
 	if not bar or not bar:IsShown() then return nil end
 	local top = bar:GetTop()
 	if not top then return nil end
 	local es = frame:GetEffectiveScale()
 	if not es or es == 0 then return nil end
 	return top * bar:GetEffectiveScale() / es
-end
-
--- Y el borde derecho, contado desde el borde derecho de la PANTALLA -- o sea,
--- cero o negativo -- porque asi es como se escribe una `x` en un ancla
--- `BOTTOMRIGHT` contra `UIParent`, que es la que trae el tooltip de fabrica.
-local function ConsoleRightIn(frame)
-	local bar = _G.RTSBar
-	if not bar or not bar:IsShown() then return nil end
-	local right, screen = bar:GetRight(), UIParent:GetRight()
-	if not right or not screen then return nil end
-	local es = frame:GetEffectiveScale()
-	if not es or es == 0 then return nil end
-	return (right * bar:GetEffectiveScale() - screen * UIParent:GetEffectiveScale()) / es
 end
 
 local function LiftDown()
@@ -424,18 +416,7 @@ end
 -- entera en cada aparicion, asi que en cuanto esto deja de correr el tooltip
 -- vuelve solo a su esquina.
 --
--- Y SE ALINEA CON EL BORDE DERECHO DE LA CONSOLA, no con el de la pantalla.
--- Encima de la barra pero sobresaliendo por la derecha se lee como algo que se
--- ha quedado torcido; cuadrado con el canto de la consola se lee como parte de
--- la misma pieza. El numero sale de la barra, asi que sigue cuadrado cuando la
--- consola cambia de ancho -- `grow`, la resolucion, `/rts bar share`.
---
--- NUNCA MAS A LA DERECHA DE DONDE VENIA. Con una consola casi tan ancha como la
--- pantalla, su canto cae a la derecha de la `x` de fabrica, y esa `x` es
--- `CONTAINER_OFFSET_X`: lo que el cliente ya aparta para no meterse debajo de
--- las barras verticales. Alinear ahi seria taparlas, asi que se coge la que
--- quede mas a la izquierda de las dos.
-local TIP_GAP = 20   -- pixeles entre el techo de la consola y el tooltip
+local TIP_GAP = 20   -- pixeles entre el techo de la bandeja y el tooltip
 
 local function LiftWorldTip(tip)
 	if not C.active or not tip or not tip.GetNumPoints then return end
@@ -457,11 +438,12 @@ local function LiftWorldTip(tip)
 	-- tenga escondida. Subirlo igualmente seria bajarlo.
 	if (y or 0) >= want then return end
 
-	local wx = ConsoleRightIn(tip)
-	if wx then wx = math.min(wx, x or 0) else wx = x or 0 end
-
+	-- LA `x` NO SE TOCA. Cuando la esquina la llenaba una consola de lado a
+	-- lado habia que cuadrar el tooltip con su canto; el bloque de macros es
+	-- estrecho y ya esta pegado al mismo borde que el tooltip, asi que moverlo
+	-- de lado seria descuadrarlo.
 	tip:ClearAllPoints()
-	tip:SetPoint(point, rel, relPoint, wx, want)
+	tip:SetPoint(point, rel, relPoint, x or 0, want)
 end
 
 -- Un unico sitio que decide, para cada frame, si deberia estar aparcado ahora
@@ -512,9 +494,9 @@ local function EnsureSweeper()
 			C:Apply()
 		end
 
-		-- La consola cambia de alto con `/rts bar share` y con la resolucion,
-		-- asi que a que altura van las dos verticales se revisa cada barrido.
-		-- Cuesta una resta salvo el tick en que de verdad cambia.
+		-- La bandeja cambia de alto con la resolucion y con la fila de botones
+		-- del juego, asi que a que altura van las dos verticales se revisa cada
+		-- barrido. Cuesta una resta salvo el tick en que de verdad cambia.
 		ApplyLift()
 
 		for _, item in ipairs(ITEMS) do

@@ -57,7 +57,7 @@
 	   resolucion: no se ve, no se puede arrastrar de vuelta, y `/rts win reset`
 	   seria la unica salida -- si a alguien se le ocurre que existe.
 
-	5. ESCALA DE PIXEL PROPIA, la misma que la HUD (`H:ScaleFrame`). Sin ella el
+	5. ESCALA DE PIXEL PROPIA (`Pixels:ScaleFrame`). Sin ella el
 	   arte se interpola y todo sale borroso, que es la leccion de la etapa 5i.
 ]]
 
@@ -69,7 +69,7 @@ ns.Window = W
 --- Medidas, en unidades de DIBUJO ------------------------------------------
 --
 -- Igual que `Bar.lua`: aqui dentro 1 unidad = 1 pixel fisico, porque la ventana
--- lleva la escala de pixel de la HUD. Los numeros de este fichero son de dibujo
+-- lleva la escala de pixel de `Pixels.lua`. Los numeros de este fichero son de dibujo
 -- y NO de pantalla -- confundirlos es lo que dejo las guias de la sala a seis
 -- pixeles en la etapa 5l.
 local TITLE_H = 46      -- alto de la barra de titulo
@@ -123,7 +123,7 @@ end
 -- pixeles de pantalla, en vez de razonando sobre el desplazamiento guardado --
 -- que es la cuenta que se equivoca en cuanto las escalas del frame y de
 -- UIParent no coinciden, y aqui nunca coinciden porque la ventana lleva la
--- escala de pixel de la HUD.
+-- escala de pixel de `Pixels.lua`.
 --
 -- `SetClampedToScreen` ya impide arrastrarla fuera, asi que el unico camino
 -- hasta aqui es cambiar de resolucion entre sesiones. Y el remedio es
@@ -240,7 +240,7 @@ function W:New(name, title, w, h)
 
 	-- La escala de pixel de la HUD, para que 1 unidad de este fichero sea 1
 	-- pixel fisico y el arte no se interpole.
-	if ns.HUD and ns.HUD.ScaleFrame then ns.HUD:ScaleFrame(f) end
+	if ns.Pixels and ns.Pixels.ScaleFrame then ns.Pixels:ScaleFrame(f) end
 
 	if ns.Skin then ns.Skin:Dress(f) end
 
@@ -343,7 +343,7 @@ function W:ResetAll()
 	ns.Print("ventanas: todas al centro.")
 end
 
--- Se apunta EL GESTOR, no cada ventana. `Bar:Register` llama `Enter`/`Leave`, y
--- una ventana que aun no se ha creado no puede registrarse -- las tres se crean
--- la primera vez que se piden, no al cargar.
-ns.Bar:Register(W)
+-- Se apunta EL GESTOR, no cada ventana. `Dock:Register` llama `Enter`/`Leave`,
+-- y una ventana que aun no se ha creado no puede registrarse -- las tres se
+-- crean la primera vez que se piden, no al cargar.
+ns.Dock:Register(W)

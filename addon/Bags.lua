@@ -60,7 +60,7 @@ ns.Bags = B
 --
 -- `PRUEBAS-20` A7: *"los iconos se ven SUPER GRANDES"*. La primera version uso
 -- 74, copiado del boton de bolsa de los railes -- pero esta ventana lleva la
--- escala de pixel de la HUD, o sea que **1 unidad de aqui es 1 pixel fisico**.
+-- escala de pixel de `Pixels.lua`, o sea que **1 unidad de aqui es 1 pixel fisico**.
 -- 74 px es MAS GRANDE que un boton de la barra de acciones, que en esta
 -- pantalla mide 62, medido contra `ActionButton1`. Una casilla de bolsa tiene
 -- que ser mas pequena que un boton de accion, no mayor.
@@ -514,7 +514,7 @@ function B:Create()
 	holder:Hide()
 	holder.icon = holder:CreateTexture(nil, "OVERLAY")
 	holder.icon:SetAllPoints()
-	if ns.HUD and ns.HUD.ScaleFrame then ns.HUD:ScaleFrame(holder) end
+	if ns.Pixels and ns.Pixels.ScaleFrame then ns.Pixels:ScaleFrame(holder) end
 	holder:SetScript("OnUpdate", function(self)
 		local x, y = GetCursorPosition()
 		local s = self:GetEffectiveScale()

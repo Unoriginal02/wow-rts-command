@@ -80,6 +80,18 @@
 	<Binding name="RTSCOMMAND_SKILL6">
 		RTSCommand_Skill(6);
 	</Binding>
+	<Binding name="RTSCOMMAND_SKILL7">
+		RTSCommand_Skill(7);
+	</Binding>
+	<Binding name="RTSCOMMAND_SKILL8">
+		RTSCommand_Skill(8);
+	</Binding>
+	<Binding name="RTSCOMMAND_SKILL9">
+		RTSCommand_Skill(9);
+	</Binding>
+	<Binding name="RTSCOMMAND_SKILL10">
+		RTSCommand_Skill(10);
+	</Binding>
 
 	<Binding name="RTSCOMMAND_GROUP1" header="RTSCOMMAND_GROUPS">
 		RTSCommand_ControlGroup(1);

@@ -75,7 +75,7 @@ ns.QuestBook = Q
 
 --- Medidas, en unidades de DIBUJO ------------------------------------------
 --
--- La ventana lleva la escala de pixel de la HUD, asi que 1 unidad de aqui es 1
+-- La ventana lleva la escala de pixel de `Pixels.lua`, asi que 1 unidad de aqui es 1
 -- pixel fisico. Los tamanos salen de eso y no de un gusto: el retrato es el
 -- mismo 36 que cabe en la cabecera de una ficha sin empujar el nombre.
 

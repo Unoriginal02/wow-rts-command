@@ -1,8 +1,8 @@
 --[[
-	Skin.lua -- el aspecto de la HUD, en un solo sitio.
+	Skin.lua -- el aspecto de las ventanas propias, en un solo sitio.
 
 	Las texturas salen del propio cliente (ver `/rts art`), asi que vestir la
-	HUD al estilo WC3 no cuesta un solo fichero de arte. Lo que si cuesta es
+	interfaz al estilo WC3 no cuesta un solo fichero de arte. Lo que si cuesta es
 	tenerlas repartidas por el codigo: el dia que una no guste hay que buscarla
 	en cuatro ficheros. Aqui hay UNA tabla de rutas y UNA funcion que las
 	aplica, y los frames vestidos se apuntan en una lista para poder
@@ -64,10 +64,9 @@ local panels, cells = {}, {}
 
 --- Aplicar -----------------------------------------------------------------
 
--- Cuanto hay que meterse hacia dentro para no pisar el marco. Lo pregunta la
--- distribucion de la HUD para colocar el minimapa dentro de su panel: con el
--- marco gordo de WC3 el hueco util es mas pequeno, y si nadie lo dice el mapa
--- se dibuja por debajo del borde.
+-- Cuanto hay que meterse hacia dentro para no pisar el marco. Con el marco
+-- gordo de WC3 el hueco util es mas pequeno, y quien dibuje dentro de un panel
+-- tiene que saberlo o se le sale por debajo del borde.
 function S:Inset()
 	return self.on and (WC3_INSET + 2) or (FLAT_INSET + 3)
 end
@@ -126,14 +125,14 @@ end
 function S:Refresh()
 	for _, f in ipairs(panels) do self:Dress(f, f.rtsDim) end
 	for _, c in ipairs(cells) do self:Slot(c) end
-	if ns.HUD and ns.HUD.Relayout then ns.HUD:Relayout() end
+	if ns.Dock and ns.Dock.active then ns.Dock:Layout() end
 end
 
 function S:Toggle()
 	self.on = not self.on
 	RTSCommandDB.skinOn = self.on
 	self:Refresh()
-	ns.Print("aspecto de la HUD: " ..
+	ns.Print("aspecto: " ..
 		(self.on and "|cffffd100WC3|r (texturas del cliente)" or "|cffaaaaaaplano|r"))
 end
 

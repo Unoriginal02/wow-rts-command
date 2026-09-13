@@ -1,7 +1,7 @@
 --[[
 	RTSMode.lua -- Warcraft 3 style mouse control.
 
-	Toggling RTS mode shows a full-screen mouse catcher below the HUD frames
+	Toggling RTS mode shows a full-screen mouse catcher below the addon frames
 	(LOW strata: over the world, under the unit bar / command card, so those
 	still work). While it is up:
 
@@ -1503,17 +1503,11 @@ function R:Toggle()
 			ns.Link:WhenServer(function() ns.Marks:Apply() end)
 		end
 
-		-- La interfaz va DESPUES de los avisos de arriba: Chrome esconde el
-		-- chat, asi que lo impreso antes se queda en el historial y lo de
-		-- despues sale por la linea de mensajes de la HUD. El HUD entra primero
-		-- porque saca el Minimap de MinimapCluster antes de que Chrome esconda
-		-- el cluster entero.
-		ns.HUD:Enter()
-		-- El arte va INMEDIATAMENTE despues del HUD y antes de Chrome. Entrar
-		-- en modo RTS tiene que dar la interfaz de verdad, no la huella de
-		-- medir: la huella era el sustituto mientras no habia arte, y ya lo
-		-- hay. Bar aparta la huella y se lleva el Minimap a su hueco.
-		ns.Bar:Enter()
+		-- LA BARRA VA ANTES QUE CHROME, y ahora importa mas que antes: `Tray`
+		-- reparenta los micro-botones del cliente a su fila, y si Chrome
+		-- escondiera `MainMenuBar` primero se los llevaria por delante siendo
+		-- todavia hijos suyos.
+		ns.Dock:Enter()
 		ns.Chrome:Enter()
 	else
 		-- SALIR EN COMBATE NO PUEDE DEVOLVER LA INTERFAZ, y por eso se sale en
@@ -1569,12 +1563,16 @@ end
 local regen
 
 function R:LeaveChrome()
-	-- LA CONSOLA SE VA SIEMPRE, y este es el cambio de 2026-08-23. Es NUESTRA:
+	-- LA BARRA SE VA SIEMPRE, y este es el cambio de 2026-08-23. Es NUESTRA:
 	-- frames corrientes, sin proteger, asi que esconderla en combate es legal y
 	-- no hay ningun motivo para dejarla puesta. La primera version la mantenia
 	-- de sustituta durante la pelea y no era lo que se pedia -- se pedia salir.
-	ns.Bar:Leave()
-	ns.HUD:Leave()
+	--
+	-- CON UNA EXCEPCION QUE SE RESUELVE SOLA: los micro-botones del cliente que
+	-- `Tray` tiene prestados SI estan protegidos, asi que en combate no se
+	-- pueden devolver. `Tray:Leave` lo aplaza a PLAYER_REGEN_ENABLED igual que
+	-- hace el resto de este fichero.
+	ns.Dock:Leave()
 
 	if InCombatLockdown() then
 		self.pendingLeave = true

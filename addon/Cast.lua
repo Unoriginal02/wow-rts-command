@@ -1,83 +1,58 @@
 --[[
-	Cast.lua -- los huecos de hechizo y los macros.
+	Cast.lua -- los huecos de hechizo de la barra de abajo.
 
-	Es el contenido de la zona derecha de la sala, y dibuja los DOS estados que
-	`Hall.lua` decide:
+	Es el contenido de la parte IZQUIERDA del `Dock`, y dibuja los dos estados
+	que el decide:
 
-	  A  un personaje  ->  una fila de huecos (los que quepan) + CUATRO macros
-	  B  dos o mas     ->  por columna: 2x2 de huecos + DOS macros anchos
+	  A  ninguno o uno   el nombre y DIEZ huecos
+	  B  dos o mas       por columna: nombre y 2x2 de CUATRO
 
 	Los datos y las acciones no estan aqui: `Skills.lua` los tiene. Aqui esta el
 	DIBUJO y el GESTO. En el estado B hay hasta cinco columnas pidiendo lo mismo
 	a la vez, y con la logica dentro del panel serian cinco copias de todo.
 
-	=== HUECOS E ICONOS, MACROS Y TEXTO ====================================
+	=== LOS MACROS SE FUERON DE AQUI ======================================
 
-	Los huecos de hechizo son cuadrados con icono; los macros son barras anchas
-	con el nombre escrito. La diferencia no es de tamano, es de como se leen: un
-	icono de hechizo se RECONOCE (es el mismo dibujo que en la barra de acciones
-	de siempre), y un macro se LEE, porque es algo que el jugador ha puesto ahi
-	y puede cambiar manana.
+	Hasta el 2026-09-13 este fichero dibujaba tambien cuatro barras de macro por
+	personaje, con un catalogo de doce acciones ESCRITAS EN EL CODIGO (`stay`,
+	`follow`, `max dps`...). Se fueron enteras: las ordenes a los bots son ahora
+	macros del juego de verdad, en la bandeja de la derecha (`Tray.lua`), y el
+	catalogo que las crea es el de `Macros.lua`, que ya existia.
 
-	Es la razon por la que el boceto los dibuja distintos, y por la que hay un
-	`W:Wide` en `Widgets.lua` en vez de un `W:Button` mas largo.
+	Lo unico que sobrevivio de aquel catalogo es CUIDAR (`PFOCUS`), y no por
+	nostalgia: es la unica de las doce que no cabe en un macro, porque necesita
+	un segundo click para elegir sobre quien. Vive aqui como gesto y se dispara
+	desde `/rts focus`, que SI cabe en un macro.
 
-	=== LOS CUATRO DEL ESTADO A SON LOS MISMOS QUE LOS DOS DEL B ============
+	=== LOS CUATRO DEL ESTADO B NO SON LOS CUATRO PRIMEROS DE LOS DIEZ =====
 
-	Igual que la fila de huecos y el 2x2: el estado B ensena los DOS PRIMEROS de
-	los cuatro macros de ese personaje. Guardar dos listas habria sido dos
-	sitios donde configurar lo mismo, y el jugador descubriendo en combate que
-	el macro 2 no dice lo mismo segun cuantos lleve cogidos.
+	Son otro juego (`Skills`: "group"). La razon esta en `Dock.lua`.
 
-	=== EL GESTO DE §5, Y LA LUZ CIRCULAR ==================================
+	=== EL GESTO DE §5, Y LA LUZ CIRCULAR =================================
 
 	Pulsar un hueco cuyo hechizo necesita objetivo no lo manda: lo deja ARMADO,
-	y el icono se pone a dar vueltas con **la luz de las mascotas de cazador**,
-	que es literalmente lo que pide el brief. El siguiente click elige sobre
-	quien -- en la lista de la izquierda, en un marco de arriba o en el mundo
+	y el icono se pone a dar vueltas con **la luz de las mascotas de cazador**.
+	El siguiente click elige sobre quien -- en un marco del juego o en el mundo
 	3D, indistintamente.
 
 	LA LUZ ES DEL CLIENTE Y NO SE REIMPLEMENTA. Sacado de leer su FrameXML
 	(`Data\esES\patch-esES.MPQ`, ver `CLAUDE.md`), no de memoria:
 
 	  * `AutoCastShineTemplate` (UIPanelTemplates.xml:699) son 16 texturas de
-	    chispa con su `OnLoad`, y es una plantilla VIRTUAL corriente: se hereda
-	    con `CreateFrame(..., "AutoCastShineTemplate")`.
+	    chispa con su `OnLoad`, y es una plantilla VIRTUAL corriente.
 	  * `AutoCastShine_AutoCastStart(frame, r, g, b)` la enciende y
 	    `..._AutoCastStop(frame)` la apaga (UIParent.lua:3477,3494).
-	  * **LA ANIMACION SALE GRATIS**: la mueve el `OnUpdate` de `UIParent`
-	    (UIParent.xml:27), que recorre todas las encendidas. No hay que llevar
-	    ningun temporizador.
+	  * **LA ANIMACION SALE GRATIS**: la mueve el `OnUpdate` de `UIParent`.
 
 	Y UNA TRAMPA: `AutoCastShine_OnLoad` busca sus chispas por nombre
-	(`_G[name..i]`), asi que **el frame TIENE que tener nombre**. Sin nombre no
-	da error: `self.sparkles` sale con 16 nil dentro y no se ve nada.
+	(`_G[name..i]`), asi que **el frame TIENE que tener nombre**.
 
-	El tamano tampoco es libre del todo: la animacion usa `self:GetWidth()` como
-	recorrido, asi que la luz hay que redimensionarla al hueco o las chispas dan
-	la vuelta por donde no es.
+	=== CONFIGURAR UN HUECO ===============================================
 
-	=== CONFIGURAR UN HUECO O UN MACRO =====================================
-
-	CLICK DERECHO abre la lista. En un hueco, los hechizos de ESE personaje --
-	que es su barra de acciones, no tu libro, porque tu libro no tiene la
-	Polimorfia del mago (ver `Skills.lua`). En un macro, el catalogo de
-	acciones.
-
-	"ARRASTRAR DEL LIBRO DE HECHIZOS" NO PUEDE EXISTIR PARA UN BOT y no es
-	rodeable: `PickupSpell` solo coge lo que tu conoces. Lo que el brief pide --
-	huecos vacios, configurables, por personaje -- se cumple entero; cambia el
-	gesto de arrastrar a elegir.
-
-	=== LOS MACROS APLICAN A UNO ===========================================
-
-	Es lo que los distingue de la rejilla 4x4, que desde el 2026-09-04 va
-	siempre a todo el grupo. La rejilla es LO GLOBAL y la sala LO PARTICULAR.
-
-	CURAR EN FOCUS NO HABIA QUE PROGRAMARLO. Es `PFOCUS`, compilado desde
-	mod-rts 0.15.0: sobre un objetivo amistoso pone la lista
-	`focus heal targets` de playerbots y su estrategia, que es IA suya y no una
-	simulacion nuestra. Faltaba el boton. Ver `docs/HECHIZOS-COLA.md` §12.
+	CLICK DERECHO abre la lista de hechizos de ESE personaje -- que es su barra
+	de acciones, no tu libro, porque tu libro no tiene la Polimorfia del mago
+	(ver `Skills.lua`). "Arrastrar del libro" no puede existir para un bot y no
+	es rodeable: `PickupSpell` solo coge lo que tu conoces.
 ]]
 
 local ADDON, ns = ...
@@ -88,88 +63,15 @@ ns.Cast = C
 C.active = false
 
 local spellBtn = {}       -- i -> boton cuadrado (estado A)
-local macroBtn = {}        -- i -> barra ancha  (estado A)
-local colBtn = {}          -- ci -> { head, spells = {}, macros = {} }
+local colBtn = {}         -- ci -> { head, spells = {} }
+local headName
 local flyout
-
---- Las acciones que puede llevar un macro ---------------------------------
---
--- CADA UNA APLICA A UN SOLO PERSONAJE. Las que son comandos de chat de
--- playerbots van por `Orders:SendTo`, que susurra a ese bot y nada mas; las que
--- necesitan mas que una palabra van por mod-rts.
---
--- NINGUNA ES INVENTADA: `stay`, `follow`, `attack`, `flee`, `max dps`, `drink`
--- y `tank attack` son verbos de `ChatCommandHandlerStrategy.cpp`, y los roles
--- son estrategias registradas por clase en el propio mod-playerbots.
-
-local ACTIONS = {
-	{ key = "focus", label = "Cuidar", icon = "Interface\\Icons\\Spell_Holy_PrayerOfHealing",
-	  aim = true,
-	  tip = "Que se dedique a CUIDAR a quien elijas.\n" ..
-	        "Sobre un amigo: le cura en exclusiva (`focus heal targets`).\n" ..
-	        "Sobre un enemigo: se le pega y no le suelta.\n" ..
-	        "Pulsa y luego elige el objetivo." },
-
-	{ key = "unfocus", label = "Suelta", icon = "Interface\\Icons\\Spell_Shadow_Teleport",
-	  tip = "Le quita el foco: vuelve a elegir objetivo por su cuenta.",
-	  fn = function(name) ns.Cast:ClearFocus(name) end },
-
-	{ key = "stay", label = "Quieto", icon = "Interface\\Icons\\Ability_Warrior_DefensiveStance",
-	  tip = "Aguanta donde esta.",
-	  fn = function(name) ns.Orders:SendTo(name, "stay") end },
-
-	{ key = "follow", label = "Sigueme", icon = "Interface\\Icons\\Ability_Rogue_Sprint",
-	  tip = "Vuelve a seguirte.",
-	  fn = function(name) ns.Orders:SendTo(name, "follow") end },
-
-	{ key = "attack", label = "Ataca", icon = "Interface\\Icons\\Ability_Warrior_Cleave",
-	  tip = "Ataca tu objetivo.",
-	  fn = function(name) ns.Orders:SendTo(name, "attack") end },
-
-	{ key = "maxdps", label = "A saco", icon = "Interface\\Icons\\Ability_Warrior_InnerRage",
-	  tip = "Quema enfriamientos.",
-	  fn = function(name) ns.Orders:SendTo(name, "max dps") end },
-
-	{ key = "tank", label = "Tanquea", icon = "Interface\\Icons\\Ability_Defend",
-	  tip = "Que coja tu objetivo (`tank attack`).",
-	  fn = function(name) ns.Orders:SendTo(name, "tank attack") end },
-
-	{ key = "drink", label = "Bebe", icon = "Interface\\Icons\\INV_Drink_07",
-	  tip = "Se sienta a comer y beber.",
-	  fn = function(name) ns.Orders:SendTo(name, "drink") end },
-
-	{ key = "flee", label = "Huye", icon = "Interface\\Icons\\Ability_Rogue_Feint",
-	  tip = "Rompe el combate y se aleja.",
-	  fn = function(name) ns.Orders:SendTo(name, "flee") end },
-
-	{ key = "passive", label = "Pasivo", icon = "Interface\\Icons\\Spell_Nature_Sleep",
-	  tip = "No hace nada por su cuenta. Sigue obedeciendo lo que le mandes.",
-	  fn = function(name) ns.Cast:Role(name, "passive") end },
-
-	{ key = "reset", label = "Reset", icon = "Interface\\Icons\\Spell_Nature_TimeStop",
-	  tip = "Le devuelve el comportamiento de fabrica.\n" ..
-	        "Para uno que se ha quedado con un rol viejo puesto.",
-	  fn = function(name)
-		if ns.Link:HasServer() then
-			ns.SendServer("RESET " .. name)
-		else
-			ns.Orders:SendTo(name, "follow")
-		end
-	  end },
-}
-
-local ACT_BY_KEY = {}
-for _, a in ipairs(ACTIONS) do ACT_BY_KEY[a.key] = a end
-
--- Los cuatro de fabrica. El primero es el caso de uso prioritario del brief.
-local ACT_DEFAULT = { "focus", "stay", "follow", "attack" }
 
 --- Estado del foco --------------------------------------------------------
 --
 -- name -> guid, para poder dibujar quien lo lleva puesto. Lo dice el servidor
 -- al confirmar, no lo suponemos nosotros: un boton que se enciende con su
--- propia peticion esconde justo el caso en el que la peticion no salio. Es la
--- misma regla que la fila de roles de la etapa 5n.
+-- propia peticion esconde justo el caso en el que la peticion no salio.
 C.focus = {}
 
 function C:PointAt(name, guid, label)
@@ -177,9 +79,11 @@ function C:PointAt(name, guid, label)
 		ns.Print("|cffff8800cuidar:|r hace falta mod-rts.")
 		return
 	end
-	local hex = tostring(guid):gsub("^0[xX]", "")
+	local hex = guid and (tostring(guid):gsub("^0[xX]", "")) or "-"
 	ns.SendServer("PFOCUS " .. name .. " " .. hex)
-	ns.Print(("|cff33ccff%s|r -> cuida de %s"):format(name, label or "eso"))
+	if label then
+		ns.Print(("|cff33ccff%s|r se dedica a |cffffd100%s|r."):format(name, label))
+	end
 end
 
 function C:ClearFocus(name)
@@ -190,69 +94,22 @@ function C:ClearFocus(name)
 	ns.SendServer("PFOCUS " .. name .. " -")
 end
 
-function C:Role(name, role)
-	if not ns.Link:HasServer() then
-		ns.Print("|cffff8800rol:|r hace falta mod-rts.")
-		return
-	end
-	ns.SendServer("ROLE " .. name .. " " .. role .. " 1")
+-- ARMAR EL GESTO DE CUIDAR. Lo llama `/rts focus`, que es lo que el jugador
+-- pone en un macro de la bandeja.
+function C:StartFocus(name)
+	name = name or ns.Dock:Subject()
+	if not name then return end
+	self.pendingFocus = name
+	ns.Print(("|cffffd100Cuidar (%s):|r elige a quien; el click derecho cancela."):format(name))
+	self:Refresh()
 end
 
---- La configuracion de los macros -----------------------------------------
+--- La luz de armado -------------------------------------------------------
 
-local function ActionStore(name, create)
-	if not RTSCommandDB then return nil end
-	local hall = RTSCommandDB.hall
-	if not hall then
-		if not create then return nil end
-		hall = {}
-		RTSCommandDB.hall = hall
-	end
-	hall.who = hall.who or {}
-	local w = hall.who[name]
-	if not w and create then
-		w = { spells = {}, actions = {} }
-		hall.who[name] = w
-	end
-	return w
-end
-
-function C:ActionFor(name, i)
-	local w = ActionStore(name, false)
-	local key = w and w.actions and w.actions[i]
-	return ACT_BY_KEY[key] or ACT_BY_KEY[ACT_DEFAULT[i] or ""]
-end
-
-function C:SetAction(name, i, key)
-	local w = ActionStore(name, true)
-	if not w then return end
-	-- Congelar lo que se estaba ensenando la primera vez, o cambiar el tercero
-	-- borraria los otros tres -- que eran los de fabrica y no estaban guardados.
-	-- Mismo caso que `Skills:SetSlot`.
-	if not next(w.actions) then
-		for k = 1, ns.Hall.MACRO_N do w.actions[k] = ACT_DEFAULT[k] end
-	end
-	w.actions[i] = key
-	self:Layout()
-end
-
---- La luz circular --------------------------------------------------------
-
--- Se crea bajo demanda y se guarda en el boton. Hace falta NOMBRE, ver la
--- cabecera: sin el, `AutoCastShine_OnLoad` no encuentra sus chispas y no se ve
--- nada -- sin dar error.
 local shineSeq = 0
 
--- POR ENCIMA DEL BOTON Y UN POCO MAS GRANDE QUE EL.
---
--- Un frame hijo con nivel MAS ALTO se dibuja sobre todas las capas de su padre,
--- asi que subirlo es lo que saca las chispas de debajo del icono. Y el recorrido
--- de la animacion es el ancho del frame, de modo que agrandarlo un pelo manda
--- las chispas a orbitar por FUERA del dibujo en vez de por encima de el, que es
--- donde se ven contra el fondo.
---
--- El 1.18 no es libre: la separacion entre huecos es de 16 sobre 84 (un 19%),
--- asi que con un 9% por lado la luz no llega a pisar al vecino.
+-- La luz se sale del boton a proposito -- las chispas giran POR FUERA del
+-- icono -- asi que con un 9% por lado no llega a pisar al vecino.
 local SHINE_SCALE = 1.18
 local SHINE_LIFT  = 10
 
@@ -274,9 +131,9 @@ local function SetArmed(b, on)
 	if not f then return end
 	if on then
 		-- Se remide y se resube CADA VEZ, no al crearlo: el boton cambia de
-		-- tamano con la barra (`grow`) y de nivel al reparentarse entre el
-		-- estado A y el B, y un nivel puesto una sola vez se queda viejo sin
-		-- dar error -- la luz volveria debajo del icono y pareceria que no sale.
+		-- nivel al reparentarse entre el estado A y el B, y un nivel puesto una
+		-- sola vez se queda viejo sin dar error -- la luz volveria debajo del
+		-- icono y pareceria que no sale.
 		f:SetWidth(b:GetWidth() * SHINE_SCALE)
 		f:SetHeight(b:GetHeight() * SHINE_SCALE)
 		f:SetFrameLevel(b:GetFrameLevel() + SHINE_LIFT)
@@ -293,7 +150,7 @@ local rows = {}
 
 local function EnsureFlyout()
 	if flyout then return flyout end
-	flyout = CreateFrame("Frame", "RTSCastPicker", ns.Bar:SlotFrame("hall"))
+	flyout = CreateFrame("Frame", "RTSCastPicker", ns.Pixels:Host())
 	flyout:SetFrameStrata("DIALOG")
 	flyout:EnableMouse(true)
 	flyout:Hide()
@@ -326,17 +183,9 @@ local function FlyoutRow(i)
 	return b
 end
 
--- CUANTAS FILAS CABEN DE UNA VEZ.
---
--- Hasta la 0.76.0 no habia paginacion porque no hacia falta: el catalogo era la
--- barra de acciones del personaje y son doce como mucho. Desde la 0.77.0 el
--- servidor manda ADEMAS todo lo que el personaje sabe (que es lo que se pidio en
--- `PRUEBAS-23` C2), y eso son cincuenta o cien entradas segun el nivel.
---
--- Sin esto la lista se dibujaria de 3.000 pixeles de alto, fuera de la pantalla,
--- y en juego se leeria como "el desplegable no sale". No es un `ScrollFrame`
--- porque no hace falta uno: dos filas de navegacion cuestan quince lineas y no
--- dependen de nada que haya que comprobar contra este cliente.
+-- CUANTAS FILAS CABEN DE UNA VEZ. El servidor manda la barra del bot Y todo lo
+-- que sabe, que son cincuenta o cien entradas segun el nivel; sin paginar, la
+-- lista se dibujaria de 3.000 pixeles de alto y se leeria como "no sale".
 local PAGE = 14
 
 -- `entries` = { { icon, text, sub, fn }, ... }
@@ -383,11 +232,10 @@ function C:ShowPicker(anchor, entries, page)
 		b.text:SetText(e.text .. (e.sub and (" |cff888888" .. e.sub .. "|r") or ""))
 		b:SetScript("OnClick", function()
 			-- Una fila de navegacion NO cierra la lista: vuelve a dibujarla en
-			-- otra pagina. Cerrarla y reabrirla haria parpadear el desplegable y
-			-- perderia el anclaje.
+			-- otra pagina.
 			if not e.keep then flyout:Hide() end
 			local ok, err = pcall(e.fn)
-			if not ok then ns.Print("|cffff0000sala:|r " .. tostring(err)) end
+			if not ok then ns.Print("|cffff0000dock:|r " .. tostring(err)) end
 		end)
 		b:Show()
 		n = i
@@ -405,8 +253,11 @@ function C:HidePicker()
 	if flyout then flyout:Hide() end
 end
 
--- La lista de hechizos de un personaje, para configurar un hueco.
-function C:PickSpell(anchor, name, i)
+-- La lista de hechizos de un personaje, para configurar un hueco. `set` dice a
+-- cual de los dos juegos va -- y se escribe en la cabecera de la lista, porque
+-- "el hueco 2" significa dos cosas distintas y el jugador tiene que saber cual
+-- esta tocando.
+function C:PickSpell(anchor, name, i, set)
 	local cat = ns.Skills:Available(name)
 	if #cat == 0 then
 		ns.Print(("|cffff8800%s|r no tiene hechizos que ofrecer%s."):format(name,
@@ -417,33 +268,22 @@ function C:PickSpell(anchor, name, i)
 
 	local entries = {
 		{ icon = "Interface\\Icons\\INV_Misc_QuestionMark", text = "|cff888888(vaciar el hueco)|r",
-		  fn = function() ns.Skills:SetSlot(name, i, nil) end },
+		  fn = function() ns.Skills:SetSlot(name, i, nil, set) end },
 	}
 	for _, s in ipairs(cat) do
 		local info = ns.Skills:TypeInfo(s.type)
 		table.insert(entries, {
 			icon = s.texture, text = s.name, sub = info.label,
-			fn = function() ns.Skills:SetSlot(name, i, s.spellId) end,
+			fn = function() ns.Skills:SetSlot(name, i, s.spellId, set) end,
 		})
 	end
 
-	self:ShowPicker(anchor, entries)
-end
-
-function C:PickAction(anchor, name, i)
-	local entries = {}
-	for _, a in ipairs(ACTIONS) do
-		table.insert(entries, {
-			icon = a.icon, text = a.label,
-			fn = function() C:SetAction(name, i, a.key) end,
-		})
-	end
 	self:ShowPicker(anchor, entries)
 end
 
 --- Los botones de hechizo -------------------------------------------------
 
-local function SpellButton(store, i, parent, size)
+local function SpellButton(store, i, parent, size, set)
 	local b = store[i]
 	if not b then
 		b = ns.W:Button(parent, size)
@@ -451,21 +291,21 @@ local function SpellButton(store, i, parent, size)
 		b:SetScript("OnClick", function(self, button)
 			if not self.owner then return end
 			if button == "RightButton" then
-				C:PickSpell(self, self.owner, self.index)
+				C:PickSpell(self, self.owner, self.index, self.set)
 				return
 			end
 			C:HidePicker()
 			if self.spell then
-				ns.Skills:Use(self.owner, self.index)
+				ns.Skills:Use(self.owner, self.index, self.set)
 			else
 				-- UN HUECO VACIO NO SE QUEDA CALLADO. Un click que no hace nada
-				-- es indistinguible de un boton roto, y ese es justo el fallo
-				-- que este proyecto persigue desde la etapa 5i.
+				-- es indistinguible de un boton roto.
 				ns.Print("hueco vacio: click |cffffff00derecho|r para ponerle un hechizo.")
 			end
 		end)
 		store[i] = b
 	end
+	b.set = set
 	return b
 end
 
@@ -478,8 +318,8 @@ local function PlaceSquare(b, parent, c)
 	b:Show()
 end
 
-local function PaintSpell(b, owner, i, s, aiming)
-	b.owner, b.index, b.spell = owner, i, s and s.spellId or nil
+local function PaintSpell(b, owner, i, s, aiming, set)
+	b.owner, b.index, b.set, b.spell = owner, i, set, s and s.spellId or nil
 
 	if not s then
 		b.icon:SetTexture("Interface\\Buttons\\UI-Quickslot")
@@ -499,8 +339,7 @@ local function PaintSpell(b, owner, i, s, aiming)
 	b.label:SetText("")
 
 	-- UN HECHIZO QUE YA NO ESTA EN SU BARRA SE DIBUJA APAGADO, no se borra. El
-	-- bot puede estar sin cargar o la respuesta puede no haber llegado; tirar la
-	-- configuracion del jugador por eso seria perderla sin avisar.
+	-- bot puede estar sin cargar o la respuesta puede no haber llegado.
 	if s.stale then
 		b.icon:SetVertexColor(0.55, 0.4, 0.4)
 	else
@@ -521,77 +360,8 @@ local function PaintSpell(b, owner, i, s, aiming)
 	ns.W:Tip(b, s.name, ("%s -- %s%s\n|cff888888Click derecho: cambiar.|r"):format(
 		owner, info.label, extra))
 
-	SetArmed(b, aiming and aiming.owner == owner and aiming.slot == i)
-end
-
---- Los macros -------------------------------------------------------------
-
-local function MacroButton(store, i, parent, w, h)
-	local b = store[i]
-	if not b then
-		b = ns.W:Wide(parent, w, h)
-		b:RegisterForClicks("LeftButtonUp", "RightButtonUp")
-		b:SetScript("OnClick", function(self, button)
-			if not self.owner then return end
-			if button == "RightButton" then
-				C:PickAction(self, self.owner, self.index)
-				return
-			end
-			C:HidePicker()
-			local a = self.act
-			if not a then return end
-
-			-- LAS QUE PIDEN OBJETIVO USAN EL MISMO ARMADO QUE LOS HECHIZOS, y
-			-- eso no es reutilizar por reutilizar: es que el jugador ya sabe
-			-- que un icono dando vueltas significa "elige a quien", y tener dos
-			-- gestos para lo mismo seria peor que tener uno.
-			if a.aim then
-				C.pendingFocus = self.owner
-				ns.Print(("|cffffd100%s:|r elige a quien cuidar; el derecho cancela."):format(a.label))
-				C:Refresh()
-				return
-			end
-			if a.fn then a.fn(self.owner) end
-		end)
-		store[i] = b
-	end
-	return b
-end
-
-local function PlaceWide(b, parent, c)
-	b:SetParent(parent)
-	ns.W:WideSize(b, c.w, c.h)
-	b:ClearAllPoints()
-	b:SetPoint("TOPLEFT", parent, "TOPLEFT", c.x, -c.y)
-	b:Show()
-end
-
-local function PaintMacro(b, owner, i)
-	local a = C:ActionFor(owner, i)
-	b.owner, b.index, b.act = owner, i, a
-
-	if not a then
-		b.label:SetText("|cff666666(vacio)|r")
-		ns.W:Tip(b, "Macro " .. i, "Click derecho para elegir que hace.")
-		SetArmed(b, false)
-		return
-	end
-
-	b.label:SetText(a.label)
-
-	-- El foco encendido se dibuja, y lo dice el SERVIDOR: un boton que se
-	-- enciende con su propia peticion esconde el caso en que la peticion no
-	-- salio.
-	local lit = (a.key == "focus" and C.focus[owner]) and true or false
-	if lit then
-		b.label:SetTextColor(1, 0.82, 0.2)
-	else
-		b.label:SetTextColor(1, 1, 1)
-	end
-
-	ns.W:Tip(b, a.label, ("%s\n|cff888888-> %s. Click derecho: cambiar.|r"):format(
-		a.tip, owner))
-	SetArmed(b, a.aim and C.pendingFocus == owner)
+	SetArmed(b, aiming and aiming.owner == owner and aiming.slot == i
+		and (aiming.set or "main") == (set or "main"))
 end
 
 --- Distribucion -----------------------------------------------------------
@@ -602,7 +372,7 @@ end
 
 function C:Layout()
 	if not self.active then return end
-	if ns.Hall:State() == "A" then
+	if ns.Dock:State() == "A" then
 		self:LayoutA()
 	else
 		self:LayoutB()
@@ -614,75 +384,65 @@ function C:LayoutA()
 	for _, col in pairs(colBtn) do
 		if col.head then col.head:Hide() end
 		HideAll(col.spells)
-		HideAll(col.macros)
 	end
 
-	local sHost = ns.Hall:Host("spells")
-	local mHost = ns.Hall:Host("macros")
+	local hHost = ns.Dock:Host("head")
+	local sHost = ns.Dock:Host("spells")
+	if not (hHost and sHost) then return end
 
-	local cells = ns.Hall:SpellCells()
-	for i = 1, ns.Hall.MAX_SPELLS do
+	if not headName then
+		headName = ns.W:Text(hHost, ns.W.FONT.big)
+		headName:SetJustifyH("LEFT")
+	end
+	headName:SetParent(hHost)
+	headName:ClearAllPoints()
+	headName:SetPoint("BOTTOMLEFT", hHost, "BOTTOMLEFT", 2, 2)
+	headName:Show()
+
+	local cells = ns.Dock:SpellCells()
+	for i = 1, ns.Dock.MAIN_N do
 		local c = cells[i]
 		if c then
-			PlaceSquare(SpellButton(spellBtn, i, sHost, c.w), sHost, c)
+			PlaceSquare(SpellButton(spellBtn, i, sHost, c.w, "main"), sHost, c)
 		elseif spellBtn[i] then
 			spellBtn[i]:Hide()
-		end
-	end
-
-	local mcells = ns.Hall:MacroCells()
-	for i = 1, ns.Hall.MACRO_N do
-		local c = mcells[i]
-		if c then
-			PlaceWide(MacroButton(macroBtn, i, mHost, c.w, c.h), mHost, c)
-		elseif macroBtn[i] then
-			macroBtn[i]:Hide()
 		end
 	end
 end
 
 function C:LayoutB()
 	HideAll(spellBtn)
-	HideAll(macroBtn)
+	if headName then headName:Hide() end
 
-	local cols = ns.Hall:Columns()
-	local scells = ns.Hall:ColumnSpellCells()
-	local mcells = ns.Hall:ColumnMacroCells()
+	local cols = ns.Dock:Columns()
+	local cells = ns.Dock:ColumnSpellCells()
 
 	for ci = 1, #cols do
-		local h = ns.Hall:Host("col" .. ci)
+		local h = ns.Dock:Host("col" .. ci)
 		local col = colBtn[ci]
 		if not col then
-			col = { spells = {}, macros = {} }
+			col = { spells = {} }
 			col.head = ns.W:Text(h, ns.W.FONT.normal)
-			col.head:SetJustifyH("CENTER")
+			col.head:SetJustifyH("LEFT")
 			colBtn[ci] = col
 		end
 
 		col.head:SetParent(h)
 		col.head:ClearAllPoints()
-		-- El nombre arranca donde `Hall` diga, no en el borde: la columna entera
-		-- baja un poco desde la 0.79.0 y el nombre es lo primero que hay.
-		col.head:SetPoint("TOPLEFT", h, "TOPLEFT", 0, -ns.Hall:HeadTop())
-		col.head:SetWidth(ns.Hall.colW or 100)
-		col.head:SetHeight(ns.Hall:HeadHeight())
+		col.head:SetPoint("TOPLEFT", h, "TOPLEFT", 2, 0)
+		col.head:SetHeight(ns.Dock:BHeadHeight())
+		-- EL NOMBRE SE ACOTA AL ANCHO DE SU COLUMNA. Sin esto un nombre largo se
+		-- dibuja hasta donde quiera, que con cinco columnas pegadas es encima del
+		-- de al lado.
+		col.head:SetWidth(ns.Dock:ColWidth())
 		col.head:Show()
 
-		for i = 1, ns.Hall.B_SLOTS do
-			local c = scells[i]
+		for i = 1, ns.Dock.B_SLOTS do
+			local c = cells[i]
 			if c then
-				PlaceSquare(SpellButton(col.spells, i, h, c.w), h, c)
+				PlaceSquare(SpellButton(col.spells, i, h, c.w, "group"), h, c)
 			elseif col.spells[i] then
 				col.spells[i]:Hide()
-			end
-		end
-
-		for i = 1, ns.Hall.B_MACRO_N do
-			local c = mcells[i]
-			if c then
-				PlaceWide(MacroButton(col.macros, i, h, c.w, c.h), h, c)
-			elseif col.macros[i] then
-				col.macros[i]:Hide()
 			end
 		end
 	end
@@ -694,7 +454,6 @@ function C:LayoutB()
 		if ci > #cols then
 			if col.head then col.head:Hide() end
 			HideAll(col.spells)
-			HideAll(col.macros)
 		end
 	end
 end
@@ -705,31 +464,24 @@ function C:Refresh()
 	if not self.active then return end
 	local aiming = ns.Skills:Aiming()
 
-	if ns.Hall:State() == "A" then
-		local owner = ns.Hall:Subject()
-		-- SIN DUENO NO SE PINTA. Los botones ya estan escondidos con su marco,
-		-- asi que esto no se ve -- pero `Skills:Slots(nil)` cae al primario, y
-		-- pintar los hechizos de alguien en unos botones escondidos es dejarlos
-		-- cargados para el instante en que vuelvan a salir.
+	if ns.Dock:State() == "A" then
+		local owner = ns.Dock:Subject()
 		if not owner then return end
-		-- `shown`, no `slots`: el tope que el jugador puso no es lo que hay
-		-- dibujado. Repintar mas de los que hay es tocar botones escondidos,
-		-- y eso no falla hoy: falla el dia que uno reaparece con el hechizo
-		-- de otro personaje puesto.
-		local n = ns.Hall.shown or 0
-		local slots = ns.Skills:Slots(owner, n)
-		for i = 1, n do
-			local b = spellBtn[i]
-			if b and b:IsShown() then PaintSpell(b, owner, i, slots[i], aiming) end
+
+		if headName then
+			local c = ns.W:ClassColor(ns.Selection:UnitFor(owner) or "player")
+			headName:SetText(owner)
+			headName:SetTextColor(c.r, c.g, c.b)
 		end
-		for i = 1, ns.Hall.MACRO_N do
-			local b = macroBtn[i]
-			if b and b:IsShown() then PaintMacro(b, owner, i) end
+		local slots = ns.Skills:Slots(owner, ns.Dock.MAIN_N, "main")
+		for i = 1, ns.Dock.MAIN_N do
+			local b = spellBtn[i]
+			if b and b:IsShown() then PaintSpell(b, owner, i, slots[i], aiming, "main") end
 		end
 		return
 	end
 
-	local cols = ns.Hall:Columns()
+	local cols = ns.Dock:Columns()
 	for ci, m in ipairs(cols) do
 		local col = colBtn[ci]
 		if col then
@@ -737,26 +489,19 @@ function C:Refresh()
 			col.head:SetText(m.name)
 			col.head:SetTextColor(c.r, c.g, c.b)
 
-			-- LOS CUATRO PRIMEROS DE SUS DIEZ, no una lista aparte. Ver la
-			-- cabecera de `Hall.lua`: dos configuraciones para lo mismo serian
-			-- dos sitios donde el hueco 2 puede decir cosas distintas.
-			local slots = ns.Skills:Slots(m.name, ns.Hall.B_SLOTS)
-			for i = 1, ns.Hall.B_SLOTS do
+			local slots = ns.Skills:Slots(m.name, ns.Dock.B_SLOTS, "group")
+			for i = 1, ns.Dock.B_SLOTS do
 				local b = col.spells[i]
-				if b and b:IsShown() then PaintSpell(b, m.name, i, slots[i], aiming) end
-			end
-			for i = 1, ns.Hall.B_MACRO_N do
-				local b = col.macros[i]
-				if b and b:IsShown() then PaintMacro(b, m.name, i) end
+				if b and b:IsShown() then PaintSpell(b, m.name, i, slots[i], aiming, "group") end
 			end
 		end
 	end
 end
 
---- El segundo click de un macro que apunta --------------------------------
+--- El segundo click de cuidar ---------------------------------------------
 
--- Llamada desde `RTSMode`, `Party` y `Frames` cuando hay un foco pendiente.
--- Devuelve true si se ha comido el click.
+-- Llamada desde `RTSMode` cuando hay un foco pendiente. Devuelve true si se ha
+-- comido el click.
 function C:AimAt(guid, label)
 	local who = self.pendingFocus
 	if not who then return false end
@@ -787,16 +532,15 @@ function C:Enter()
 
 	if not self.wired then
 		self.wired = true
-		ns.Hall:OnLayout(function() C:Layout() end)
+		ns.Dock:OnLayout(function() C:Layout() end)
 		ns.Skills:Subscribe(function() C:Refresh() end)
 		ns.Selection:Subscribe(function() C:Refresh() end)
 
 		ns.Link:On("PFOCUS", function(rest)
 			-- DOS SENTIDOS: mandamos `PFOCUS <bot> <guid>` y la respuesta trae
 			-- un tercer campo (hostil 0/1). Ese es el discriminante, y sin el
-			-- nuestro propio eco encenderia el boton sin que el servidor haya
-			-- dicho nada -- que es exactamente lo que este boton existe para no
-			-- hacer.
+			-- nuestro propio eco encenderia el estado sin que el servidor haya
+			-- dicho nada.
 			local bot, guid, hostile = rest:match("^(%S+)%s+(%S+)%s+([01])$")
 			if not bot then return end
 			C.focus[bot] = (guid ~= "-") and guid or nil
@@ -812,23 +556,18 @@ function C:Leave()
 	self.pendingFocus = nil
 	self:HidePicker()
 	HideAll(spellBtn)
-	HideAll(macroBtn)
+	if headName then headName:Hide() end
 	for _, col in pairs(colBtn) do
 		if col.head then col.head:Hide() end
 		HideAll(col.spells)
-		HideAll(col.macros)
 	end
 end
 
 function C:Report()
-	local owner = ns.Hall:Subject()
-	ns.Print(("|cffffff00macros de|r |cff33ccff%s|r"):format(tostring(owner)))
-	for i = 1, ns.Hall.MACRO_N do
-		local a = self:ActionFor(owner, i)
-		ns.Print(("  %d. %s%s"):format(i, a and a.label or "|cff666666vacio|r",
-			(i <= ns.Hall.B_MACRO_N) and " |cff888888(sale tambien con varios cogidos)|r" or ""))
-	end
-	ns.Print(("cuida de: %s"):format(self.focus[owner] or "|cff888888nadie|r"))
+	local owner = ns.Dock:Subject()
+	ns.Print(("|cffffff00huecos de|r |cff33ccff%s|r"):format(tostring(owner)))
+	ns.Print(("  cuida de: %s"):format(self.focus[owner] or "|cff888888nadie|r"))
+	ns.Print("  la lista de hechizos: |cffffff00/rts skills|r")
 end
 
-ns.Hall:Register(C)
+ns.Dock:Register(C)

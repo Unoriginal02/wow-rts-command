@@ -1,14 +1,14 @@
 --[[
 	Macros.lua -- las ordenes a los bots, como macros del juego.
 
-	El modo RTS deja a la vista las dos barras verticales de la derecha
-	(`Chrome.lua`, conjunto `side`) justo para esto: que el jugador tenga a mano
-	los mandos que NO estan en la rejilla 4x4 ni en la sala -- sobre todo los de
-	encender y apagar el asistir, que es lo que hace que ordenar a uno mande a
-	los cinco.
+	DESDE EL 2026-09-13 ESTE FICHERO ES EL UNICO SITIO DONDE HAY ORDENES. La
+	rejilla 4x4 de `Panel.lua` llevaba dieciseis escritas en el codigo y se ha
+	borrado entera: lo que el jugador pulsa para mandar a sus bots son macros de
+	los de verdad, en las ocho casillas de la bandeja (`Tray.lua`). Anadir una
+	orden es anadir una linea al catalogo de abajo, y nada mas.
 
-	`/rts macros` crea (o actualiza) los macros del catalogo de abajo.
-	ARRASTRARLOS A LA BARRA ES COSA DEL JUGADOR, una vez. No se colocan solos:
+	`/rts macros` crea (o actualiza) los macros del catalogo.
+	ARRASTRARLOS A LA BANDEJA ES COSA DEL JUGADOR, una vez. No se colocan solos:
 	eso seria `PickupMacro` + `PlaceAction`, `PlaceAction` es de la familia
 	protegida y no se ha comprobado en este cliente -- y aqui no se construye
 	sobre una lectura sin probar. Si algun dia se comprueba que deja, es una
@@ -164,6 +164,42 @@ local MACROS = {
 	  cmd = { "formation near" },      d = "se te pegan" },
 	{ name = "Formar lejos", icon = "Ability_Marksmanship",
 	  cmd = { "formation far" },       d = "se abren" },
+
+	-- --- LO QUE NO ES UNA ORDEN A UN BOT --------------------------------
+	--
+	-- Entran aqui el 2026-09-13, con la rejilla 4x4 de `Panel.lua`. Aquellas
+	-- dieciseis casillas eran botones nuestros con la orden escrita dentro;
+	-- cuatro de ellas no eran ordenes a bots sino mandos del propio addon --
+	-- el candado de la camara, las dos ventanas propias y salir del modo -- y
+	-- al borrar la rejilla se quedaban sin sitio.
+	--
+	-- Son macros como las demas, con la unica diferencia de que su cuerpo es un
+	-- comando NUESTRO (`raw`) en vez de uno de playerbots. Asi el jugador los
+	-- arrastra a la bandeja igual que el resto y no hay una segunda clase de
+	-- boton que explicar.
+	--
+	-- SALIR COMO MACRO TIENE UN PELIGRO y por eso esta escrito: el modo RTS
+	-- esconde las barras de accion, asi que si el jugador no se pone este macro
+	-- en la bandeja, la unica forma de salir es la tecla o `/rts`. No se le
+	-- puede reservar una casilla a la fuerza -- son suyas -- pero si decirlo.
+	{ name = "Candado",  icon = "INV_Misc_Key_03", raw = true,
+	  cmd = { "/rts fc lock" },        d = "clava la camara a tu heroe" },
+	{ name = "Bolsas",   icon = "INV_Misc_Bag_09", raw = true,
+	  cmd = { "/rts bolsas" },         d = "la ventana de bolsas del grupo" },
+	{ name = "Misiones", icon = "INV_Misc_Book_09", raw = true,
+	  cmd = { "/rts misiones" },       d = "el registro de misiones del grupo" },
+	{ name = "Salir RTS", icon = "Spell_Nature_Polymorph", raw = true,
+	  cmd = { "/rts" },                d = "sale del modo RTS (o entra)" },
+
+	-- --- Cuidar: la unica orden que necesita un segundo click ------------
+	--
+	-- `PFOCUS` pone a un bot a cuidar de alguien que ELIGES despues, pinchandolo
+	-- en el mundo. Un macro no puede preguntar eso, asi que el macro solo ARMA
+	-- el gesto y el addon se encarga del segundo click.
+	{ name = "Cuidar",   icon = "Spell_Holy_PrayerOfHealing", raw = true,
+	  cmd = { "/rts focus" },          d = "el seleccionado cuida de quien pinches" },
+	{ name = "Suelta",   icon = "Spell_Shadow_Teleport", raw = true,
+	  cmd = { "/rts unfocus" },        d = "le quita el cuidado" },
 }
 
 M.CATALOGUE = MACROS
@@ -235,8 +271,13 @@ local function EachMacro(fn)
 	end
 end
 
+-- "Nuestro" es cualquier macro cuyo cuerpo hable por uno de nuestros comandos.
+-- `/rtscmd` marca los de orden a bots y `/rts` los del propio addon (candado,
+-- ventanas, salir) -- los dos tienen que contar, o `/rts macros` se negaria a
+-- actualizar la mitad de su propio catalogo diciendo que es del jugador.
 local function IsOurs(body)
-	return type(body) == "string" and body:find(MARK, 1, true) ~= nil
+	if type(body) ~= "string" then return false end
+	return body:find(MARK, 1, true) ~= nil or body:find("/rts", 1, true) ~= nil
 end
 
 -- Devuelve indice, esNuestro. Compara por NOMBRE porque es lo unico que sobrevive
@@ -253,10 +294,12 @@ local function FindByName(name)
 	return found, mine
 end
 
+-- `raw` = el cuerpo ya son comandos nuestros, no verbos de playerbots que haya
+-- que envolver en `/rtscmd`.
 local function BodyOf(entry)
 	local lines = {}
 	for _, c in ipairs(entry.cmd) do
-		table.insert(lines, MARK .. " " .. c)
+		table.insert(lines, entry.raw and c or (MARK .. " " .. c))
 	end
 	return table.concat(lines, "\n")
 end

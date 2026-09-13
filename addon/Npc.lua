@@ -193,7 +193,7 @@ function N:Layout()
 	actions.money:SetText("Lleva " .. Money(data.copper))
 
 	local h = 46 + PAD + BTN_H + PAD + math.max(ROW, y) + PAD
-	local maxH = (ns.HUD and ns.HUD.pixels or 1440) * 0.72
+	local maxH = (ns.Pixels and ns.Pixels.pixels or 1440) * 0.72
 	if h > maxH then h = maxH end
 	win:SetSize(W, h)
 	sheet:SetWidth(W - PAD * 2)

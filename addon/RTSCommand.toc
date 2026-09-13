@@ -1,8 +1,8 @@
 ## Interface: 30300
 ## Title: RTS Command
-## Notes: RTS-style command layer for playerbots. Free camera, selection, waypoint routes, WC3-style console with a group control panel in the middle.
+## Notes: RTS-style command layer for playerbots. Free camera, selection, waypoint routes, and action bars for the group along the bottom.
 ## Author: Jairo
-## Version: 1.27.0
+## Version: 1.28.0
 ## SavedVariables: RTSCommandDB
 
 Bridge.lua
@@ -24,14 +24,11 @@ RTSMode.lua
 Skin.lua
 Chrome.lua
 Standby.lua
-HUD.lua
-Bar.lua
-Hall.lua
-Party.lua
-Frames.lua
+Pixels.lua
+Dock.lua
 Cast.lua
-Panel.lua
-Rails.lua
+Tray.lua
+Portraits.lua
 Window.lua
 Bags.lua
 Quests.lua

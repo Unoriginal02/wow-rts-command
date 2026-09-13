@@ -1,16 +1,16 @@
 --[[
-	Widgets.lua -- las cuatro piezas que todos los paneles de la barra repiten.
+	Widgets.lua -- las cuatro piezas que todos los paneles repiten.
 
 	Una barra de estado, un texto, un boton de icono y el color de clase. Nada
-	mas. Existe porque los paneles de la barra (Vitals, Roster, Foes, Card,
-	Panel) los necesitaban todos, y la alternativa era la misma docena de lineas
-	copiada cinco veces -- que es como se acaba con cinco fuentes distintas y
-	cuatro texturas de barra distintas en la misma pantalla.
+	mas. Existe porque los paneles las necesitaban todas, y la alternativa era la
+	misma docena de lineas copiada cinco veces -- que es como se acaba con cinco
+	fuentes distintas y cuatro texturas de barra distintas en la misma pantalla.
 
-	TODAS LAS MEDIDAS SON PIXELES DE DIBUJO, no de pantalla. La barra es arte 2x
-	dibujado reducido (ver Bar.lua), asi que dentro de ella un texto de 22 se ve
-	como uno de 12. Los tamanos de aqui estan elegidos para eso, y por eso hay
-	`ns.W.FONT` en vez de un numero suelto en cada panel.
+	TODAS LAS MEDIDAS SON PIXELES FISICOS, no unidades de pantalla. Todo lo que
+	usa esto cuelga del contenedor de `Pixels.lua`, donde una unidad es un pixel,
+	asi que en una pantalla de 1440 un texto de 22 se ve como uno de 12. Los
+	tamanos de aqui estan elegidos para eso, y por eso hay `ns.W.FONT` en vez de
+	un numero suelto en cada panel.
 
 	EL COLOR DE CLASE SE PREGUNTA POR TOKEN, NO POR NOMBRE. `RAID_CLASS_COLORS`
 	esta indexado por el token en ingles ("MAGE"), que es el SEGUNDO valor que
@@ -188,8 +188,12 @@ end
 -- ademas es un frame PROTEGIDO: heredarlo aqui seria pedir que Blizzard bloquee
 -- la mitad de lo que hace este addon. Estos botones mandan texto por el canal de
 -- ordenes, que no esta protegido.
-function W:Button(parent, size, icon)
-	local b = CreateFrame("Button", nil, parent)
+-- `template` existe por la bandeja de macros: un macro solo se puede lanzar
+-- desde un `SecureActionButtonTemplate` (`RunMacro` esta protegida), y lo demas
+-- -- el fondo, el icono, el resalte -- es exactamente igual que en un boton
+-- corriente. Pasarlo aqui evita tener dos funciones que dibujan lo mismo.
+function W:Button(parent, size, icon, template)
+	local b = CreateFrame("Button", nil, parent, template)
 	b:SetWidth(size)
 	b:SetHeight(size)
 
