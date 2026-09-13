@@ -78,7 +78,6 @@ git pull
 y después los dos botones de deploy, más compilar el DLL y el `worldserver`.
 
 El porqué de cada decisión, callejones sin salida incluidos, está en los
-comentarios del fichero que la implementa, y los casos de prueba en `sim/`,
-donde se corren en vez de leerse. `docs/` existió y se borró a propósito
+comentarios del fichero que la implementa. `docs/` existió y se borró a propósito
 (`4c2b163`): unas notas que ya no coinciden con el binario son un sitio cómodo
 donde confirmar una idea equivocada sin abrir el código.

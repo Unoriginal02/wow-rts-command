@@ -119,7 +119,7 @@ local CVARS = {
 --
 -- Se llama desde `Create` y NO en el ambito del fichero, aunque ahi seria mas
 -- corto: `ns.Print` todavia no existe cuando este fichero carga. Lo canto
--- `sim/load_order.py` antes de compilar, que es justo para lo que esta.
+-- el orden del `.toc` antes de recargar, que es donde se ve.
 --
 -- CADA CVar SE MIRA POR SU CUENTA, y eso arregla un fallo latente. La version
 -- anterior registraba `rtsPoke` DENTRO del `if` de `rtsFov`, asi que en cuanto

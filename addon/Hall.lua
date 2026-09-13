@@ -64,7 +64,7 @@
 	sitios donde configurar lo mismo, y el jugador descubriendo en combate que
 	el hueco 2 no dice lo mismo segun cuantos lleve cogidos.
 
-	=== LAS MEDIDAS SALEN DE `sim/hall_layout.py` ============================
+	=== LAS MEDIDAS SALEN DEL HUECO DE LA SALA ===============================
 
 	No estan elegidas a ojo: el guion reparte la sala para los cinco `grow` y
 	los dos estados, y comprueba que nada se sale, nada se solapa y ningun hueco
@@ -98,7 +98,7 @@ H.active = false
 
 --- Las medidas ------------------------------------------------------------
 --
--- Espejo exacto de `sim/hall_layout.py`. Los nombres coinciden a proposito.
+-- Calculado desde el hueco de la sala, no elegido a ojo.
 
 -- LA COLUMNA DE PERSONAJES Y EL AIRE QUE LA SEPARA DEL RESTO.
 --
@@ -114,7 +114,7 @@ H.active = false
 -- llena su sitio, se lee igual de bien, y los 168 px que sobran se los queda el
 -- centro, que es donde hacian falta.
 --
--- El tope de la columna lo pone `sim/hall_layout.py`: menos del 20% de la sala
+-- El tope de la columna sale del ancho util: menos del 20% de la sala
 -- con el `grow` que sale solo, o deja de ser una columna y pasa a ser la mitad
 -- de la consola.
 local LIST_W   = 272

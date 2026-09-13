@@ -62,7 +62,7 @@ ns.Bags = B
 -- 74, copiado del boton de bolsa de los railes -- pero esta ventana lleva la
 -- escala de pixel de la HUD, o sea que **1 unidad de aqui es 1 pixel fisico**.
 -- 74 px es MAS GRANDE que un boton de la barra de acciones, que en esta
--- pantalla mide 62 (`sim/bar_layout.py` lo imprime). Una casilla de bolsa tiene
+-- pantalla mide 62, medido contra `ActionButton1`. Una casilla de bolsa tiene
 -- que ser mas pequena que un boton de accion, no mayor.
 --
 -- 40 px es aproximadamente lo que mide una casilla de mochila del cliente, que

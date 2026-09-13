@@ -28,7 +28,7 @@
 	    porque la usa `W:Bar` para su fondo desde que existe.
 	  * EL RECURSO ES UNA LINEA. Seis pixeles de dibujo, que a la escala de la
 	    barra son 3,4 de pantalla -- dentro del "2-4 px" que pide el brief. Lo
-	    comprueba `sim/hall_layout.py`.
+	    sale del alto util de la sala.
 
 	=== SIRVE PARA SELECCIONAR Y PARA APUNTAR ===============================
 
@@ -54,7 +54,7 @@ ns.Party = P
 
 P.active = false
 
--- El reparto vertical de una fila. Sale de `sim/hall_layout.py`: con la sala
+-- El reparto vertical de una fila. Sale del alto util: con la sala
 -- en 344 y cinco filas, la fila mide 65 y dentro caben 24 de nombre, 31 de
 -- vida y 6 de linea de recurso.
 -- EL NOMBRE SUBE DE 24 A 26 Y CAMBIA DE FUENTE, por `PRUEBAS-23` A2: *"texto
@@ -63,7 +63,7 @@ P.active = false
 -- que el cliente escriba.
 --
 -- 26 ES EL TOPE Y NO ES ARBITRARIO: la fila mide 65, y de ahi salen el nombre,
--- la vida y la linea de recurso. `sim/hall_layout.py` comprueba que la barra de
+-- la vida y la linea de recurso. La cuenta de abajo deja la barra de
 -- vida siga siendo la pieza dominante de la fila -- con 28 dejaria de serlo, y
 -- entonces la fila se leeria como una etiqueta con una barra debajo en vez de
 -- como un marco de unidad.
