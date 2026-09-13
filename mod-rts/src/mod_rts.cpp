@@ -24,6 +24,7 @@
 #include "Chat.h"
 #include "CommandScript.h"
 #include "Config.h"
+#include "GameObject.h"   // el nodo de recoleccion del click derecho
 #include "Group.h"
 #include "ObjectAccessor.h"
 #include "ObjectMgr.h"
@@ -67,6 +68,10 @@ namespace
     // pieces in this project -- the DLL, this module, and the addon -- and only
     // the DLL had a version you could see, which made a server-side fix look
     // like nothing had happened. All three now report.
+    // 0.50.0 = un click derecho sobre un nodo de recoleccion deja de ser una
+    // orden de movimiento. Recoger una hierba es un LANZAMIENTO y `MoveSelf` lo
+    // cancelaba, asi que el arreglo es apartarse: a tiro no se manda nada y
+    // recoge el cliente; lejos, te lleva andando. Acuse nuevo: `DID GATHER`.
     // 0.49.0 = LA POSESION SE VA ENTERA. El verbo `POSSESS`, `PossessBot`,
     // `ReleaseBot`, `ReleaseAnyPossession` y `ReleaseAll` (la de `orders`) estan
     // borrados: el jugador la retiro el 2026-09-11 -- *"posees raro, eso
@@ -88,7 +93,7 @@ namespace
     // tercera condicion de `MoveSelf`. El addon debe pedir `ServerAtLeast(46)`
     // antes de usar esos verbos: un verbo que el servidor no conoce NO da error,
     // no contesta, asi que un worldserver sin reiniciar se lee como un addon roto.
-    constexpr char const* kModVersion = "0.49.0";
+    constexpr char const* kModVersion = "0.50.0";
 
     std::string Upper(std::string s)
     {
@@ -1384,6 +1389,69 @@ namespace
                 }
                 SendAddon(player, "DID INTERACT " + std::to_string(hit));
                 return true;
+            }
+
+            // === UNA HIERBA NO ES SUELO ==============================
+            //
+            // Antes de tratar el click como un movimiento se mira si donde se
+            // pincho hay un nodo de recoleccion. Si lo hay, el click NO es una
+            // orden de movimiento para nadie -- y ese "para nadie" es el
+            // arreglo entero.
+            //
+            // Una hierba se recoge con un LANZAMIENTO, y `MoveSelf` es
+            // `StopMoving` + `MovePoint`: moverse cancela el lanzamiento que el
+            // cliente acaba de empezar con ese mismo click. Medido el
+            // 2026-09-13 con la prueba de siempre -- sin nada seleccionado la
+            // hierba se recoge, con el grupo cogido no -- que es la misma que
+            // cerro el parpadeo del botin del cadaver.
+            //
+            // Se busca contra el punto del RAYO cuando lo hay. El punto de un
+            // destino no vale: lleva ya el desplazamiento de la formacion, asi
+            // que apunta al sitio del bot y no a donde pincho el jugador.
+            if (intent == rts::orders::CLICK_MOVE)
+            {
+                float nx = gx, ny = gy, nz = gz;
+                if (!fixed)
+                {
+                    // Sin rayo resuelto -- DLL viejo, o el rayo no corto -- se
+                    // usa el destino del propio jugador. Es menos exacto por el
+                    // desplazamiento de la formacion, pero con el radio de dos
+                    // yardas todavia acierta un nodo que tienes a los pies, que
+                    // es el caso que importa.
+                    bool have = false;
+                    for (Dest const& d : dests)
+                        if (d.name == selfName)
+                        {
+                            nx = d.x; ny = d.y; nz = d.z;
+                            have = true;
+                            break;
+                        }
+                    if (!have && !dests.empty())
+                    {
+                        nx = dests.front().x;
+                        ny = dests.front().y;
+                        nz = dests.front().z;
+                        have = true;
+                    }
+                    if (!have)
+                        nx = ny = nz = 0.0f;
+                }
+
+                if (GameObject* node = rts::orders::NodeAt(player, nx, ny, nz))
+                {
+                    // Los bots se quedan al margen, igual que con el cadaver:
+                    // un nodo lo recoge UNO, y el que tiene la profesion y las
+                    // bolsas eres tu. Mandar a cinco bots a pisarlo no recoge
+                    // nada y deshace la formacion.
+                    bool const reach = rts::orders::SelfGather(player, node);
+
+                    // Y SE DICE SIEMPRE, porque este es el unico click del modo
+                    // que puede acabar sin mover a nadie: sin una linea, "el
+                    // grupo no se mueve" y "el click se perdio" se ven igual.
+                    SendAddon(player, std::string("DID GATHER ") +
+                        (reach ? "1 " : "0 ") + node->GetName());
+                    return true;
+                }
             }
 
             int moved = 0;

@@ -731,6 +731,25 @@ ns.Link:On("DID", function(rest)
 		local spell = GetSpellInfo(tonumber(n) or 0)
 		ns.Print(("|cff33ccfftu|r: %s"):format(spell or ("hechizo " .. n)))
 
+	elseif did == "GATHER" then
+		-- EL UNICO CLICK DEL MODO QUE PUEDE NO MOVER A NADIE, y por eso este
+		-- acuse no es opcional: pinchas una hierba, el grupo se queda quieto a
+		-- proposito, y sin una linea eso se lee exactamente igual que un click
+		-- perdido.
+		--
+		-- Recoger es del CLIENTE: el mismo click derecho ya ha lanzado tu
+		-- hechizo de profesion. Lo que el servidor hace es apartarse -- no
+		-- mandarte una orden de movimiento que lo cancele -- y decirlo aqui.
+		local what = (label ~= "" and label) or "eso"
+		if n == "1" then
+			ns.Print(("|cff33ccffrecoges|r %s"):format(what))
+		else
+			-- Fuera de alcance el cliente no llego a intentarlo, asi que el
+			-- servidor te lleva y el que recoge es el siguiente click. Se dice,
+			-- o se queda uno esperando una barra que no va a salir.
+			ns.Print(("|cffffff00vas hacia|r %s |cff888888(vuelve a pincharlo al llegar)|r"):format(what))
+		end
+
 	elseif did == "MOVE" and n == "0" then
 		ns.Print("|cffffff00Move order reached no bots.|r")
 

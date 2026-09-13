@@ -5,7 +5,11 @@
 #include "RtsBotApi.h"   // la unica puerta a mod-playerbots
 
 #include "SpellInfo.h"
+#include "CellImpl.h"
 #include "Creature.h"
+#include "GameObject.h"
+#include "GridNotifiers.h"
+#include "GridNotifiersImpl.h"
 #include "LootMgr.h"
 #include "ObjectDefines.h"   // INTERACTION_DISTANCE
 #include "Group.h"
@@ -733,6 +737,98 @@ bool rts::orders::SelfInteract(Player* player, ObjectGuid targetGuid)
     }
 
     return DoInteract(player, creature);
+}
+
+namespace
+{
+    // A CUANTO DEL PUNTO PINCHADO CUENTA COMO "HAS PINCHADO ESE NODO".
+    //
+    // No es un radio de gusto, sale de por donde viene el punto. El addon manda
+    // el corte del rayo del cursor, que segun el modelo cae EN la planta o en el
+    // suelo justo debajo de ella -- el rayo del cliente no siempre lleva los
+    // doodads pequenos -- asi que la horquilla real es de una yarda larga. Dos
+    // la cubren.
+    //
+    // Y no mas: cada yarda de mas es una yarda en la que un click al SUELO deja
+    // de mover al grupo, que es el precio de este arreglo y hay que tenerlo
+    // corto. En un prado lleno de hierbas eso se nota enseguida.
+    constexpr float kNodeRadius = 2.0f;
+
+    // LO QUE CUENTA COMO NODO, y es a proposito la lista mas corta que sirve.
+    //
+    // Solo COFRE (type 3): hierbas, vetas y cofres. Es lo que se pidio y es
+    // ademas lo unico cuyo click se puede robar sin romper nada -- una puerta,
+    // una silla o un buzon tambien son GameObjects, y hacer que se traguen la
+    // orden de movimiento del grupo por estar cerca seria cambiar el modo RTS
+    // entero por un arreglo de recoleccion.
+    struct NodeCheck
+    {
+        float x, y, z;
+
+        bool operator()(GameObject* go) const
+        {
+            if (!go || !go->IsInWorld())
+                return false;
+            if (go->GetGoType() != GAMEOBJECT_TYPE_CHEST)
+                return false;
+            // Lo que el propio nucleo exige para poder usarlo. Un nodo ya
+            // recogido sigue en el mapa hasta que reaparece, y ese no es un
+            // nodo: es paisaje, y su click tiene que volver a ser un movimiento.
+            if (!go->isSpawned() || go->GetGoState() != GO_STATE_READY)
+                return false;
+            if (go->HasGameObjectFlag(GO_FLAG_NOT_SELECTABLE))
+                return false;
+            return go->IsWithinDist3d(x, y, z, kNodeRadius);
+        }
+    };
+}
+
+GameObject* rts::orders::NodeAt(Player* master, float x, float y, float z)
+{
+    if (!master || !master->IsInWorld())
+        return nullptr;
+
+    std::list<GameObject*> found;
+    NodeCheck check{x, y, z};
+    Acore::GameObjectListSearcher<NodeCheck> searcher(master, found, check);
+    // Se visita alrededor del PUNTO, no del jugador: el click puede caer lejos
+    // y las celdas que se recorren tienen que ser las de alli.
+    Cell::VisitObjects(x, y, master->GetMap(), searcher, kNodeRadius);
+
+    GameObject* best = nullptr;
+    float bestDist = 0.0f;
+    for (GameObject* go : found)
+    {
+        float const d = go->GetExactDist(x, y, z);
+        if (!best || d < bestDist)
+        {
+            best = go;
+            bestDist = d;
+        }
+    }
+    return best;
+}
+
+bool rts::orders::SelfGather(Player* player, GameObject* node)
+{
+    if (!player || !node)
+        return false;
+
+    // A TIRO NO SE TOCA NADA. Es literalmente todo el arreglo: el mismo click
+    // derecho ya ha hecho que el cliente lance el hechizo de profesion, y lo
+    // unico que hacia falta era no mandarle detras una orden de movimiento que
+    // lo cancela. Misma regla y mismo reparto que el cadaver de `SelfInteract`:
+    // a tiro, el cliente; lejos, nosotros.
+    if (player->IsWithinDistInMap(node, node->GetInteractionDistance()))
+        return true;
+
+    // Lejos: el cliente no ha podido hacer nada -- su propia comprobacion de
+    // alcance lo paro antes de mandar nada -- asi que aqui no hay ningun
+    // lanzamiento que respetar y andar es lo correcto.
+    float gx, gy, gz;
+    node->GetContactPoint(player, gx, gy, gz, kStandOff);
+    rts::orders::MoveSelf(player, gx, gy, gz);
+    return false;
 }
 
 void rts::orders::UpdatePending(uint32 diff)

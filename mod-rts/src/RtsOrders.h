@@ -5,6 +5,7 @@
 
 #include <string>
 
+class GameObject;
 class Player;
 class WorldObject;
 
@@ -154,6 +155,42 @@ namespace rts
         };
 
         ClickIntent ClassifyClick(Player* master, ObjectGuid targetGuid);
+
+        // === UN NODO DE RECOLECCION NO ES SUELO ==========================
+        //
+        // Una hierba o una veta es un GameObject, no una unidad, asi que no
+        // tiene GUID que el addon pueda mandar: en 3.3.5a Lua no puede
+        // preguntar que objeto hay bajo el cursor -- `mouseover` solo existe
+        // para unidades. Lo que el addon SI manda es donde pincho, con el rayo
+        // del DLL cortado contra el terreno y los modelos, y eso basta: se
+        // busca aqui lo que haya a un par de yardas de ese punto.
+        //
+        // Devuelve el nodo mas cercano al punto, o nullptr.
+        GameObject* NodeAt(Player* master, float x, float y, float z);
+
+        // === Y RECOGERLO ES DEL CLIENTE, COMO EL CADAVER =================
+        //
+        // Lo unico que hacia falta era DEJARLE. Una hierba se recoge con un
+        // LANZAMIENTO -- la barrita -- y el click derecho del modo RTS mandaba
+        // ademas una orden de movimiento a tu propio heroe: `MoveSelf` es
+        // `StopMoving` + `MovePoint`, o sea moverse, o sea **cancelar el
+        // lanzamiento**. Por eso el cadaver si se looteaba (no hay barra que
+        // cancelar) y la hierba no.
+        //
+        // Medido en juego el 2026-09-13 con la misma prueba que cerro el botin
+        // del cadaver: sin nada seleccionado -- o sea sin orden nuestra -- la
+        // hierba se recoge. Con el grupo cogido, no.
+        //
+        // Asi que a tiro esto no manda NADA y se aparta. Fuera de alcance el
+        // cliente no ha podido hacer nada, y ahi si vale la pena andar: te
+        // lleva al nodo y el siguiente click ya es del cliente. El
+        // lanzamiento no se replica aqui a proposito -- la comprobacion de
+        // profesion, la subida de habilidad y la barra son suyas, y hacerlas
+        // dos veces es como se rompen las dos.
+        //
+        // Devuelve true si tenias el nodo a tiro (o sea, si el cliente ya esta
+        // en ello); false si te ha mandado andando.
+        bool SelfGather(Player* player, GameObject* node);
 
         // ¿Ese bot esta en "Esperar" (la estrategia `passive` de playerbots)?
         //
