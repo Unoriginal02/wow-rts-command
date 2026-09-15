@@ -67,6 +67,43 @@ local colBtn = {}         -- ci -> { head, spells = {} }
 local headName
 local flyout
 
+--- Los nombres, acotados a lo largo ---------------------------------------
+--
+-- Un nombre de este cliente llega a doce letras, y a cuerpo 32 eso es una
+-- etiqueta mas ancha que media fila de huecos: el rotulo pesaba mas que lo que
+-- hay debajo, que es lo que de verdad se usa. Se corta.
+--
+-- SIN PUNTOS SUSPENSIVOS a proposito: los tres puntos devuelven casi todo el
+-- ancho que se acaba de quitar, asi que serian el mismo problema escrito de
+-- otra forma. Y un nombre cortado se reconoce igual: son los cinco de tu grupo,
+-- no una lista de desconocidos.
+--
+-- La columna del estado B se corta antes que el rotulo grande porque es mas
+-- estrecha -- ahi ya habia un `SetWidth` para que un nombre largo no se dibujara
+-- encima del de al lado, pero un `SetWidth` no recorta: PARTE EN DOS LINEAS, y
+-- la segunda se sale del alto de la cabecera.
+local NAME_A = 10         -- el rotulo grande, encima de los diez huecos
+local NAME_B = 8          -- el de cada columna
+
+local function Clip(name, max)
+	name = tostring(name or "")
+	if name:len() <= max then return name end
+	local cut = name:sub(1, max)
+	-- No partir una letra por la mitad. En UTF-8 los bytes de continuacion van
+	-- de 0x80 a 0xBF y un byte suelto se dibuja como un rombo negro; el cliente
+	-- en espanol admite tildes en los nombres, asi que puede pasar.
+	while cut ~= "" do
+		local b = cut:byte(-1)
+		if b < 0x80 or b >= 0xC0 then break end
+		cut = cut:sub(1, -2)
+	end
+	-- Y si lo ultimo que queda es el ARRANQUE de una letra multibyte, sobra
+	-- tambien: su cola se fue en el corte.
+	local b = cut:byte(-1)
+	if b and b >= 0xC0 then cut = cut:sub(1, -2) end
+	return cut
+end
+
 --- Estado del foco --------------------------------------------------------
 --
 -- name -> guid, para poder dibujar quien lo lleva puesto. Lo dice el servidor
@@ -470,7 +507,7 @@ function C:Refresh()
 
 		if headName then
 			local c = ns.W:ClassColor(ns.Selection:UnitFor(owner) or "player")
-			headName:SetText(owner)
+			headName:SetText(Clip(owner, NAME_A))
 			headName:SetTextColor(c.r, c.g, c.b)
 		end
 		local slots = ns.Skills:Slots(owner, ns.Dock.MAIN_N, "main")
@@ -486,7 +523,7 @@ function C:Refresh()
 		local col = colBtn[ci]
 		if col then
 			local c = ns.W:ClassColor(m.unit)
-			col.head:SetText(m.name)
+			col.head:SetText(Clip(m.name, NAME_B))
 			col.head:SetTextColor(c.r, c.g, c.b)
 
 			local slots = ns.Skills:Slots(m.name, ns.Dock.B_SLOTS, "group")
