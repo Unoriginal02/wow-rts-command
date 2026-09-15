@@ -490,6 +490,20 @@ local function Fire(owner, spellId, guid)
 	ns.SendServer(verb .. " " .. owner .. " " .. spellId .. (hex and (" " .. hex) or ""))
 end
 
+-- EL OBJETIVO DEL CLIENTE, Y SOLO SI SIRVE PARA ATACAR.
+--
+-- `UnitGUID("target")` a secas no vale, y el porque esta escrito entero en el
+-- bloque de "siempre pregunta" de abajo: en este modo el objetivo casi siempre
+-- es el RESIDUO de haber pinchado a alguien, y eso incluye a los tuyos. Las
+-- tres preguntas de aqui son las que separan "he elegido a quien atacar" de
+-- "he seleccionado a mi sacerdotisa": existe, esta vivo, y se le puede atacar.
+local function HostileTarget()
+	if not UnitExists("target") then return nil end
+	if UnitIsDead("target") then return nil end
+	if not UnitCanAttack("player", "target") then return nil end
+	return UnitGUID("target"), UnitName("target")
+end
+
 --- Apuntar -----------------------------------------------------------------
 --
 -- EL GESTO DE §5 DEL BRIEF. Pulsar un hechizo que necesita objetivo no lo
@@ -525,6 +539,20 @@ end
 -- `AimAt`, donde el jugador SI ha elegido a quien. Alli avisa y no bloquea: la
 -- clasificacion no es infalible y el servidor rechaza lo imposible de todas
 -- formas.
+--
+-- === SALVO LO OFENSIVO, QUE SALE SOBRE LO APUNTADO (2026-09-16) =========
+--
+-- Pedido en juego, y no contradice nada de lo de arriba: lo que hacia falsa la
+-- premisa era el RESIDUO -- pinchar a alguien para seleccionarlo lo apunta de
+-- paso -- y ese residuo es SIEMPRE uno de los tuyos. Un hechizo `H` solo sale
+-- si lo apuntado se puede atacar (`HostileTarget`), asi que el caso de la
+-- sacerdotisa no puede llegar aqui: a ella no se le puede atacar y el gesto
+-- cae en el de siempre.
+--
+-- Y la razon de que esta mitad SI merezca el atajo es que atacar es lo unico
+-- que se hace en rafaga. Preguntar a quien una vez por hechizo esta bien para
+-- una cura; para el tercer golpe sobre el mismo bicho es una pulsacion de mas
+-- por cada uno, y el objetivo lleva ahi desde el primero.
 
 function K:Use(name, i, set)
 	name = name or ns.Selection:GetPrimary()
@@ -561,6 +589,30 @@ function K:Use(name, i, set)
 		ns.Print(("|cff33ccff%s|r -> %s |cff888888(%s)|r%s"):format(name, s.name,
 			info.label, guid and " sobre si" or ""))
 		return
+	end
+
+	-- LO OFENSIVO NO PREGUNTA: SALE SOBRE LO QUE TENGAS APUNTADO.
+	--
+	-- `friendly == false` es la letra `H` y solo ella -- no "lo que no es
+	-- amistoso", que se llevaria por delante al suelo (`G`), a los muertos
+	-- (`D`) y a lo sin clasificar (`?`), donde preguntar sigue siendo lo unico
+	-- reversible.
+	--
+	-- SIN NADA HOSTIL APUNTADO SE ARMA COMO SIEMPRE, que es la unica salida que
+	-- no dispara a ciegas: mandarlo sin guid se lo tira el bot a lo que EL
+	-- tenga apuntado, que no es lo que acabas de pedir, y no hay forma de
+	-- notarlo desde aqui.
+	--
+	-- Y SHIFT SIGUE PREGUNTANDO, que es como se le lanza a otro sin tener que
+	-- cambiar tu objetivo primero.
+	if info.friendly == false and not IsShiftKeyDown() then
+		local guid, who = HostileTarget()
+		if guid then
+			Fire(name, s.spellId, guid)
+			ns.Print(("|cff33ccff%s|r -> %s sobre %s"):format(
+				name, s.name, who or "tu objetivo"))
+			return
+		end
 	end
 
 	-- EL JUEGO VA EN LO ARMADO. El hueco 2 de los diez y el hueco 2 del 2x2 son
