@@ -1,582 +1,592 @@
 # RTS Command
 
-Capa de control estilo RTS (Warcraft 3 / StarCraft) para un servidor privado de
-World of Warcraft 3.3.5a con AzerothCore + mod-playerbots.
+An RTS-style command layer (Warcraft 3 / StarCraft) for a private World of
+Warcraft 3.3.5a server running AzerothCore + mod-playerbots.
 
-Coges a tus alts, los metes de bots, y el juego pasa a jugarse desde arriba:
-cámara libre, selección por caja, órdenes con el ratón, y la barra de abajo
-mandando a todo el grupo. Lo que en WoW no existe —ver las bolsas de un
-compañero, su registro de misiones, hablar con el entrenador *siendo él*— se
-dibuja aquí.
+You take your own alts, bring them in as bots, and the game starts being played
+from above: free camera, box selection, mouse orders, and a bottom bar that
+commands the whole party. The things WoW simply does not have — seeing a party
+member's bags, their quest log, talking to a trainer *as them* — get drawn here.
 
-**Aquí se trabaja.** Esta carpeta es el original de las tres piezas. Lo que hay
-en el WoW y dentro de AzerothCore son copias desplegadas.
+**This folder is where the work happens.** It is the original of all three
+pieces. What lives inside the WoW client and inside AzerothCore are deployed
+copies.
 
-| Pieza | Versión | Qué es |
+| Piece | Version | What it is |
 |---|---|---|
-| `addon/` | 1.31.0 | Addon Lua: interfaz, selección, órdenes, cámara |
-| `mod-rts/` | 0.52.0 | Módulo de AzerothCore: órdenes directas a la IA, quests, bolsas, PNJ, swap |
-| `rts-client-mod/` | `rts_core.dll` 0.29.0 | Inyectado en el cliente: coordenadas, raycast, efectos nativos |
+| `addon/` | 1.31.0 | Lua addon: UI, selection, orders, camera |
+| `mod-rts/` | 0.52.0 | AzerothCore module: orders straight into the AI, quests, bags, NPCs, character swap |
+| `rts-client-mod/` | `rts_core.dll` 0.29.0 | Injected into the client: world coordinates, raycast, native effects |
 
 ```
-Cliente WoW  <->  worldserver (+ mod-rts + mod-playerbots)  <->  MySQL
+WoW client  <->  worldserver (+ mod-rts + mod-playerbots)  <->  MySQL
      ^
-     +-- addon RTSCommand   (interfaz, selección, órdenes)
-     +-- rts_core.dll       (solo local: coordenadas, raycast, efectos nativos)
+     +-- RTSCommand addon   (UI, selection, orders)
+     +-- rts_core.dll       (local only: coordinates, raycast, native effects)
 ```
 
----
-
-## Índice
-
-1. [Empezar](#1-empezar)
-2. [Dónde está cada cosa](#2-dónde-está-cada-cosa)
-3. [Las funciones, por áreas](#3-las-funciones-por-áreas)
-4. [Lo que le tocamos al cliente y al núcleo](#4-lo-que-le-tocamos-al-cliente-y-al-núcleo)
-5. [Desplegar y compilar](#5-desplegar-y-compilar)
-6. [Reglas del repositorio](#6-reglas-del-repositorio)
+> The in-game commands and the UI are in Spanish, because that is the language
+> this is played in. Command names appear here verbatim — they are what you
+> actually type.
 
 ---
 
-## 1. Empezar
+## Contents
 
-1. `C:\Server\rts-tools\1_Iniciar_Servidor.bat` — levanta el worldserver.
-2. `C:\Server\rts-tools\2-Jugar.bat` — abre el WoW **e inyecta `rts_core.dll`**.
-   Sin esto no hay cámara libre ni click al suelo: el addon se niega a arrancar
-   la cámara en vez de fingir que va.
-3. Dentro, con un personaje: pon la orden **Traer bots** en una casilla de la
-   bandeja (o escribe `/rts invitar`) y entra en modo RTS con `/rts mode`.
-4. `/rts` a secas imprime la ayuda entera, unas sesenta líneas.
+1. [Getting started](#1-getting-started)
+2. [Where everything is](#2-where-everything-is)
+3. [Features, by area](#3-features-by-area)
+4. [What we touch in the client and the core](#4-what-we-touch-in-the-client-and-the-core)
+5. [Deploying and building](#5-deploying-and-building)
+6. [Repository rules](#6-repository-rules)
 
-La lista de bots que trae `invitar` se cambia con
+---
+
+## 1. Getting started
+
+1. `C:\Server\rts-tools\1_Iniciar_Servidor.bat` — brings up the worldserver.
+2. `C:\Server\rts-tools\2-Jugar.bat` — launches WoW **and injects
+   `rts_core.dll`**. Without it there is no free camera and no click-to-ground:
+   the addon refuses to start the camera rather than pretend it works.
+3. In game, on any character: put the **Traer bots** order in a tray slot (or
+   type `/rts invitar`), then enter RTS mode with `/rts mode`.
+4. `/rts` on its own prints the full help — about sixty lines.
+
+The bot roster `invitar` uses is changed with
 `/rts invitar lista Neferite,Kirinah,Avy`.
 
 ---
 
-## 2. Dónde está cada cosa
+## 2. Where everything is
 
-### El ratón, en modo RTS
+### The mouse, in RTS mode
 
-| Gesto | Qué hace |
+| Gesture | What it does |
 |---|---|
-| Clic izquierdo en una unidad | seleccionarla (**shift** añade o quita) |
-| Arrastrar izquierdo en el suelo | selección por caja |
-| Clic izquierdo en suelo vacío | deseleccionar |
-| **Alt** + clic en una unidad | tomar control directo de ella |
-| Clic derecho en el suelo | mandar ahí a la selección |
-| Clic derecho en un enemigo | atacarlo |
-| Clic derecho en un PNJ | interactuar |
-| **Shift** + clic derecho | encadenar un punto de ruta más |
-| **Shift** + clic izquierdo en hostil | ponerle número de cadena de ataque (1..8) |
-| Arrastrar derecho | girar la cámara (mouselook nativo del cliente) |
-| Izquierdo + derecho a la vez | avanzar, el gesto de siempre |
-| Clic en un marco de grupo de Blizzard | seleccionarlo, con las mismas reglas |
+| Left-click a unit | select it (**shift** adds or removes) |
+| Left-drag on the ground | box selection |
+| Left-click empty ground | deselect |
+| **Alt** + click a unit | take direct control of it |
+| Right-click the ground | send the selection there |
+| Right-click an enemy | attack it |
+| Right-click an NPC | interact |
+| **Shift** + right-click | chain another waypoint |
+| **Shift** + left-click a hostile | give it an attack-chain number (1..8) |
+| Right-drag | turn the camera (the client's own mouselook) |
+| Left + right together | move forward, the usual gesture |
+| Click a Blizzard party frame | select that unit, same rules |
 
-### El teclado
+### The keyboard
 
-La cámara libre se queda ocho teclas mientras dura el modo RTS, y **las
-devuelve al salir** —se apuntan antes de tocarlas y no se guardan nunca, así
-que una desconexión no te deja sin WASD.
+The free camera borrows eight keys for as long as RTS mode lasts, and **gives
+them back on the way out** — they are recorded before being touched and never
+saved, so a disconnect cannot leave you without WASD.
 
-| Tecla | Cámara libre | Candado / vista del héroe |
+| Key | Free camera | Lock / hero view |
 |---|---|---|
-| `W A S D` | mover la cámara en el plano horizontal | retocar el sitio respecto al héroe |
-| `ESPACIO` / `C` | subir y bajar | subir y bajar sobre él |
-| `Q` / `E` | girar | girar |
+| `W A S D` | move the camera on the horizontal plane | nudge the offset from the hero |
+| `SPACE` / `C` | up and down | up and down relative to him |
+| `Q` / `E` | turn | turn |
 
-Lo demás se asigna en **Opciones → Teclas → RTS Command**: entrar y salir del
-modo, cámara, seleccionar todo, limpiar selección, las cinco órdenes
-(mover/quieto/seguir/atacar/attack-move), seleccionar la unidad 1..8, los diez
-huecos de hechizo, las bolsas del grupo, y cuatro grupos de control
-(**Alt + tecla** guarda el grupo, la tecla sola lo recupera).
+Everything else is bound under **Options → Key Bindings → RTS Command**: enter
+and leave the mode, camera, select all, clear selection, the five orders
+(move/hold/follow/attack/attack-move), select unit 1..8, the ten spell slots,
+the party bags, and four control groups (**Alt + key** saves the group, the key
+alone recalls it).
 
-### La barra de abajo
+### The bottom bar
 
 ```
 +---------------------------------------------------------------+
 |              Bob  (dps)                                       |
 |        [1][2][3][4][5][6][7][8][9][0]    [M][M][M][M][M]      |
 |                                          [M][M][M][M][M]      |
-|                                          [bolsas del juego]   |
-|                                          [ficha][talentos]... |
+|                                          [ the game's bags ]  |
+|                                          [char][talents]...   |
 +---------------------------------------------------------------+
 ```
 
-- **En el centro, la unidad.** Con uno cogido (o ninguno, y entonces eres tú):
-  su nombre y **diez huecos de hechizo**. Con dos o más: una columna por cabeza
-  con un 2x2 de **cuatro** —que son *otra lista*, la de lo que se manda en
-  grupo, no los cuatro primeros de los diez.
-- **A la derecha, lo tuyo,** y no se mueve nunca: diez casillas, las bolsas y
-  el menú de juego.
+- **Centre: the unit.** With one selected (or none, and then it is you): their
+  name and **ten spell slots**. With two or more: one column per head with a
+  2x2 of **four** — and those are *a different list*, the things you cast on the
+  group, not the first four of the ten.
+- **Right: your own stuff,** and it never moves: ten slots, the bags and the
+  game menu.
 
-### Las diez casillas de la bandeja
+### The ten tray slots
 
-Cada casilla admite dos cosas distintas:
+A slot takes two different things:
 
-| Gesto | Qué hace |
+| Gesture | What it does |
 |---|---|
-| Clic derecho | el desplegable con el catálogo de órdenes del addon |
-| Arrastrar un macro encima | pone ese macro (hace falta para `/cast`, `/use`, `/target`) |
-| Clic izquierdo | lanza lo que lleve |
+| Right-click | the dropdown with the addon's order catalogue |
+| Drag a macro onto it | puts that macro there (needed for `/cast`, `/use`, `/target`) |
+| Left-click | fires whatever it holds |
 
-El catálogo (`/rts ordenes`) trae: **Traer bots**, **Sígueme**, **Quieto**,
-**Reunir**, **Cráneo**, **Luna**, **Reset grupo**, **Control**, **Bolsas**,
-**Misiones**, **Candado**, **Cámara** y **Modo RTS**. Los iconos propios son
-arte nuestro, no de la lista cerrada del cliente.
+The catalogue (`/rts ordenes`) ships: **Traer bots** (summon your bots into the
+party), **Sígueme** (follow), **Quieto** (hold), **Reunir** (teleport the party
+to you), **Cráneo** / **Luna** (skull / moon mark plus the matching order),
+**Reset grupo**, **Control** (swap into the selected character), **Bolsas**,
+**Misiones**, **Candado** (camera lock), **Cámara** and **Modo RTS**. The custom
+icons are our own art, not from the client's closed macro-icon list.
 
-> **La excepción:** una orden puede llevar **segunda orden** en el clic derecho.
-> Hoy solo la lleva el **Candado**: izquierdo clava la cámara a la distancia que
-> tenga ahora mismo, **derecho la pone encima del héroe mirando como él**. En
-> esas casillas el desplegable se aparta a **Mayús + derecho**, y el tooltip lo
-> dice.
+> **The exception:** an order can carry a **second order** on right-click. Today
+> only **Candado** does: left-click pins the camera at whatever distance it is
+> at right now, **right-click puts it above the hero, facing the way he faces**.
+> On those slots the dropdown moves to **Shift + right-click**, and the tooltip
+> says so.
 
 ---
 
-## 3. Las funciones, por áreas
+## 3. Features, by area
 
-Cada fila dice **dónde vive**. El porqué de cada decisión —callejones sin
-salida incluidos— está en la cabecera del fichero que la implementa.
+Every row says **where it lives**. The reasoning behind each decision — dead
+ends included — is in the header of the file that implements it.
 
-### 3.1 La cámara
+### 3.1 The camera
 
-| Función | Cómo se usa | Dónde vive |
+| Feature | How you use it | Where it lives |
 |---|---|---|
-| **Cámara libre RTS** — vuela en el plano, sube y baja, sigue el suelo | `/rts mode`, `/rts cam` | `addon/FreeCam.lua` |
-| **Candado** — clava la cámara a una distancia fija del héroe y viaja con él | casilla Candado, `/rts fc lock` | `addon/FreeCam.lua` |
-| **Vista del héroe** — en un clic, la cámara encima de él y orientada como él | clic **derecho** en el Candado, `/rts fc ojos` | `addon/FreeCam.lua` |
-| **Salida de emergencia** — devuelve la cámara sobre tu héroe | `/rts fc home` | `addon/FreeCam.lua` |
-| **El suelo no es "lo primero que hay debajo"** — un tejado deja de contar, así que se puede entrar en las casas | `/rts fc floor 1` | `addon/FreeCam.lua` |
-| **Filtro de escalón** — una cuesta se sigue de cerca, un escalón se sube despacio | `/rts fc climb/soft/slow` | `addon/FreeCam.lua` |
-| **Sin colisión** — la cámara atraviesa geometría (cuevas) | `/rts fc noclip 1` | `addon/Camera.lua` |
-| **Punto en el mapa** — dónde está mirando la cámara, en el mapa del mundo | `/rts punto` | `addon/Radar.lua` |
-| **Encuadre guardado** — tilt, zoom, FOV, sombras | `/rts cam save/frame/fov/shadow` | `addon/Camera.lua` |
-| **Cámara poseída** (el camino viejo, sigue ahí) | `/rts cam` sin DLL | `mod-rts/src/RtsCamera.cpp` |
+| **RTS free camera** — flies on the plane, rises and falls, follows the ground | `/rts mode`, `/rts cam` | `addon/FreeCam.lua` |
+| **Lock** — pins the camera at a fixed distance from the hero and travels with him | Candado slot, `/rts fc lock` | `addon/FreeCam.lua` |
+| **Hero view** — one click puts the camera above him, oriented like him | **right-click** Candado, `/rts fc ojos` | `addon/FreeCam.lua` |
+| **Escape hatch** — brings the camera back over your hero | `/rts fc home` | `addon/FreeCam.lua` |
+| **"Ground" is not "the first thing underneath"** — a roof stops counting, so you can get inside buildings | `/rts fc floor 1` | `addon/FreeCam.lua` |
+| **Step filter** — a slope is followed closely, a step is climbed slowly | `/rts fc climb/soft/slow` | `addon/FreeCam.lua` |
+| **No collision** — the camera passes through geometry (caves) | `/rts fc noclip 1` | `addon/Camera.lua` |
+| **Dot on the map** — where the camera is looking, on the world map | `/rts punto` | `addon/Radar.lua` |
+| **Saved framing** — tilt, zoom, FOV, shadows | `/rts cam save/frame/fov/shadow` | `addon/Camera.lua` |
+| **Possessed camera** (the old path, still there) | `/rts cam` without the DLL | `mod-rts/src/RtsCamera.cpp` |
 
-Los ajustes de tacto (`speed`, `lift`, `turn`, `height`, `smoothZ`, `ease`,
-`pitch`, `clear`, `push`, `lockSmooth`, `eyeH`…) son **por personaje** y se
-listan con `/rts fc`.
+The feel settings (`speed`, `lift`, `turn`, `height`, `smoothZ`, `ease`,
+`pitch`, `clear`, `push`, `lockSmooth`, `eyeH`…) are **per character** and are
+listed by `/rts fc`.
 
-#### La vista del héroe, en detalle
+#### The hero view, in detail
 
-Clic **derecho** en la casilla del Candado y la cámara aparece **justo encima de
-tu héroe, mirando a donde mira él**, y se queda enganchada mientras él anda,
-pelea o le lleva su IA.
+**Right-click** the Candado slot and the camera appears **right above your hero,
+facing the way he faces**, and stays attached while he walks, fights, or his AI
+drives him.
 
-Lo que compra este modo es **la entrada**, no una restricción: en un clic tienes
-la cámara sobre tu personaje y orientada como él, sin conducirla hasta allí. Una
-vez dentro se maneja como el candado normal.
+What this mode buys you is **the entry**, not a restriction: one click and the
+camera is over your character and oriented like him, without you flying it
+there. Once inside it handles like the normal lock.
 
 | | |
 |---|---|
-| Ratón, `Q`/`E` | giran. La orientación es tuya desde el primer frame |
-| `W A S D` | retocan el sitio respecto al héroe |
-| `ESPACIO` / `C` | suben y bajan la altura sobre él |
+| Mouse, `Q`/`E` | turn. The orientation is yours from the first frame |
+| `W A S D` | nudge the offset from the hero |
+| `SPACE` / `C` | raise and lower the height above him |
 
-- **De fábrica son 5 yardas** sobre sus pies, y se midió dos veces: empezó en
-  2.2 —la cabeza de un humano, literalmente dentro— y era muy baja, porque a ras
-  de cabeza la cuesta de delante tapa lo que hay detrás y el propio modelo se
-  come el tercio de abajo de la pantalla. 7 se sintió alto. 5 es lo que quedó.
-- **La altura se guarda, el sitio en el plano no.** `ESPACIO`/`C` y
-  `/rts fc eyeH <n>` escriben el mismo número (entre 0 y 50), así que la altura
-  a la que subes es con la que entras la próxima vez. Lo que retoques con
-  `W/A/S/D` se olvida al salir, **y eso es lo que hace que el botón sirva**: el
-  segundo clic vuelve a ponerte encima del héroe en vez de dejarte donde ya
-  estabas.
+- **The default is 5 yards** above his feet, and it was measured twice: it
+  started at 2.2 — a human's head, literally inside — and that was too low,
+  because at head height the slope in front hides whatever is behind it and your
+  own model eats the bottom third of the screen. 7 felt high. 5 is what stuck.
+- **The height is saved, the position on the plane is not.** `SPACE`/`C` and
+  `/rts fc eyeH <n>` write the same number (between 0 and 50), so the height you
+  climb to is the height you get next time. Whatever you nudge with `W/A/S/D` is
+  forgotten on the way out, **and that is what makes the button worth
+  pressing**: the second click puts you back above the hero instead of leaving
+  you where you already were.
 
-Se sale con otro clic derecho, con el izquierdo (que suelta el candado entero) o
-con `/rts fc home`.
+You leave with another right-click, with a left-click (which releases the whole
+lock), or with `/rts fc home`.
 
-### 3.2 La selección
+### 3.2 Selection
 
-| Función | Cómo se usa | Dónde vive |
+| Feature | How you use it | Where it lives |
 |---|---|---|
-| Selección por nombre, no por token | — | `addon/Selection.lua` |
-| Caja de selección | arrastrar izquierdo | `addon/RTSMode.lua` |
-| Grupos de control (4) | Alt+tecla guarda, tecla recupera | `addon/Selection.lua` |
-| **Aro nativo bajo lo seleccionado** — el círculo del propio cliente, con profundidad correcta | `/rts ring` | `addon/SelectionRing.lua` + `rts-client-mod/src/Circle.cpp` |
-| **Brillo del modelo por estado** — azul en espera, verde andando, rojo peleando, naranja interactuando | `/rts state`, `/rts ring tint` | `addon/State.lua` + `rts-client-mod/src/Highlight.cpp` |
-| Los marcos de unidad del juego seleccionan al pincharlos | clic en el marco | `addon/Portraits.lua` |
+| Selection stored by name, not by unit token | — | `addon/Selection.lua` |
+| Box selection | left-drag | `addon/RTSMode.lua` |
+| Control groups (4) | Alt+key saves, key recalls | `addon/Selection.lua` |
+| **Native ground ring under the selection** — the client's own circle, correctly depth-tested | `/rts ring` | `addon/SelectionRing.lua` + `rts-client-mod/src/Circle.cpp` |
+| **Model glow by state** — blue standing by, green walking, red fighting, orange interacting | `/rts state`, `/rts ring tint` | `addon/State.lua` + `rts-client-mod/src/Highlight.cpp` |
+| The game's own unit frames select when clicked | click the frame | `addon/Portraits.lua` |
 
-### 3.3 Órdenes y movimiento
+### 3.3 Orders and movement
 
-| Función | Cómo se usa | Dónde vive |
+| Feature | How you use it | Where it lives |
 |---|---|---|
-| Mover / quieto / seguir / atacar / attack-move | ratón, teclas, `/rts move`, `hold`, `follow`, `attack`, `amove` | `addon/Orders.lua` |
-| **Órdenes directas a la IA**, sin pasar por el chat | automático | `mod-rts/src/RtsOrders.cpp` |
-| **Rutas de varios puntos** | Shift + clic derecho | `addon/Route.lua` |
-| **Marcador de suelo de cada punto**, dibujado por el cliente | `/rts mark next/prev/find/size` | `addon/Marks.lua` + `mod-rts/src/RtsMarks.cpp` |
-| **Destello de "ve aquí"** | automático al ordenar | `addon/Flare.lua` |
-| **Ataque encadenado** — marcas 1,2,3,4 y van en orden | Shift + clic izquierdo en hostil, `/rts chain` | `addon/Chain.lua` + `mod-rts/src/RtsChain.cpp` |
-| Formaciones | `/rts form near/far/melee/queue/chaos/circle/line/shield/arrow` | `addon/Orders.lua` |
-| Reunir (andando) y Traer (teletransporte) | `/rts reunir`, `/rts traer` | `addon/Actions.lua` |
-| Marcas de cráneo y luna con orden incluida | `/rts craneo`, `/rts luna` | `addon/Core.lua` |
-| Cualquier verbo crudo de playerbots | `/rtscmd <cmd>` (selección), `/rtsall` (grupo) | `addon/Orders.lua` |
-| **Tu propio personaje pelea con la IA de playerbots** | `/rts self`, `/rts self auto` | `addon/RTSMode.lua` |
+| Move / hold / follow / attack / attack-move | mouse, keys, `/rts move`, `hold`, `follow`, `attack`, `amove` | `addon/Orders.lua` |
+| **Orders straight into the AI**, never through chat | automatic | `mod-rts/src/RtsOrders.cpp` |
+| **Multi-point routes** | Shift + right-click | `addon/Route.lua` |
+| **A ground marker on every waypoint**, drawn by the client | `/rts mark next/prev/find/size` | `addon/Marks.lua` + `mod-rts/src/RtsMarks.cpp` |
+| **"Go here" flare** | automatic on every order | `addon/Flare.lua` |
+| **Attack chain** — mark 1, 2, 3, 4 and they go in that order | Shift + left-click a hostile, `/rts chain` | `addon/Chain.lua` + `mod-rts/src/RtsChain.cpp` |
+| Formations | `/rts form near/far/melee/queue/chaos/circle/line/shield/arrow` | `addon/Orders.lua` |
+| Gather (on foot) and Summon (teleport) | `/rts reunir`, `/rts traer` | `addon/Actions.lua` |
+| Skull and moon marks with the order attached | `/rts craneo`, `/rts luna` | `addon/Core.lua` |
+| Any raw playerbots verb | `/rtscmd <cmd>` (selection), `/rtsall` (whole party) | `addon/Orders.lua` |
+| **Your own character fights with the playerbots AI** | `/rts self`, `/rts self auto` | `addon/RTSMode.lua` |
 
-### 3.4 Los hechizos
+### 3.4 Spells
 
-| Función | Cómo se usa | Dónde vive |
+| Feature | How you use it | Where it lives |
 |---|---|---|
-| Diez huecos configurables por personaje, más cuatro de grupo | clic derecho en un hueco, `/rts skills` | `addon/Skills.lua` (datos) + `addon/Cast.lua` (dibujo) |
-| **Cola de hechizos** — pulsar mientras el bot está ocupado lo deja esperando en vez de fallar | automático | `mod-rts/src/RtsQueue.cpp` |
-| **Cuidar** — el seleccionado cuida de quien pinches | `/rts focus` / `/rts unfocus` | `addon/Cast.lua` |
-| **Lanzar un hechizo COMO el bot** — el servidor lo lanza por él, con su cola y sus comprobaciones | clic en un hueco | `mod-rts/src/RtsCommandMode.cpp` |
-| **Su barra de acción de verdad** — la que tú montaste jugando ese personaje, leída de `character_action` | al seleccionarlo | `mod-rts/src/RtsCommandMode.cpp` |
-| **Espejo de hechizos** al salir del modo RTS en combate | automático | `addon/Standby.lua` |
+| Ten configurable slots per character, plus four group ones | right-click a slot, `/rts skills` | `addon/Skills.lua` (data) + `addon/Cast.lua` (drawing) |
+| **Spell queue** — pressing while the bot is busy leaves it waiting instead of failing | automatic | `mod-rts/src/RtsQueue.cpp` |
+| **Focus** — the selected unit looks after whoever you click | `/rts focus` / `/rts unfocus` | `addon/Cast.lua` |
+| **Casting a spell AS the bot** — the server casts it for him, with his queue and his checks | click a slot | `mod-rts/src/RtsCommandMode.cpp` |
+| **His real action bar** — the one you built playing that character, read from `character_action` | on selecting him | `mod-rts/src/RtsCommandMode.cpp` |
+| **Spell mirror** when leaving RTS mode in combat | automatic | `addon/Standby.lua` |
 
-> `RtsCommandMode.cpp` guarda además verbos que hoy **no llama nadie** —`AIM`,
-> `ROLES`, `TGTS`— de cuando existía la consola de una pieza. Están vivos en el
-> servidor y sin boca en el addon: si un día vuelve esa interfaz, el backend ya
-> está. No los listo como funciones porque hoy no lo son.
+> `RtsCommandMode.cpp` also holds verbs **nobody calls today** — `AIM`, `ROLES`,
+> `TGTS` — left over from when the single-piece console existed. They are alive
+> on the server with no mouth in the addon: if that UI ever comes back, the
+> backend is already there. They are not listed as features because today they
+> are not.
 
-### 3.5 El grupo entero, lo que WoW no enseña
+### 3.5 The whole party — the things WoW never shows you
 
-| Función | Cómo se usa | Dónde vive |
+| Feature | How you use it | Where it lives |
 |---|---|---|
-| **Bolsas de todo el grupo**, y pasar objetos sin ventana de intercambio | `/rts bags`, casilla Bolsas | `addon/Bags.lua` + `mod-rts/src/RtsBags.cpp` |
-| **Registro de misiones de todo el grupo** | `/rts quests`, casilla Misiones | `addon/QuestBook.lua` + `mod-rts/src/RtsQuests.cpp` |
-| **Compartir misión que funciona** — el servidor se la *da*, no la ofrece | botón Compartir del registro nativo | `addon/Quests.lua` |
-| **Al entregar tú, el grupo completa y cobra** | `/rts quests force` | `mod-rts/src/RtsQuests.cpp` |
-| **Entrenador y vendedor, siendo el bot** | `/rts npc` | `addon/Npc.lua` + `mod-rts/src/RtsNpc.cpp` |
-| Aprender todo lo que el entrenador le vendería | botón en la ventana de PNJ | `mod-rts/src/RtsTrain.cpp` |
-| Vender la basura gris, reparar | botones en la ventana de PNJ | `mod-rts/src/RtsNpc.cpp` |
-| **Cambiar de personaje sin cerrar sesión** — el que dejas se queda de bot | `/rts swap <nombre>` | `mod-rts/src/RtsSwap.cpp` |
-| Botín libre del grupo / que recojan todo | `/rts loot`, `/rts lootall` | `addon/RTSMode.lua`, `addon/Loot.lua` |
-| **Esconder el volcado de menús de los bots** (y guardarlo) | `/rts chat`, `/rts chat ver` | `addon/Chatter.lua` |
+| **Every party member's bags**, and moving items without a trade window | `/rts bags`, Bolsas slot | `addon/Bags.lua` + `mod-rts/src/RtsBags.cpp` |
+| **The whole party's quest log** | `/rts quests`, Misiones slot | `addon/QuestBook.lua` + `mod-rts/src/RtsQuests.cpp` |
+| **Quest sharing that actually works** — the server *gives* it to them rather than offering | the native quest log's Share button | `addon/Quests.lua` |
+| **When you turn in, the party completes and gets paid too** | `/rts quests force` | `mod-rts/src/RtsQuests.cpp` |
+| **Trainer and vendor, acting as the bot** | `/rts npc` | `addon/Npc.lua` + `mod-rts/src/RtsNpc.cpp` |
+| Learn everything the trainer would sell him | button in the NPC window | `mod-rts/src/RtsTrain.cpp` |
+| Sell the grey junk, repair | buttons in the NPC window | `mod-rts/src/RtsNpc.cpp` |
+| **Swap characters without logging out** — the one you leave stays behind as a bot | `/rts swap <name>` | `mod-rts/src/RtsSwap.cpp` |
+| Free-for-all party loot / make the bots pick up everything | `/rts loot`, `/rts lootall` | `addon/RTSMode.lua`, `addon/Loot.lua` |
+| **Hide the bots' gossip dump** (and keep it) | `/rts chat`, `/rts chat ver` | `addon/Chatter.lua` |
 
-### 3.6 La interfaz
+### 3.6 The UI
 
-| Función | Cómo se usa | Dónde vive |
+| Feature | How you use it | Where it lives |
 |---|---|---|
-| Reparto de la barra de abajo | `/rts dock` | `addon/Dock.lua` |
-| Bandeja de diez casillas + bolsas + menú de juego | `/rts tray`, `/rts tray vaciar` | `addon/Tray.lua` |
-| Catálogo de órdenes con icono propio | `/rts ordenes` | `addon/Actions.lua` |
-| Sacar el catálogo a macros **del juego** (para barras y teclas) | `/rts macros` | `addon/Macros.lua` |
-| Ocultado selectivo al entrar en modo RTS (de fábrica, solo las barras de acción) | `/rts ui` | `addon/Chrome.lua` |
-| Ventanas flotantes (una implementación, tres inquilinos) | `/rts win`, `/rts win reset` | `addon/Window.lua` |
-| Aspecto WC3 o plano, con texturas del propio cliente | `/rts skin`, `/rts skin wall <ruta>` | `addon/Skin.lua` |
-| **Visor de texturas del cliente** | `/rts art` | `addon/Art.lua` |
-| Escala de píxel | — | `addon/Pixels.lua` |
-| Brillo de la marca de selección de los retratos | `/rts marcos brillo 0.9` | `addon/Portraits.lua` |
+| Layout of the bottom bar | `/rts dock` | `addon/Dock.lua` |
+| Ten-slot tray + bags + game menu | `/rts tray`, `/rts tray vaciar` | `addon/Tray.lua` |
+| Order catalogue with custom icons | `/rts ordenes` | `addon/Actions.lua` |
+| Export the catalogue as **real game macros** (for bars and key binds) | `/rts macros` | `addon/Macros.lua` |
+| Selective hiding on entering RTS mode (by default, only the action bars) | `/rts ui` | `addon/Chrome.lua` |
+| Floating windows (one implementation, three tenants) | `/rts win`, `/rts win reset` | `addon/Window.lua` |
+| WC3 or flat skin, built from the client's own textures | `/rts skin`, `/rts skin wall <path>` | `addon/Skin.lua` |
+| **Client texture browser** | `/rts art` | `addon/Art.lua` |
+| Pixel scale | — | `addon/Pixels.lua` |
+| Brightness of the portrait selection mark | `/rts marcos brillo 0.9` | `addon/Portraits.lua` |
 
-### 3.7 Diagnóstico
+### 3.7 Diagnostics
 
-Casi todos existen porque un fallo concreto costó una tarde. Cada uno contesta
-**una** pregunta.
+Almost every one of these exists because a specific bug cost an afternoon. Each
+answers **one** question.
 
-| Comando | Qué contesta |
+| Command | What it answers |
 |---|---|
-| `/rts native` | ¿está el DLL inyectado y sus offsets son los buenos? |
-| `/rts version` | versiones de las tres piezas |
-| `/rts cam probe` | ¿sirve la cámara libre del cliente aquí? paso a paso |
-| `/rts fc` | estado de la cámara libre: suelo, rayos, colisión, medida del yaw |
-| `/rts fc mouse` | ¿llega el giro nativo, o lo estamos pisando? |
-| `/rts aim` | por qué el punto de suelo cae donde cae (cursor vs. rayo del DLL) |
-| `/rts cal` | mide la proyección (arregla aros que quedan cortos) |
-| `/rts turn` | por qué un clic se pierde: mide el giro de cámara contra el umbral |
-| `/rts channel` | qué se le está contando al DLL sobre tu selección |
-| `/rts pick` | qué hay bajo el cursor |
-| `/rts debug` | eco de todo lo que va y viene del módulo de servidor |
-| `/rts bars` | qué tiene el SERVIDOR en tus doce primeras casillas de acción |
-| `/rts body` | **sonda del cuerpo**: por qué tu héroe se vuelve invisible |
+| `/rts native` | is the DLL injected, and are its offsets the right ones? |
+| `/rts version` | versions of all three pieces |
+| `/rts cam probe` | is the client's free camera usable here? step by step |
+| `/rts fc` | free camera state: ground, rays, collision, the measured yaw mapping |
+| `/rts fc mouse` | is the native turning reaching us, or are we overwriting it? |
+| `/rts aim` | why the ground point lands where it lands (cursor vs. the DLL's ray) |
+| `/rts cal` | measures the projection (fixes rings that sit short) |
+| `/rts turn` | why a click got eaten: measures camera turn against the threshold |
+| `/rts channel` | what the DLL is being told about your selection |
+| `/rts pick` | what is under the cursor |
+| `/rts debug` | echo of everything to and from the server module |
+| `/rts bars` | what the SERVER has in your first twelve action slots |
+| `/rts body` | **the body probe**: why your hero turns invisible |
 
 ---
 
-## 4. Lo que le tocamos al cliente y al núcleo
+## 4. What we touch in the client and the core
 
-Esta es la parte que no se ve. Nada de aquí es un reemplazo: en casi todos los
-casos **el juego ya sabía hacerlo** y lo que faltaba era la puerta.
+This is the part you do not see. Almost nothing here is a replacement: in nearly
+every case **the game already knew how to do it** and what was missing was the
+door.
 
-### 4.1 La cámara de comentarista (la "spectator cam")
+### 4.1 The commentator camera (the "spectator cam")
 
-Este cliente trae una cámara libre completa, con API de Lua, que Blizzard puso
-para retransmitir arenas. Es la cámara del modo RTS desde el 2026-09-07.
+This client ships a complete free camera, with a Lua API, that Blizzard put
+there to broadcast arenas. It has been the RTS mode camera since 2026-09-07.
 
-**Lo que existe de serie:** `CommentatorSetCamera`, `CommentatorGetCamera`,
+**What exists out of the box:** `CommentatorSetCamera`, `CommentatorGetCamera`,
 `CommentatorSetCameraCollision`, `CommentatorSetMoveSpeed`,
 `CommentatorFollowPlayer`, `CommentatorSetTargetHeightOffset`,
 `CommentatorZoomIn`, `CommentatorZoomOut`.
 
-**La puerta son dos bits de `PLAYER_FLAGS`.** El predicado del cliente en
-`0x006DE980` contesta "este jugador es espectador" leyendo el bit 19
-(`PLAYER_FLAGS_UBER`, 0x00080000) y el bit 22 (`PLAYER_FLAGS_COMMENTATOR2`,
-0x00400000). Con el 19 apagado devuelve `false` y no hay cámara.
+**The door is two `PLAYER_FLAGS` bits.** The client's predicate at `0x006DE980`
+answers "is this player a spectator" by reading bit 19 (`PLAYER_FLAGS_UBER`,
+0x00080000) and bit 22 (`PLAYER_FLAGS_COMMENTATOR2`, 0x00400000). With 19 off it
+returns `false` and there is no camera.
 
-| Quién pone qué | Por qué |
+| Who sets what | Why |
 |---|---|
-| El **servidor** pone el bit 22 | `Player::SetCommentator`, que ya existe en el núcleo. Es el que salta el requisito de estar en un mapa de arena |
-| **`rts_core`** escribe el bit 19 en la copia del cliente | el núcleo **se niega a dejar atacar** a quien lleve `UBER` (`Unit.cpp:10762`), así que ponerlo en el servidor te dejaba sin pegar |
+| The **server** sets bit 22 | `Player::SetCommentator`, which already exists in the core. That is the one that skips the "must be on an arena map" requirement |
+| **`rts_core`** writes bit 19 into the client's own copy | the core **refuses to let anyone carrying `UBER` attack** (`Unit.cpp:10762`), so setting it server-side left you unable to swing |
 
-**Armar el modo lo hace el servidor.** El cliente pide el modo con
-`CMSG_COMMENTATOR_ENABLE` (0x3B5) y espera `SMSG_COMMENTATOR_STATE_CHANGED`
-(0x3B6). Ese opcode de entrada es `STATUS_NEVER` en AzerothCore —ni siquiera
-llega al manejador— así que el addon lo pide por su propio canal y **mod-rts
-manda el 0x3B6** directamente. El manejador del cliente (`0x0056B8A0`) exige
-que el GUID sea el suyo, vuelve a pasar por el predicado, y mete la cámara
-activa en modo comentarista.
+**Arming the mode is the server's job.** The client asks for the mode with
+`CMSG_COMMENTATOR_ENABLE` (0x3B5) and waits for
+`SMSG_COMMENTATOR_STATE_CHANGED` (0x3B6). That incoming opcode is `STATUS_NEVER`
+in AzerothCore — it never even reaches a handler — so the addon asks over its
+own channel and **mod-rts sends the 0x3B6** itself. The client's handler
+(`0x0056B8A0`) requires the GUID to be its own, runs the predicate again, and
+puts the active camera into commentator mode.
 
-**Y va en dos mitades, que es lo que costó la primera pasada.** `Spectate` pone
-los flags; `Arm` manda el paquete. Hacerlo de golpe es una carrera:
-`SetPlayerFlag` solo marca el campo sucio (sale ~100 ms después) mientras que
-`SendPacket` sale ya. El paquete llegaba primero, el predicado leía los flags
-viejos, y la rama de puerta cerrada **no es un no-op**: mete la cámara en modo 1
-con el estado que hubiera. En pantalla: la cámara se iba lejísimos y bajo el
-suelo. Ahora el addon sondea `CommentatorGetCamera()` —que devuelve seis números
-solo con la puerta abierta— y **solo entonces** pide armar.
+**And it goes in two halves, which is what the first attempt cost.** `Spectate`
+sets the flags; `Arm` sends the packet. Doing both at once is a race:
+`SetPlayerFlag` only marks the field dirty (it goes out on the next flush,
+~100 ms later) while `SendPacket` leaves immediately. The packet arrived first,
+the predicate read the old flags, and the closed-door branch **is not a no-op**:
+it puts the camera into mode 1 with whatever state was lying around. On screen:
+the camera flew off into the distance and under the floor. Now the addon polls
+`CommentatorGetCamera()` — which returns six numbers only once the door is open
+— and **only then** asks to arm.
 
-**El reparto de mandos:**
+**How control is divided:**
 
-- **Nosotros llevamos la POSICIÓN.** Una escritura por frame,
+- **We own POSITION.** One write per frame,
   `CommentatorSetCamera(x, y, z, yaw, pitch, fov)`.
-- **El cliente lleva la ORIENTACIÓN.** El arrastre derecho es el mouselook de
-  siempre, con la sensibilidad y la inversión que ya tiene configuradas el
-  jugador. Como `SetCamera` toma los seis valores de golpe, cada frame se
-  **leen** los ángulos vivos y se **reescriben tal cual**: para la orientación
-  es un no-op y el giro del cliente se acumula solo.
-- `CommentatorSetMoveSpeed(0)` apaga el motor de WASD del propio cliente, para
-  que no haya dos dueños del movimiento.
+- **The client owns ORIENTATION.** Right-drag is the usual mouselook, with the
+  sensitivity and inversion the player already has configured, for free. Since
+  `SetCamera` takes all six values at once, every frame we **read** the live
+  angles and **write them straight back**: for orientation it is a no-op, and
+  the client's turning accumulates on its own.
+- `CommentatorSetMoveSpeed(0)` shuts off the client's own WASD camera motor, so
+  there are never two owners of the movement.
 
-**Detalles que costaron una pasada cada uno:**
+**Details that cost one pass each:**
 
-| Cosa | Lo medido |
+| Thing | What was measured |
 |---|---|
-| El FOV | sexto argumento, en **grados**, acotado 1..120. Pasar 0 son **un grado** = pantalla morada |
-| El *pitch* | **positivo mira abajo**. Es al revés de lo que parece, y no se puede leer del binario |
-| La colisión | `CommentatorSetCameraCollision` toma un **número**, no un booleano, aunque su texto de uso diga `bool`. Se devuelve a 1 al salir: es lo que el cliente escribe al arrancar |
-| Yaw y pitch vivos | `cam+0x11C` y `cam+0x120`, en radianes, sobre la cámara activa |
-| La convención del yaw | **no se puede leer del binario.** Así que la primera persona no la adivina: la mide en vivo comparando el yaw de `CommentatorGetCamera` con el adelante en coordenadas de mundo que publica el DLL |
+| FOV | sixth argument, in **degrees**, clamped 1..120. Passing 0 gives you **one degree** — a purple screen |
+| *Pitch* | **positive looks down**. It is the opposite of what it looks like, and it cannot be read from the binary |
+| Collision | `CommentatorSetCameraCollision` takes a **number**, not a bool, even though its own usage string says `bool`. It is restored to 1 on the way out: that is what the client writes at startup |
+| Live yaw and pitch | `cam+0x11C` and `cam+0x120`, in radians, on the active camera |
+| The yaw convention | **cannot be read from the binary.** So the hero view does not guess it: it measures it live, comparing `CommentatorGetCamera`'s yaw against the world-space forward vector the DLL publishes |
 
-**El efecto secundario: tu propio modelo desaparece.** Los flags que abren la
-cámara también hacen que el cliente deje de emitir tu personaje. El predicado
-`0x006DE980` tiene **dieciocho** sitios de llamada (medidos con un barrido de
-`call rel32` sobre el `.text`, no supuestos), así que forzar el predicado
-escondió a *todo el mundo*. El culpable se encontró **por eliminación**: es el
-sitio `[16]`, `0x006E085C`, dentro de una función virtual sin ninguna
-referencia estática. `SelfShow.cpp` parchea esos cinco bytes
-(`call rel32` → `xor eax,eax` + 3 `nop`, mismo tamaño) para que *ese* llamante
-vea "no es espectador", y los otros diecisiete sigan contestando la verdad.
+**The side effect: your own model disappears.** The flags that open the camera
+also make the client stop submitting your character. The `0x006DE980` predicate
+has **eighteen** call sites (measured with a `call rel32` sweep over `.text`,
+not assumed), so forcing the predicate hid *everyone*. The culprit was found
+**by elimination**: it is site `[16]`, `0x006E085C`, inside a virtual function
+with no static references at all. `SelfShow.cpp` patches those five bytes
+(`call rel32` → `xor eax,eax` + 3 `nop`, same length) so that *that one* caller
+sees "not a spectator", and the other seventeen keep telling the truth.
 
-> `addon/Body.lua` es la sonda que lo acorraló, y sigue ahí apagada de fábrica.
+> `addon/Body.lua` is the probe that cornered it, and it is still there, off by
+> default.
 
-**El camino viejo sigue existiendo:** una criatura invisible que el jugador
-posee, que es el mecanismo del Ojo de Kilrogg y del Control Mental
-(`Player::SetClientControl` → `SetViewpoint` + `SetMover`). Está en
-`mod-rts/src/RtsCamera.cpp` y se abandonó porque, poseyendo, **el cliente es el
-dueño de la posición** y desde el servidor solo se la mueve con
-`NearTeleportTo`, que cancela el movimiento en curso.
+**The old path still exists:** an invisible creature the player possesses, which
+is the Eye of Kilrogg / Mind Control mechanism (`Player::SetClientControl` →
+`SetViewpoint` + `SetMover`). It lives in `mod-rts/src/RtsCamera.cpp` and was
+abandoned because, while possessing, **the client owns the position** and the
+server can only move it with `NearTeleportTo`, which cancels whatever movement
+is in progress.
 
-### 4.2 Efectos nativos del cliente, reutilizados
+### 4.2 Native client effects, reused
 
-Todo lo que dibuja una textura de interfaz en un píxel proyectado **flota**: no
-tiene profundidad, se dibuja encima de la colina que debería taparla, y nada de
-lado cuando gira la cámara. Así que los marcadores importantes no los dibujamos:
-se los pedimos al cliente.
+Anything drawn as a UI texture parked at a projected pixel **floats**: no depth,
+drawn on top of the hill that should hide it, and swimming sideways whenever the
+camera turns. So the markers that matter are not drawn by us — we ask the client
+for them.
 
-| Qué | Cómo | Dónde |
+| What | How | Where |
 |---|---|---|
-| **Aro de selección** | el cliente guarda **dos** huecos de GUID en el contexto de escena y los drena una vez por frame. Se engancha ese drenaje (`0x004F6F90`), se le deja correr como siempre, y después se le pasan nuestras unidades **de una en una**: cada llamada dibuja un aro más, con su propio código | `rts-client-mod/src/Circle.cpp` |
-| **Brillo del modelo** | `CGUnit_SetHighlight` / `ClearHighlight` con sus tres "razones", y el color y la intensidad escritos en el objeto de render (`+0x18C`, `+0x1B8`) | `rts-client-mod/src/Highlight.cpp` |
-| **Números de la cadena de ataque** | son los **iconos de banda** del cliente. Los coloca él en su propio bucle a partir de la posición del mundo, igual que las placas de nombre: siguen perfectamente porque no se sigue nada. El precio es que son ocho | `addon/Chain.lua` |
-| **Marcador de punto de ruta** | un `DynamicObject` con el visual persistente de un hechizo —lo mismo que una mancha de Consagración—, colocado en el mundo y dibujado por el cliente con profundidad correcta. La lista de candidatos **se construye del almacén de hechizos cargado** (todo hechizo con efecto de aura de área persistente), no de ids escritos de memoria | `mod-rts/src/RtsMarks.cpp` |
+| **Selection ring** | the client keeps **two** GUID slots on the scene context and drains them once a frame. We hook that drain (`0x004F6F90`), let it run once as usual, then hand it our units **one at a time**: each call draws one more ring, through its own code | `rts-client-mod/src/Circle.cpp` |
+| **Model glow** | `CGUnit_SetHighlight` / `ClearHighlight` with its three "reasons", plus colour and intensity written into the render object (`+0x18C`, `+0x1B8`) | `rts-client-mod/src/Highlight.cpp` |
+| **Attack chain numbers** | they are the client's **raid target icons**. It places them in its own loop from the world position, exactly like nameplates: they track perfectly because nothing is being tracked. The price is that there are eight | `addon/Chain.lua` |
+| **Waypoint ground marker** | a `DynamicObject` carrying a spell's persistent-area visual — the same thing a Consecration patch is — placed in the world and drawn by the client with correct depth. The candidate list is **built from the loaded spell store** (every spell with a persistent-area-aura effect), not from IDs written from memory | `mod-rts/src/RtsMarks.cpp` |
 
-Un aro dibujado por nosotros existió, con doce rayos hacia abajo por unidad para
-muestrear el terreno, y se aparcó: nunca se leyó como un aro tumbado en el
-suelo, y no podía. El código de los rayos sigue en `GroundRing.cpp`.
+A ring drawn by us did exist once, firing twelve rays down per unit to sample
+the terrain, and it was parked: it never read as a ring lying on the ground, and
+it never could have. The ray code is still in `GroundRing.cpp`.
 
-### 4.3 El raycast: la única cosa que el Lua de 3.3.5a no puede hacer
+### 4.3 The raycast: the one thing 3.3.5a Lua genuinely cannot do
 
-No hay raycast en la API hasta Cataclysm. El addon lo fingía desproyectando el
-cursor sobre un plano a la Z **del jugador**, que es exacto justo al lado de tu
-personaje y falso en todo lo demás —cuestas, escaleras, puentes— y la cámara
-libre lo empeoró, porque ahora la cámara puede estar a cien yardas de esa Z.
+There is no raycast in the API until Cataclysm. The addon used to fake it by
+unprojecting the cursor onto a flat plane at the **player's** Z, which is exact
+right next to your character and wrong everywhere else — hills, stairs, bridges
+— and the free camera made it far worse, because the camera can now be a hundred
+yards from the Z that plane is pinned to.
 
-Así que se llama a `CGWorldFrame::Intersect` (`0x0077F310`), **la función de
-picking del propio cliente**, la misma con la que decide qué tienes bajo el
-ratón. Con dos máscaras de banderas:
+So we call `CGWorldFrame::Intersect` (`0x0077F310`), **the client's own picking
+function**, the same one it uses to decide what your mouse is over. With two
+flag masks:
 
-- `0x00100171` — todo: terreno, edificios, doodads.
-- `0x00000100` — **solo terreno**. Un tejado deja de ser suelo, que es lo que
-  permite a la cámara entrar en una casa en vez de subirse encima.
+- `0x00100171` — everything: terrain, buildings, doodads.
+- `0x00000100` — **terrain only**. A roof stops being ground, which is what lets
+  the camera get inside a house instead of climbing on top of it.
 
-Se usa para el punto bajo el cursor, para las alturas del aro, y para los tres
-rayos de la cámara libre (suelo, terreno y techo).
+It is used for the point under the cursor, for the ring heights, and for the
+free camera's three rays (ground, terrain and ceiling).
 
-### 4.4 El puente Lua ↔ DLL
+### 4.4 The Lua ↔ DLL bridge
 
-**De DLL a addon:** `FrameScript_Execute` (`0x00819210`) ejecuta una cadena de
-código Lua en el estado global del cliente, y lo que ejecuta son asignaciones a
-globales `RTS_*` que el addon lee. Posición del jugador y su orientación,
-cámara (posición, base 3x3, FOV, aspecto), los tres rayos bajo la cámara, el
-punto del cursor, y la lista de unidades cercanas.
+**DLL to addon:** `FrameScript_Execute` (`0x00819210`) runs a Lua source string
+in the client's global state, and what it runs is assignments to `RTS_*` globals
+the addon reads: player position and facing, camera (position, 3x3 basis, FOV,
+aspect), the three rays under the camera, the cursor point, and the list of
+nearby units.
 
-Cadencia: **100 Hz solo la cámara**, 33 Hz el estado completo. La cámara va más
-deprisa porque los marcadores se colocan a partir de ella, y una cámara
-obsoleta los arrastra de lado mientras giras.
+Cadence: **100 Hz for the camera alone**, 33 Hz for the full state. The camera
+runs faster because markers are placed from it, and a stale camera drags them
+sideways while you turn.
 
-**De addon a DLL: un CVar.** No hay otra vía. WoW 3.3.5a rechaza punteros a
-función C que vivan fuera de `Wow.exe`: llamar a uno lanza el `ERROR #134` y se
-lleva el cliente por delante (comprobado por las bravas). Un CVar es memoria
-corriente del cliente, Lua puede escribirla con `SetCVar`, y el cliente la
-convierte a entero en `CVar+0x30`.
+**Addon to DLL: a CVar.** There is no other way. WoW 3.3.5a rejects C function
+pointers living outside `Wow.exe`: calling one throws `ERROR #134` and takes the
+client down with it (verified the hard way). A CVar is ordinary client memory,
+Lua is allowed to write it with `SetCVar`, and the client parses it into an int
+at `CVar+0x30`.
 
-Protocolo 3, 32 bits por tick:
+Protocol 3, 32 bits per tick:
 
 ```
-bits  0..23   ocho huecos x tres bits de estado
-bits 24..26   número de secuencia
-bit  27       dibuja el aro nativo
-bit  28       además ilumina el modelo
-bit  29       diagnóstico: un aro bajo CADA unidad publicada
-bit  30       libre
-bit  31       inutilizable -- el cliente parsea el valor con un atoi CON SIGNO
+bits  0..23   eight slots x three bits of state
+bits 24..26   sequence number
+bit  27       draw the native ground ring
+bit  28       also glow the model
+bit  29       diagnostic: a ring under EVERY published unit
+bit  30       free
+bit  31       unusable -- the client parses the value with a SIGNED atoi
 ```
 
-CVars usados: `enablePVPNotifyAFK` (el canal de selección, **prestado** y con su
-valor original guardado y devuelto), `rtsFov` y `rtsBody` (**creados** con
-`RegisterCVar`, que existe en este cliente). Que sean propios no es cosmético:
-`SetCVar` sobre un nombre que no existe **no da error**, no hace nada —que es
-exactamente como un canal anterior estuvo muerto tres etapas sin que se notara.
+CVars used: `enablePVPNotifyAFK` (the selection channel, **borrowed**, with its
+original value saved and restored), `rtsFov` and `rtsBody` (**created** with
+`RegisterCVar`, which exists in this client). Owning them is not cosmetic:
+`SetCVar` on a name that does not exist **raises no error** — it does nothing,
+which is exactly how an earlier channel stayed dead for three stages without
+anyone noticing.
 
-**El hilo principal:** `MainThreadHook` subclasa el `WndProc` de la ventana de
-WoW. Un `WndProc` siempre se despacha en el hilo que creó la ventana, que es el
-único hilo donde se puede tocar Lua. Sustituyó a un trampolín sobre `EndScene`
-de D3D9 que, bajo la capa `d3d9on12` de Windows 11, enganchaba una vtable que no
-era por la que el cliente llama —así que no disparaba nunca.
+**The main thread:** `MainThreadHook` subclasses the WoW window's `WndProc`. A
+`WndProc` is always dispatched on the thread that created the window, which is
+the only thread where Lua may be touched. It replaced a D3D9 `EndScene`
+trampoline that, under Windows 11's `d3d9on12` layer, hooked a vtable the client
+does not actually call through — so it never fired.
 
-### 4.5 Frames de Blizzard: prestados, no reimplementados
+### 4.5 Blizzard frames: borrowed, not reimplemented
 
-`Rails.lua` lo intentó con botones propios que llamaban a `ToggleWorldMap`,
-`ToggleTalentFrame`, `ToggleGameMenu`… y en juego el mapa no abría, los talentos
-no abrían y el menú saltaba con *"blocked from an action only available to the
-Blizzard UI"*. Esas funciones están protegidas y **da igual que el botón sea
-nuestro**.
+`Rails.lua` tried it with our own buttons calling `ToggleWorldMap`,
+`ToggleTalentFrame`, `ToggleGameMenu`… and in game the map would not open, the
+talents would not open, and the menu threw *"blocked from an action only
+available to the Blizzard UI"*. Those functions are protected and **it makes no
+difference that the button is ours**.
 
-| Qué se toma prestado | Cómo |
+| What gets borrowed | How |
 |---|---|
-| Las cuatro bolsas, la mochila y el llavero | reparentados a una fila nuestra y devueltos al salir. Son hijos de `MainMenuBarArtFrame`, así que esconder la barra principal se los llevaba por delante |
-| Los diez micro-botones (ficha, hechizos, talentos, misiones…) | igual. Y se engancha `MoveMicroButtons`, porque el cliente los recoloca por su cuenta al entrar en un vehículo |
-| Los marcos de jugador, objetivo y grupo | se les engancha el **`PostClick`**, nunca el `OnClick`: enganchar el `OnClick` de un frame seguro mete su `TargetUnit` dentro de una ejecución contaminada y **se bloquea en combate** |
-| El registro de misiones | se deja entero y solo se cambia lo que hace el botón Compartir |
-| La marca de selección de los retratos | es el resalte del propio cliente en modo aditivo |
+| The four bags, the backpack and the keyring | reparented into a row of ours and returned on exit. They are children of `MainMenuBarArtFrame`, so hiding the main bar took them with it |
+| The ten micro buttons (character, spellbook, talents, quests…) | same. And `MoveMicroButtons` is hooked, because the client repositions them on its own when you enter a vehicle |
+| The player, target and party frames | we hook their **`PostClick`**, never `OnClick`: hooking a secure frame's `OnClick` puts its `TargetUnit` inside a tainted execution and **blocks in combat** |
+| The quest log | left entirely alone; only what the Share button does changes |
+| The portrait selection mark | it is the client's own highlight in additive mode |
 
-Regla dura en todos: **de cada frame se guarda si estaba visible ANTES de
-tocarlo** y se le devuelve ese mismo estado. Nada de `Show()` a ciegas, que
-encendería barras que el jugador tenía apagadas. Y lo que está protegido no se
-toca en combate: se aplaza a `PLAYER_REGEN_ENABLED`.
+Hard rule throughout: **whether each frame was visible BEFORE we touched it gets
+recorded**, and that same state is given back. No blind `Show()`, which would
+turn on bars the player had deliberately switched off. And anything protected is
+not touched in combat: it is deferred to `PLAYER_REGEN_ENABLED`.
 
-### 4.6 Núcleo de AzerothCore: su API, con el `Player*` de un bot
+### 4.6 AzerothCore's own API, called with a bot's `Player*`
 
-Aquí no hay ningún truco, y por poco se descarta por no mirar. Un bot de
-playerbots **es un `Player` normal** para el núcleo, y las funciones de dominio
-toman un `Player*` cualquiera:
+There is no trick here, and it was nearly discarded for not looking. A
+playerbots bot **is a normal `Player`** as far as the core is concerned, and the
+domain functions take any `Player*`:
 
-| Se usa | Qué da |
+| What is used | What it gives |
 |---|---|
-| `Trainer::GetSpells / CanTeachSpell / TeachSpell / IsTrainerValidForPlayer` | la ventana del entrenador entera, calculada **para el bot**. Lo único que hace `WorldSession::SendTrainerList` por encima es empaquetarlo hacia su propia sesión, y eso no hace falta porque la ventana la dibujamos nosotros |
-| `CanTakeQuest`, `CanAddQuest`, `AddQuest`, `CanRewardQuest`, `RewardQuest` | aceptar y entregar misiones para varios a la vez. **Ninguna comprueba distancia** —verificado línea a línea en `PlayerQuest.cpp`— así que lo del vídeo (*"you don't have to actually be next to it"*) sale gratis |
-| `CanStoreItem` → `MoveItemFromInventory` → `MoveItemToInventory` | pasar un objeto de una bolsa a otra sin ventana de intercambio |
-| `LoginQueryHolder` + `HandlePlayerLoginFromDB` | **cambiar de personaje sin cerrar sesión.** Es la misma secuencia pública con la que mod-playerbots mete un bot en el mundo. El servidor se traga el `SMSG_LOGOUT_COMPLETE` (lo único que mandaba el cliente a la pantalla de personajes) y el cliente adopta el objeto nuevo porque llega con `UPDATEFLAG_SELF` |
+| `Trainer::GetSpells / CanTeachSpell / TeachSpell / IsTrainerValidForPlayer` | the entire trainer window, computed **for the bot**. All `WorldSession::SendTrainerList` adds on top is packing it towards its own session, and that is not needed because we draw the window ourselves |
+| `CanTakeQuest`, `CanAddQuest`, `AddQuest`, `CanRewardQuest`, `RewardQuest` | accepting and turning in quests for several at once. **None of them checks distance** — verified line by line in `PlayerQuest.cpp` — so the *"you don't have to actually be next to it"* part comes free |
+| `CanStoreItem` → `MoveItemFromInventory` → `MoveItemToInventory` | moving an item from one bag to another with no trade window |
+| `LoginQueryHolder` + `HandlePlayerLoginFromDB` | **swapping characters without logging out.** It is the same public sequence mod-playerbots uses to bring a bot into the world. The server swallows the `SMSG_LOGOUT_COMPLETE` (the only thing that was sending the client to the character screen) and the client adopts the new object because it arrives with `UPDATEFLAG_SELF` |
 
-**`mod-playerbots` es ajeno y no se toca.** Toda la superficie que se le pide
-está detrás de un solo fichero, `mod-rts/src/RtsBotApi.cpp`, que es la única
-unidad de traducción que incluye una cabecera suya —así que una actualización
-suya rompe **un** fichero y no dos de mil líneas. Antes había unas ochenta
-llamadas suyas repartidas y mezcladas con lógica nuestra.
+**`mod-playerbots` is somebody else's and is not touched.** Every bit of its
+surface we need sits behind a single file, `mod-rts/src/RtsBotApi.cpp`, the only
+translation unit that includes a header of theirs — so an update on their side
+breaks **one** file instead of two thousand-line ones. There used to be about
+eighty of their calls scattered around and tangled with our own logic.
 
-Lo que sí se le añade por fuera: las órdenes que das con el ratón le hacen
-`SetNextCheckDelay(0)` para que la IA del bot despierte **en el acto** en vez de
-esperar a su siguiente vuelta de pensamiento (`nextAICheckDelay`). Es el mismo
-mando que playerbots usa consigo mismo, y se pone **solo** en las órdenes que
-das tú: en todo lo demás esa espera existe por algo.
+What we do add from outside: orders you give with the mouse call
+`SetNextCheckDelay(0)` so the bot's AI wakes up **immediately** instead of
+waiting for its next think cycle (`nextAICheckDelay`). It is the same lever
+playerbots uses on itself, and it is applied **only** to orders you give
+personally: everywhere else that wait exists for a reason.
 
-### 4.7 Lo que deliberadamente NO se toca
+### 4.7 What is deliberately NOT touched
 
-- **El núcleo de AzerothCore.** Todo va en `modules/mod-rts`.
-- **`mod-playerbots`.** Se lee, no se edita. Ver `RtsBotApi`.
-- **El rol y la postura de un bot.** Los decide playerbots; una postura es un
-  hechizo y cabe en uno de sus diez huecos. No hay interfaz de roles, y no es un
-  olvido.
-- **El chat, el botín, el gossip, las emergentes y el menú de escape.** El modo
-  RTS esconde una lista escrita a mano y nada más.
-- **Las teclas del jugador.** Se apuntan antes de cogerlas, se devuelven al
-  salir, y `SaveBindings` **no se llama nunca**: una recarga o un cierre
-  inesperado dejan intactas las de verdad.
+- **The AzerothCore core.** Everything goes in `modules/mod-rts`.
+- **`mod-playerbots`.** Read, never edited. See `RtsBotApi`.
+- **A bot's role and stance.** Playerbots decides the role; a stance is a spell
+  and fits in one of its ten slots. There is no role UI, and that is not an
+  oversight.
+- **Chat, loot, gossip, popups and the escape menu.** RTS mode hides a
+  hand-written list and nothing else.
+- **The player's key bindings.** They are recorded before being taken, given
+  back on exit, and `SaveBindings` is **never called**: a reload, a disconnect
+  or an unexpected crash leaves the real ones untouched.
 
 ---
 
-## 5. Desplegar y compilar
+## 5. Deploying and building
 
-Un solo sentido, siempre: de aquí hacia fuera. Nunca al revés.
+One direction, always: out of here. Never the other way.
 
-| Botón | Qué hace | Después hay que |
+| Button | What it does | Afterwards you need to |
 |---|---|---|
-| `C:\Server\rts-tools\Deploy_Addon.bat` | `addon/` → carpeta del WoW | `/reload` en el juego |
-| `C:\Server\rts-tools\Deploy_Mod.bat` | `mod-rts/` → AzerothCore | recompilar `worldserver` |
+| `C:\Server\rts-tools\Deploy_Addon.bat` | `addon/` → the WoW folder | `/reload` in game |
+| `C:\Server\rts-tools\Deploy_Mod.bat` | `mod-rts/` → AzerothCore | rebuild `worldserver` |
 
-El DLL no tiene botón porque no se mueve de sitio:
+The DLL has no button because it never moves:
 
 ```powershell
 cmake --build C:\Server\rts-project\rts-client-mod\build --config Release
 ```
 
-Y se inyecta con `C:\Server\rts-tools\2-Jugar.bat`.
+and it is injected by `C:\Server\rts-tools\2-Jugar.bat`.
 
-Antes de dar el addon por bueno: `python C:\Server\rts-tools\check_addon.py`.
-Comprueba cuatro cosas, y las tres últimas existen porque la primera no las
-coge —cadenas cortas sin cerrar, escapes desconocidos (`"Interface\Icons\X"` se
-lee como `InterfaceIconsX`, y **una ruta que no existe no da error: dibuja
-nada**) y locales usadas antes de declararse.
+Before calling the addon done: `python C:\Server\rts-tools\check_addon.py`. It
+checks four things, and the last three exist because the first one misses them —
+unterminated short strings, unknown escapes (`"Interface\Icons\X"` is read as
+`InterfaceIconsX`, and **a texture path that does not exist raises no error: it
+draws nothing**) and locals used before they are declared.
 
-El arte propio se convierte con `C:\Server\rts-tools\Convertir_Arte.bat`:
-`art-src/` es el original y `addon/art/` el TGA que lee el cliente.
+Custom art is converted with `C:\Server\rts-tools\Convertir_Arte.bat`:
+`art-src/` holds the original and `addon/art/` the TGA the client reads.
 
-### En otro ordenador
+### On another machine
 
 ```
 git pull
 ```
 
-y después los dos botones de deploy, más compilar el DLL y el `worldserver`.
+then both deploy buttons, plus building the DLL and the `worldserver`.
 
 ---
 
-## 6. Reglas del repositorio
+## 6. Repository rules
 
-### Por qué un solo sentido
+### Why one direction only
 
-Antes había un `sync.ps1` que recogía las tres piezas desde donde vivían, y esta
-carpeta era solo una copia de seguridad. Existían los dos sentidos, y eso
-significaba que en cualquier momento no estaba claro cuál era la versión buena.
+There used to be a `sync.ps1` that pulled the three pieces in from wherever each
+of them lived, and this folder was just a backup. Both directions existed, and
+that meant at any given moment it was unclear which copy was the good one.
 
-El 16/08/2026 costó una tarde: el addon se editó hasta las 22:06, el último
-`sync` había sido a las 19:04, y al mudar el servidor a otro ordenador se
-instaló la copia de las 19:04. Faltaban 247 líneas de `RTSMode.lua`, entre ellas
-`CameraTurned()` — justo la función que hace funcionar la selección por caja. El
-síntoma fue "lo nuevo no funciona en el ordenador nuevo", y no había ni un error
-que lo delatara.
+16/08/2026 cost an afternoon: the addon was edited until 22:06, the last `sync`
+had been at 19:04, and when the server was moved to another machine the 19:04
+copy got installed. 247 lines of `RTSMode.lua` were missing, among them
+`CameraTurned()` — precisely the function that makes box selection work. The
+symptom was "the new stuff doesn't work on the new machine", and there was not a
+single error to give it away.
 
-Con un solo original y un solo sentido, ese fallo no se puede dar: si el juego
-va viejo, es que falta desplegar, y se arregla con un botón.
+With one original and one direction, that failure cannot happen: if the game is
+running something old, it means a deploy is missing, and a button fixes it.
 
-### Qué NO se sube, y por qué
+### What is NOT committed, and why
 
-- **`worldserver.conf`, `authserver.conf`, `dbimport.conf`** — llevan el usuario
-  y la contraseña de MySQL en texto plano. Nunca entran aquí. La plantilla del
-  módulo (`mod-rts/conf/mod_rts.conf.dist`) sí, porque solo trae ajustes de
-  cámara.
-- **`build/`, binarios, logs** — se regeneran compilando.
-- **El fork de AzerothCore** — tiene su propio remoto
-  (`mod-playerbots/azerothcore-wotlk`, rama `Playerbot`). Aquí solo va nuestro
-  módulo.
-- **`mysql-data/`** — son las bases de datos, no código.
+- **`worldserver.conf`, `authserver.conf`, `dbimport.conf`** — they carry the
+  MySQL user and password in plain text. They never come in here. The module's
+  own conf template (`mod-rts/conf/mod_rts.conf.dist`) does, because it ships
+  nothing but camera settings.
+- **`build/`, binaries, logs** — rebuildable.
+- **The AzerothCore fork** — it has its own remote
+  (`mod-playerbots/azerothcore-wotlk`, branch `Playerbot`). Only our module
+  lives here.
+- **`mysql-data/`** — those are the databases, not code.
 
-### Dónde está el porqué de cada cosa
+### Where the reasoning lives
 
-**En la cabecera del fichero que la implementa**, con los callejones sin salida
-incluidos. `docs/` existió y se borró a propósito (`4c2b163`): unas notas que ya
-no coinciden con el binario son un sitio cómodo donde confirmar una idea
-equivocada sin abrir el código.
+**In the header of the file that implements it**, dead ends included. `docs/`
+existed and was deleted on purpose (`4c2b163`): notes that no longer match the
+binary are a comfortable place to confirm a wrong idea without opening the code.
 
-Las direcciones desensambladas de **este** `Wow.exe` (MD5
-`45892BDEDD0AD70AED4CCD22D9FB5984`, build 12340) están en
-`rts-client-mod/src/Offsets.h`, cada una con el volcado que la justifica.
+The disassembled addresses for **this** `Wow.exe` (MD5
+`45892BDEDD0AD70AED4CCD22D9FB5984`, build 12340) are in
+`rts-client-mod/src/Offsets.h`, each one next to the dump that justifies it.
