@@ -581,6 +581,16 @@ function A:Open(anchor, title, current, onPick)
 		if menu.anchor == anchor then return end
 	end
 
+	-- THE SAVED ID MAY BE AN OLD ONE, and if it is not normalised here the
+	-- highlight below silently stops working: a slot holding `candado` would
+	-- open the menu with nothing marked, because the entry now calls itself
+	-- `lock`. That is exactly the failure the comment on the highlight warns
+	-- about -- "the player changes it by accident believing it was empty" --
+	-- reintroduced by renaming the ids. `Find` already knows both spellings,
+	-- so the fix is to ask it rather than to compare raw strings.
+	local e = self:Find(current)
+	current = e and e.id or current
+
 	Build()
 	pick = onPick
 	menu.anchor = anchor
