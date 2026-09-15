@@ -1021,7 +1021,7 @@ local HELP = {
 	"|cffffff00/rts cam here|r - recentre over your character; |cffffff00mouse|r toggles mouse steering",
 	"|cffffff00/rts fc|r - free camera settings (speed, height, smoothing, turning)",
 	"|cffffff00/rts fc home|r - brings the camera back over your hero if it gets stuck",
-	"|cffffff00/rts fc eyes|r - puts the camera above your hero facing his way, and attaches it (RIGHT-click the Lock slot)",
+	"|cffffff00/rts fc eyes|r - puts the camera BEHIND your hero and keeps it at his back; W/S, A/D and the right drag (RIGHT-click the Lock slot)",
 	"|cffffff00/rts cam probe|r - PROBE: is the client free camera usable here? (|cffffff00spec 0|r leaves)",
 	"|cffffff00/rts cam collision|r - the camera passes through geometry (caves); |cffffff00geo|r inventories the rest",
 	"|cffffff00/rts cam speed <n>|r - how fast it flies",
@@ -1372,7 +1372,7 @@ SlashCmdList["RTSCOMMAND"] = function(msg)
 		-- necesita un comando por el que hablar.
 		elseif sub == "lock" or sub == "candado" then
 			ns.FreeCam:ToggleLock()
-		-- LA PRIMERA PERSONA, que es el clic DERECHO de esa misma casilla. Tiene
+		-- LA VISTA DEL HEROE, que es el clic DERECHO de esa misma casilla. Tiene
 		-- comando por lo mismo que el candado: la casilla lo lanza por aqui, y
 		-- sin comando no habria forma de probarlo sin tener la bandeja puesta.
 		elseif sub == "ojos" or sub == "eyes" or sub == "primera" then

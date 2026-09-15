@@ -110,32 +110,98 @@
 
 	=== AND THE HERO VIEW IS THE SAME LOCK WITH A DIFFERENT ENTRANCE ========
 
-	RIGHT-clicking the lock slot puts the camera RIGHT ABOVE the hero -- five
-	yards by default -- facing the way he faces, and attaches both: it stays
-	there while he walks, fights, or his AI drives him.
+	RIGHT-clicking the lock slot puts the camera BEHIND the hero -- four yards
+	up, six yards back -- looking the way he looks, and attaches it: it stays at
+	his back while he walks, fights, or his AI drives him. If he turns, the
+	camera comes round with him and you go on seeing his back.
 
-	    mouse, Q/E      turn
-	    W/A/S/D         nudge the spot, exactly as with the lock
-	    SPACE, C        raise and lower the height above him
+	    W / S           closer and further away, never past him
+	    A / D           pivot around him, with him at the centre
+	    SPACE, C        raise and lower the height over his feet
+	    right drag      sideways pivots around him; up and down tilts the view
 
-	WHAT THIS MODE BUYS IS THE ENTRANCE, NOT A RESTRICTION (2026-09-15). It was
-	born forbidding W/A/S/D -- "look only" -- and that half is gone at the
-	player request: it bought nothing. The expensive, useful part is the other
-	one: that in ONE CLICK the camera is over your hero, oriented like him,
-	without flying it there.
+	THE PIVOT IS MEASURED FROM HIS NOSE, NOT FROM THE WORLD, and that single
+	decision is the whole mode. The camera does not sit at a compass bearing the
+	hero happens to be standing in front of: it sits at `facing + orbit`, and
+	`orbit` is the only thing A/D write. So zero is his back and STAYS his back
+	through every turn he takes -- and if you pivot round to his flank, you keep
+	the flank, turn after turn, instead of the camera drifting back behind him.
 
-	AND THE HEIGHT WAS MEASURED TWICE. It started at 2.2 -- a human head,
-	literally inside -- and was **far too low**: at head height the slope in
-	front hides whatever is behind it and your own model eats the bottom third
-	of the screen. Seven felt high. Five is what stuck.
+	AND THE MOUSE IS SPLIT IN TWO HERE, which is the only trick in the mode.
+	Everywhere else in this file the CLIENT owns the orientation and we only carry
+	the position (see `AdoptLook`): both live angles are adopted and written
+	straight back. Here the YAW cannot be adopted -- it is a consequence of where
+	the hero looks -- so adopting it would be letting the mouse fight the follow
+	over the same number, and the mouse would win on every frame the hero was not
+	turning.
+
+	So of the yaw we take not the angle but the DIFFERENCE between what we wrote
+	last frame and what is there now (`DragRead`): whatever the client has added
+	on top is the drag, and it is spent on the ORBIT -- the camera goes round him
+	instead of looking away from him. THE TILT IS ADOPTED WHOLE, exactly as
+	everywhere else: dragging up looks up, and it is the client that decides how
+	much, with the player own sensitivity and inversion already in it.
+
+	AND THE TILT IS NOT DERIVED FROM THE HEIGHT, which it was for one round and
+	is the reason this paragraph exists. Aiming at his chest every frame meant
+	SPACE could not raise the camera without tilting it down -- one gesture doing
+	two things, and the second one not asked for. Now the height is a translation
+	and the tilt is a rotation, each with its own hand on it; the chest aim
+	survives as the ENTRY value only.
+
+	THE FACING ARRIVES AT 33 Hz AND IS CHASED, LIKE THE POSITION. A turn in this
+	client is instantaneous -- a bot changing his mind is 180 degrees in one tick
+	-- so copying the angle raw is a whip-pan. `eyeTurn` is the k of that chase
+	and it is a SEPARATE dial from `lockSmooth`: the position can be chased hard
+	because its lag is a constant offset nobody sees, and the angle cannot.
+
+	AND A SPIN IS ABSORBED, NOT FOLLOWED. Clicking the ground behind you spins the
+	hero a hundred and eighty degrees in ONE tick, and a camera glued to his
+	facing replays that spin as a whip-pan. What was asked for is to WATCH HIM
+	TURN -- the camera still, him turning in front of it -- and then, once he is
+	walking, to drift back behind him VERY slowly.
+
+	AND THE WAY IT IS DONE IS THE ONE THING WORTH READING HERE: the jump is MOVED
+	FROM `hf` TO `orbit`. Both together are the camera (`hf + orbit`), so adding
+	to one what is taken from the other does not move it by a single degree, and
+	what is left is the same picture described another way -- the facing GLUED
+	again from the very next frame, which is what an advance needs, and the whole
+	discrepancy parked in the one number the slow return knows how to undo.
+
+	FREEZING THE FACING FOR A MOMENT WAS THE FIRST ATTEMPT AND IT CAME OUT WRONG,
+	for a reason worth keeping: when the freeze ended, the chase brought `hf` up
+	to date but `orbit` was still whatever the player had pivoted to before
+	clicking, so the camera turned the whole spin AGAIN on top of it and ended up
+	looking at his flank -- "un giro que la lia". Absorbing costs the same line
+	and cannot do that, because the sum is what it preserves.
+
+	A SPIN IS TOLD APART FROM AN ADVANCE BY HOW MUCH THE FACING MOVES BETWEEN TWO
+	READINGS, and it is measured there and not on the chase error because the
+	error stays large for a whole second AFTER a spin -- that is what chasing
+	means -- so it cannot tell the start of one from the middle of one. Between
+	two readings, running a curve at full speed is some three degrees and a spin
+	is a hundred and eighty.
+
+	AND THE RETURN WAITS FOR HIM TO WALK, at the player request: the point of the
+	pause is to see him set off in the new direction, so what starts the drift is
+	his position changing and not a stopwatch. Four spins in a row cost four
+	absorptions -- the camera does not move through any of them -- and then ONE
+	slow return, which is the "do not replay the four turns" of a few rounds ago
+	arriving by another door.
 
 	IT IS NOT A FIFTH MODE. It is the lock, which instead of capturing whatever
-	framing is on screen sets it to (0, 0, `eyeH`) and also orients, so it
-	inherits the whole smoothed hero follow -- which matters more there than
+	framing is on screen recomputes it every frame from the hero facing, so it
+	inherits the whole smoothed hero follow -- which matters more here than
 	anywhere: the DLL publishes the position at 33 Hz and the screen runs at 60,
 	so copying it raw is 0.2 yards of jerk thirty-three times a second right
-	above the hero. What does not show from a bird eye view makes you seasick
+	behind the hero. What does not show from a bird eye view makes you seasick
 	here.
+
+	AND THERE IS NO GROUND UNDER IT, same as the lock: Z is the hero Z plus
+	`eyeH` and no ray runs. Over flat country that is right; going DOWNHILL the
+	ground behind the camera is higher than the camera, and with `noclip` on you
+	see the inside of the hill. It is known and it is not fixed: fixing it means
+	bringing a filtered ground into a branch that today has a single owner of Z.
 
 	=== WITHOUT THE DLL THIS DOES NOT START, AND IT SAYS SO =================
 
@@ -248,25 +314,44 @@ local D = {
 	-- offset that only changes while the hero accelerates or brakes. The
 	-- staircase, by contrast, shows.
 	lockSmooth = 25.0,   -- k of the hero follow with the lock on (1/s)
-	-- THE HERO VIEW HEIGHT, AND BY DEFAULT IT IS NOT HIS HEAD (2026-09-15).
+	-- THE HERO VIEW: HOW HIGH, HOW FAR BACK, AND HOW FAST IT COMES ROUND.
 	--
-	-- It started at 2.2 -- a human head, literally inside -- and the player
-	-- measured it in game: **far too low**. And that makes sense, because at
-	-- head height the world looks the way it looks to a pedestrian: the slope
-	-- in front hides what is behind it, your own model eats the bottom third of
-	-- the screen, and what you want from a camera attached to your hero is to
-	-- SEE WHERE HE IS GOING, not to check his feet are on the floor.
+	-- `eyeH` has been measured in game four times -- 2.2 (a human head, and
+	-- literally inside it), 7, 5, and now 4 with the camera BEHIND the hero
+	-- rather than on top of him. It is not a number that can be reasoned out
+	-- from here: how far you want to be from your own character is a matter of
+	-- feel, like mouse sensitivity, and every round of it has moved.
 	--
-	-- It settled on FIVE, measured in game over two rounds: 2.2 was inside the
-	-- head, 7 felt high, 5 is what he asked for. Above the model and above
-	-- almost everything at ground level, and still close enough that it is THAT
-	-- character view and not just another RTS camera.
+	-- AND BOTH DISTANCES HAVE TWO MOUTHS, which is what makes them settings and
+	-- not constants: `SPACE`/`C` write `eyeH` and `W`/`S` write `eyeD` live, and
+	-- `/rts fc eyeH 4` / `/rts fc eyeD 8` write the same two numbers by hand.
+	-- They are NOT a live copy of the camera, and that is what makes the spot
+	-- you back off to the spot you get next time you come in.
 	--
-	-- AND IT IS STILL A SETTING, which is what it was before: `SPACE` and `C`
-	-- raise and lower it live, and `/rts fc eyeH 4` sets it by hand. Both
-	-- mouths write THIS number and not a live copy, which is what makes the
-	-- height you climb to the height you get next time.
-	eyeH    = 5.0,    -- yards above the hero FEET, with the camera attached
+	-- `eyeTurn` is the k of the chase of the HERO FACING, and it is separate
+	-- from `lockSmooth` on purpose: the position can be chased at 25 because its
+	-- lag is a constant offset nobody sees, and the angle cannot -- a turn in
+	-- this client is instantaneous, so at 25 a bot changing his mind is a
+	-- whip-pan. At 6 that same turn takes about half a second to settle, which
+	-- is what a camera on a rail behind someone looks like.
+	eyeTurn = 6.0,    -- k of the chase of his facing (1/s); higher is sharper
+	-- AND THE SPIN, WHICH IS TWO NUMBERS: what counts as one, and how slowly the
+	-- camera comes back behind him afterwards.
+	--
+	-- `eyeSnap` is generous on purpose. Running a curve at full tilt moves the
+	-- facing some three degrees between readings and a click-to-move spins it up
+	-- to a hundred and eighty, so anywhere in the middle works; what it must not
+	-- do is fire while simply travelling, because the symptom of that would be
+	-- the camera drifting off a hero who never did anything sudden.
+	--
+	-- `eyeBack` IS MEANT TO BE TOO SLOW. It was asked for as "muy MUY lento", and
+	-- a constant speed is what delivers that: an exponential would start at
+	-- `k * 180` and the first half of the return would be the whip-pan all this
+	-- exists to avoid. At twenty degrees a second, coming back from a click
+	-- behind you takes nine seconds and reads as the camera settling rather than
+	-- as the camera moving. Zero means it never comes back on its own.
+	eyeSnap = 40.0,   -- degrees between two readings that count as a SPIN
+	eyeBack = 20.0,   -- deg/s of the slow return behind him (0 = it never does)
 }
 
 -- GENERATION STAMP, and it is needed because a setting CHANGED MEANING.
@@ -292,6 +377,19 @@ local GEN = 3
 -- rather than by stretching this one until it means the same thing.
 local EYE_MIN, EYE_MAX = 0.0, 50.0
 
+-- The caps on the DISTANCE, and the low one is the "do not go past him" this
+-- mode was asked for: W brings the camera in and stops a yard short instead of
+-- crossing over the hero and coming out looking at his face. Zero is not a
+-- distance either -- the tilt is `atan(dz / eyeD)`, which at zero is the camera
+-- looking straight down its own axis.
+local EYE_DMIN, EYE_DMAX = 1.0, 50.0
+
+-- WHERE ON THE HERO THE CAMERA AIMS ON THE WAY IN -- and only on the way in,
+-- the tilt is the drag's from the next frame: a yard and a half over his feet,
+-- roughly the chest. Aiming at the feet with the camera four yards up would put
+-- him at the top of the screen with the floor filling the rest of it.
+local EYE_AIM = 1.5
+
 -- === AND RAISING THE DEFAULT DOES NOT REACH ANYONE WHO HAS IT SAVED ======
 --
 -- This is the third time this project has hit the same rock, and the other two
@@ -307,9 +405,10 @@ local EYE_MIN, EYE_MAX = 0.0, 50.0
 -- its mind here is one number. That one moves, it is announced, and nothing
 -- else is touched.
 --
--- 2 -> 3: from seven to five, measured in game. The stamp goes up again because
--- the problem is the same: anyone with 7.0 written down would never see the 5.0.
-local EYE_GEN = 3
+-- 3 -> 4: from five to four, with the camera moving from over the hero to behind
+-- him. The stamp goes up for the same reason every time: anyone with 5.0 written
+-- down would never see the 4.0.
+local EYE_GEN = 4
 
 local function MigrateEye(c)
 	if c.eyeGen == EYE_GEN then return end
@@ -321,11 +420,24 @@ local function MigrateEye(c)
 	-- identical, and keeping quiet turns an announced change into a surprise.
 	if type(was) == "number" and math.abs(was - c.eyeH) > 0.01 then
 		ns.Print(("|cffffd100RTS camera:|r the hero view height goes from %.1f to " ..
-			"|cffffff00%.1f|r yd (the old one was measured in game and was far too " ..
-			"low). |cffffff00/rts fc eyeH %.1f|r puts it back."):format(
+			"|cffffff00%.1f|r yd (the camera now rides BEHIND your hero, not over " ..
+			"him). |cffffff00/rts fc eyeH %.1f|r puts it back."):format(
 			was, c.eyeH, was))
 	end
 end
+
+-- Settings that USED TO EXIST and no longer do. They are wiped from the saved
+-- variables on every read: a number saved under a name nothing reads is a dial
+-- wired to nothing, and the next person to grep for it finds a value that has
+-- not moved anything for months.
+--
+--   eyeFast/eyeSoft/eyeSlow -- the ground filter in degrees, tried on
+--   2026-09-15 for the hero view turning and taken straight back out: the
+--   brief behind it was not the one the player had in mind.
+--   eyeHold -- the freeze after a spin, replaced on 2026-09-16 by absorbing
+--   the spin into `orbit`, which does the same job without the second turn
+--   that gave it away.
+local DEAD = { "eyeFast", "eyeSoft", "eyeSlow", "eyeHold" }
 
 local function Cfg()
 	RTSCommandDB.freeCam = RTSCommandDB.freeCam or {}
@@ -397,6 +509,25 @@ local function Cfg()
 	-- same number is a cap that gets forgotten; it already happened with the
 	-- FOV floor.
 	if c.eyeH < EYE_MIN or c.eyeH > EYE_MAX then c.eyeH = D.eyeH end
+	-- THE SAME TWO CONSTANTS W AND S USE, and for the same reason as `eyeH`.
+	if c.eyeD < EYE_DMIN or c.eyeD > EYE_DMAX then c.eyeD = D.eyeD end
+	-- At zero the camera would never come round and the mode would look broken
+	-- exactly when the hero turns; above 200 it is the raw 33 Hz staircase back
+	-- again. Out of range is garbage and goes back to the default.
+	if c.eyeTurn <= 0 or c.eyeTurn > 200 then c.eyeTurn = D.eyeTurn end
+	-- Under ten degrees a hard curve would count as a spin and the camera would
+	-- let go of a hero who is only running; over 180 nothing can ever reach it
+	-- and the pause would never happen at all.
+	if c.eyeSnap < 10 or c.eyeSnap > 180 then c.eyeSnap = D.eyeSnap end
+	-- Zero is allowed here (see `D`): it is "it never comes back by itself", the
+	-- sticky framing of the very first version, and not a broken value.
+	if c.eyeBack < 0 or c.eyeBack > 360 then c.eyeBack = D.eyeBack end
+	-- AND THE KEYS THAT STOPPED EXISTING ARE THROWN AWAY, not left lying in the
+	-- SavedVariables. They are cleared here, one line for all of them, rather
+	-- than with a generation: a generation means "what was saved no longer means
+	-- the same thing" and would take `speed`, `height` and the other twenty with
+	-- it, and what happened to these is simpler -- nobody reads them any more.
+	for _, dead in ipairs(DEAD) do c[dead] = nil end
 	return c
 end
 
@@ -502,7 +633,22 @@ local st = { x = nil, y = nil, z = nil, yaw = 0, pitch = nil, offset = nil,
              -- FRAMING, not the camera. That is why the framing "stays":
              -- nothing else writes it.
              ax = nil, ay = nil, az = nil,
-             ox = 0, oy = 0, oz = 0 }
+             ox = 0, oy = 0, oz = 0,
+             -- THE HERO VIEW, and neither of these is a position: `orbit` is
+             -- the angle FROM THE HERO NOSE (0 = his back) that A/D write, and
+             -- `hf` is his facing chased with smoothing. The framing `o*` above
+             -- is recomputed from those two every frame, which is why the
+             -- camera keeps the side you chose through every turn he makes.
+             orbit = 0, hf = nil,
+             -- THE SPIN: `rawf` is his facing AS PUBLISHED (not chased), which
+             -- is the only place a spin can be measured, and `back` says there
+             -- is a return pending. `px/py` and `moving` are how "he is
+             -- walking" is answered -- the trigger of that return.
+             rawf = nil, back = false,
+             px = nil, py = nil, moving = 0,
+             -- THE YAW WE WROTE INTO THE CAMERA LAST FRAME, which is how the
+             -- drag is told apart from our own writing (`DragRead`).
+             wroteYaw = nil }
 
 -- The lock is on. It lives on `F` and not on `st` because it gets asked about
 -- from outside -- the report, the command -- and `st` belongs to the solver.
@@ -827,6 +973,41 @@ local function LookReport()
 	return "|cffff8800not measured|r (is the camera published?)"
 end
 
+-- === THE MOUSE IN THE HERO VIEW: HALF A DIFFERENCE, HALF AN ANGLE ========
+--
+-- The two axes of the same drag end up in different places, and they have to:
+--
+--   THE TILT is adopted whole, like `AdoptLook` does everywhere else. Nobody
+--   else writes it in this mode, so whatever the client has is the player's and
+--   is handed straight back -- dragging up looks up, at their own sensitivity
+--   and with their own inversion.
+--
+--   THE YAW cannot be adopted, because it is a consequence of where the hero
+--   looks. What is taken from it is WHAT THE CLIENT HAS ADDED since we wrote it
+--   last frame, and that difference is spent on the orbit. `st.wroteYaw` is the
+--   other half: with no previous write there is no difference to measure and it
+--   says zero, because the alternative -- reading the whole live angle as a
+--   drag -- is a jump of whatever the camera happened to be pointing at.
+--
+-- Both are read with `CommentatorGetCamera`, which is SYNCHRONOUS -- this frame,
+-- not the DLL a tick late -- for the same reason `AdoptLook` uses it: anything
+-- else puts back the delay all of this exists to remove.
+local function DragRead()
+	local ok, _, _, _, yaw, pitch = Try("CommentatorGetCamera")
+	if not ok or type(yaw) ~= "number" or type(pitch) ~= "number" then
+		return 0, nil
+	end
+	local dy = st.wroteYaw and Wrap180(yaw - st.wroteYaw) or 0
+	-- Under a hundredth of a degree it is the round trip through the client
+	-- float and not a hand on the mouse. Without this the orbit creeps.
+	if math.abs(dy) < 0.01 then dy = 0 end
+	-- The same two stops `AdoptLook` uses: past them the camera is upside down
+	-- and the client is the one that says so.
+	if pitch < -89 then pitch = -89 end
+	if pitch > 89 then pitch = 89 end
+	return dy, pitch
+end
+
 -- The buttons, from the DLL. `IsMouseButtonDown` returns NO while the client has
 -- the mouse grabbed, so to know whether BOTH are held there is no other source.
 -- It stays only for the move-forward gesture; the turning no longer uses it.
@@ -899,43 +1080,178 @@ local function Follow(c, dt)
 	end
 
 	if F.eyes then
-		-- THE EIGHT KEYS ARE GOOD HERE TOO (2026-09-15). What is left that is
-		-- exclusive to this mode is not a restriction, it is WHERE YOU COME IN:
-		-- above the hero, facing the way he faces, in one click. That was the
-		-- expensive part; forbidding movement once inside bought nothing and it
-		-- was asked to be taken out.
-		--
-		-- THE PLANE BELONGS TO THIS SITTING, THE HEIGHT IS YOURS, and the
-		-- asymmetry is on purpose. `ox`/`oy` are forgotten on the way out and
-		-- that is why coming back in PUTS THE CAMERA OVER THE HERO AGAIN --
-		-- which is what the button is pressed for; if they were saved, the
-		-- second click would leave you where you already were and the button
-		-- would be no use at all. The height does not belong to this sitting:
-		-- it is how far away you like to be from your character, the same in
-		-- the next session.
-		st.ox = st.ox + st.vx * dt
-		st.oy = st.oy + st.vy * dt
+		-- THE CAMERA IS A POLAR COORDINATE AROUND THE HERO, and every key in this
+		-- branch moves one of its three numbers: `orbit` (A/D), `eyeD` (W/S) and
+		-- `eyeH` (SPACE/C). NOTHING HERE WRITES A POSITION, and that is what makes
+		-- the framing survive the hero turning: `st.ox/oy/oz` are recomputed from
+		-- the three of them every single frame.
 
-		-- THAT IS WHY THE HEIGHT WRITES INTO THE SETTING AND THE PLANE DOES NOT.
-		-- One single number, two mouths: `SPACE`/`C` and `/rts fc eyeH`.
+		-- A/D PIVOT, AND Q/E DO THE SAME rather than nothing: they are the turn
+		-- pair everywhere else in this file, and a key that does nothing in one
+		-- mode reads as a key that is broken. `yawSign` is the same dial that
+		-- flips Q/E in free flight -- if the pivot comes out backwards it is
+		-- backwards in both places, and there is one number to change.
+		-- IS HE WALKING? Not his speed: whether the published position has moved
+		-- AT ALL since the last reading, with a grace of a few hundredths after it
+		-- last did. The DLL publishes at 33 Hz and the screen runs at 60 or more,
+		-- so on half the frames the position is the same one twice and a speed
+		-- computed from it would read zero in the middle of a run.
+		if st.px and ((hx - st.px) ^ 2 + (hy - st.py) ^ 2) > 0.0004 then
+			st.moving = 0.15
+		else
+			st.moving = math.max(0, (st.moving or 0) - dt)
+		end
+		st.px, st.py = hx, hy
+
+		-- THE DRAG: SIDEWAYS IT PIVOTS AND UP AND DOWN IT TILTS, and it cannot do
+		-- anything else -- there is no gesture here that takes the view off the
+		-- hero, because that is what the mode is.
+		local dYaw, lookPitch = DragRead()
+		if dYaw ~= 0 then
+			-- The client yaw is not the world angle: `look.sign` is the measured
+			-- relation between the two (`CalibrateYaw`).
+			--
+			-- AND THE MOUSE GOES THE OTHER WAY ROUND THAN A/D, which reads as an
+			-- inconsistency and is the opposite of one: the hand means a different
+			-- thing by each gesture. A KEY MOVES THE CAMERA -- D is strafe right,
+			-- the same as in free flight -- and A DRAG POINTS THE VIEW, so dragging
+			-- left must turn left, which is the camera going round him the other
+			-- way. It was built the consistent way first and tried in game, and
+			-- the consistent way is the one that feels backwards.
+			st.orbit = ((st.orbit or 0) + (look.sign or 1) * dYaw * c.yawSign) % 360
+			-- AND THE HAND ON THE MOUSE CANCELS THE RETURN. A camera drifting back
+			-- behind him while the player is deliberately moving it somewhere else
+			-- is the camera arguing with the person holding it.
+			st.back = false
+		end
+
+		local pivot = 0
+		if input.right or input.yawR then pivot = pivot + 1 end
+		if input.left  or input.yawL then pivot = pivot - 1 end
+		if pivot ~= 0 then
+			st.orbit = ((st.orbit or 0) + pivot * c.yawSign * c.turn * dt) % 360
+			st.back = false   -- same as the drag: the keys win over the return
+		end
+
+		-- W/S ARE A DOLLY, NOT A WALK: they move the distance and nothing else, so
+		-- coming in does not drag the camera down towards the ground and W does
+		-- not fly you over the hero and out the far side -- it stops at
+		-- `EYE_DMIN`, which is the "without going past him" that was asked for.
+		-- The speed is `lift`, the same one SPACE and C use: it is the nudge speed
+		-- of this whole mode, and two dials for one gesture is one dial forgotten.
+		local dolly = 0
+		if input.fwd  then dolly = dolly - 1 end
+		if input.back then dolly = dolly + 1 end
+		if dolly ~= 0 then
+			local d = c.eyeD + dolly * c.lift * dt
+			if d < EYE_DMIN then d = EYE_DMIN end
+			if d > EYE_DMAX then d = EYE_DMAX end
+			c.eyeD = d
+		end
+
+		-- SPACE/C: the height over his feet, and it writes the SETTING for the
+		-- same reason the dolly does -- one number, two mouths, `/rts fc eyeH`
+		-- being the other one. The drag adds a second hand to the same number.
 		local lift = 0
 		if input.up then lift = lift + 1 end
 		if input.down then lift = lift - 1 end
+		-- AND IT IS A TRANSLATION AND NOTHING ELSE. It used to aim at his chest
+		-- as it went, which meant SPACE could not raise the camera without tilting
+		-- it down -- one key doing two things, and the second one not asked for.
+		-- The tilt is the drag's now, and it stays where the player left it while
+		-- the camera goes up and down past it.
 		if lift ~= 0 then
 			local h = c.eyeH + lift * c.lift * dt
-			-- Clamped HERE with the same two constants `Cfg` uses, not with
-			-- new numbers: see the comment over there. It is clipped rather
-			-- than bounced, which is what makes holding the key against the
-			-- cap feel like a cap and not like a bug.
+			-- Clamped HERE with the same two constants `Cfg` uses, not with new
+			-- numbers: see the comment over there. It is clipped rather than
+			-- bounced, which is what makes holding the key against the cap feel
+			-- like a cap and not like a bug.
 			if h < EYE_MIN then h = EYE_MIN end
 			if h > EYE_MAX then h = EYE_MAX end
 			c.eyeH = h
 		end
-		-- Z is rewritten whole every frame instead of being set once on the way
-		-- in, and that is what makes both the keys and `/rts fc eyeH 4` show
-		-- NOW -- a setting that only takes effect on re-entering the mode reads
-		-- as a setting that does not work.
+
+		-- THE HERO FACING, CHASED AND NOT COPIED, and by the SHORT way round:
+		-- without the `Wrap180` a hero crossing from 359 to 1 degree would send the
+		-- camera all the way round the circle the other way, at the one moment it
+		-- shows most.
+		local face = (type(RTS_PF) == "number") and math.deg(RTS_PF) or nil
+		if face then
+			if not st.hf then
+				st.hf, st.rawf = face, face
+			else
+				-- A SPIN, MEASURED BETWEEN TWO READINGS OF THE RAW FACING. On the
+				-- chase error it could not be measured: the error is large for a
+				-- whole second after every spin, so the start of one and the middle
+				-- of one look identical. Here they do not -- an advance moves this
+				-- by about three degrees and a click-to-move by a hundred and
+				-- eighty.
+				local jump = st.rawf and math.abs(Wrap180(face - st.rawf)) or 0
+				st.rawf = face
+				if jump >= c.eyeSnap then
+					-- THE SPIN IS ABSORBED: what is added to `orbit` is exactly what
+					-- is taken off `hf`, and the camera is their SUM, so it does not
+					-- move by one degree. From the next frame the facing is glued
+					-- again (they are equal) and the whole discrepancy is parked in
+					-- `orbit`, where the slow return can undo it -- instead of in the
+					-- chase, where it came out as a second turn on top of the first.
+					st.orbit = ((st.orbit or 0) + st.hf - face) % 360
+					st.hf = face
+					st.back = true
+				else
+					-- BY THE SHORT WAY ROUND: without the `Wrap180` a hero crossing
+					-- from 359 to 1 degree would send the camera all the way round
+					-- the other side, at the one moment it shows most.
+					st.hf = (st.hf + Wrap180(face - st.hf) *
+						(1 - math.exp(-c.eyeTurn * dt))) % 360
+				end
+			end
+		end
+
+		-- AND HERE IS THE WHOLE MODE, in four lines: the camera sits on the far
+		-- side of `facing + orbit` at `eyeD`, and looks back down it.
+		-- THE SLOW RETURN, AND IT WAITS FOR HIM TO WALK. That is the gesture as it
+		-- was asked for: click, watch him turn, watch him set off, and only then
+		-- does the camera settle in behind him.
+		--
+		-- AT A CONSTANT SPEED, not a chase. A chase is proportional, so it would
+		-- start at `k * 180` and spend the first half of the return doing exactly
+		-- the whip-pan this was built to remove. Constant is what "muy MUY lento"
+		-- means, and it ends at a twentieth of a degree a frame -- a stop nobody
+		-- can see.
+		if st.back and (st.moving or 0) > 0 then
+			local o = Wrap180(st.orbit or 0)
+			local step = c.eyeBack * dt
+			if math.abs(o) <= step then
+				st.orbit, st.back = 0, false
+			else
+				st.orbit = (st.orbit - (o > 0 and step or -step)) % 360
+			end
+		end
+
+		local world = (st.hf or 0) + (st.orbit or 0)
+		local rad = math.rad(world)
+		st.ox = -math.cos(rad) * c.eyeD
+		st.oy = -math.sin(rad) * c.eyeD
 		st.oz = c.eyeH
+
+		-- THE ONLY THING THAT NEEDS THE MEASURED CONVENTION IS THE LOOK. The
+		-- position above is world coordinates and cannot come out mirrored; the
+		-- yaw goes through `YawForWorld`, and while there is no measurement yet it
+		-- keeps the previous one instead of snapping to zero -- a camera pointing
+		-- slightly wrong beats a camera pointing east.
+		local yaw = YawForWorld(rad)
+		if yaw then st.yaw = yaw end
+		-- AND THE TILT IS NOT COMPUTED, IT IS THE PLAYER'S: whatever the client
+		-- has, which is where their last drag left it. Nothing else in this mode
+		-- writes it, so it survives the height, the distance and every turn the
+		-- hero takes. POSITIVE LOOKS DOWN (see `pitch` in `D`).
+		if lookPitch then st.pitch = lookPitch end
+		-- WHAT WE WROTE, KEPT, and `Step` writes exactly this a few lines later.
+		-- It is the other half of `DragRead`: without it there is nothing to
+		-- subtract the client yaw from, and the drag cannot be told apart from our
+		-- own writing.
+		st.wroteYaw = st.yaw
 	else
 		-- The keys ADJUST THE FRAMING. Same speed and same smoothing as in the
 		-- free mode: `st.vx/vy` already come computed from the same solver up
@@ -1026,14 +1342,14 @@ function F:ToggleLock()
 	return self:SetLock(not self.lock)
 end
 
---- FIRST PERSON -----------------------------------------------------------
+--- THE HERO VIEW ---------------------------------------------------------
 --
--- The camera goes into the hero head and stays there. The only thing that has
--- to be decided here is WHERE YOU COME IN -- the spot and which way you look --
+-- The camera goes behind the hero and stays there. The only thing that has to
+-- be decided here is WHERE YOU COME IN -- at his back, at `eyeD` and `eyeH` --
 -- because from the next frame onwards `Follow` carries the whole thing.
 --
 -- COMING IN HAS TO BE INSTANT, not a journey. If this did no more than set the
--- flags, the camera would travel from wherever it was to the head dragged along
+-- flags, the camera would travel from wherever it was to his back dragged along
 -- by the anchor smoothing -- a hundred yards of flight from the bird eye view --
 -- which reads as the mode being slow to start. The whole position is written
 -- right here and applied on the spot.
@@ -1047,14 +1363,18 @@ function F:SetEyes(on)
 		if self.eyes then
 			self.eyes = false
 			self.lock = false
+			-- The drag reference goes with the mode: on the way back in, the first
+			-- frame would otherwise read everything the client has turned in the
+			-- meantime as one enormous drag.
+			st.wroteYaw = nil
 			-- With `gz` at nil the first free tick measures the ground of WHERE
 			-- THE CAMERA IS (the hero head) instead of bringing along the one
 			-- from before coming in: otherwise, leaving first person would be a
 			-- jump in height.
 			st.gz, st.gstep, st.buried = nil, 0, 0
 			Repaint()
-			ns.Print("|cff33ccffRTS camera:|r first person |cffff8800OUT|r " ..
-				"|cff888888(the camera stays where the head was)|r.")
+			ns.Print("|cff33ccffRTS camera:|r hero view |cffff8800OUT|r " ..
+				"|cff888888(the camera stays where it was)|r.")
 		end
 		return true
 	end
@@ -1066,35 +1386,57 @@ function F:SetEyes(on)
 	end
 
 	local c = Cfg()
+	-- COMING IN IS ALWAYS FROM BEHIND, and that is the whole reason the slot is
+	-- worth a click: `orbit` is RESET rather than remembered, so one press puts
+	-- the camera at his back however you left it last time. The distance and the
+	-- height are not reset -- those are how far from your character you like to
+	-- be, the same next session -- and the side you were watching from is
+	-- something you chose for one sitting.
+	st.orbit = 0
+	st.hf = (type(RTS_PF) == "number") and math.deg(RTS_PF) or nil
+	-- COMING IN IS NOT A SPIN. Without this the first reading would be compared
+	-- against whatever was left from the last time the mode was used -- another
+	-- character, another continent -- and the mode would open with the pause
+	-- already running.
+	st.rawf, st.back = st.hf, false
+	st.px, st.py, st.moving = hx, hy, 0
+	local rad = math.rad(st.hf or 0)
 	st.ax, st.ay, st.az = hx, hy, hz
-	st.ox, st.oy, st.oz = 0, 0, c.eyeH
-	st.x, st.y, st.z = hx, hy, hz + c.eyeH
-	-- The plane velocity is thrown away: with the keys disconnected there is
-	-- nobody to brake it, so a half-released W on the way in would be kept and
-	-- would come out all at once on the way back.
+	st.ox = -math.cos(rad) * c.eyeD
+	st.oy = -math.sin(rad) * c.eyeD
+	st.oz = c.eyeH
+	st.x, st.y, st.z = hx + st.ox, hy + st.oy, hz + st.oz
+	-- The plane velocity is thrown away: in this mode nobody brakes it, so a
+	-- half-released W on the way in would be kept and would come out all at once
+	-- on the way back.
 	st.vx, st.vy = 0, 0
 	st.gz, st.gstep, st.buried = nil, 0, 0
 
-	-- WHICH WAY THE HERO IS FACING, AND ONLY ON THE WAY IN. After that it is the
-	-- player's: the yaw is not touched again for a single frame more, which is
-	-- half of what was asked for -- "that afterwards you can reorient".
-	local yaw = (type(RTS_PF) == "number") and YawForWorld(RTS_PF) or nil
+	-- WHICH WAY THE HERO IS FACING, and from here on EVERY frame. This is the
+	-- one line that changed meaning when the camera moved from over him to
+	-- behind him: the orientation is no longer handed over to the player after
+	-- the first frame, it is what keeps the camera at his back when he turns.
+	local yaw = st.hf and YawForWorld(rad) or nil
 	if yaw then st.yaw = yaw end
-	-- To the horizon. A hero does not come in looking at his feet, and the tilt
-	-- of the RTS camera (45 degrees down out of the box) in there is the floor.
-	st.pitch = 0
+	-- THE CHEST AIM SURVIVES AS THE ENTRY TILT AND NOTHING MORE. From the next
+	-- frame it belongs to the drag: coming in looking at him is worth a line,
+	-- correcting him back into the middle of the screen behind the player's back
+	-- is the thing that was taken out.
+	st.pitch = math.deg(math.atan2(c.eyeH - EYE_AIM, c.eyeD))
+	st.wroteYaw = st.yaw
 
 	self.lock = true
 	self.eyes = true
 	Repaint()
 	ns.Camera:SpecPlace(st.x, st.y, st.z, st.yaw, st.pitch, nil)
-	ns.Print(("|cff33ccffRTS camera:|r |cff00ff00hero view|r, %.1f yd above his feet."):format(c.eyeH))
+	ns.Print(("|cff33ccffRTS camera:|r |cff00ff00hero view|r, %.1f yd up and %.1f yd behind him."):format(
+		c.eyeH, c.eyeD))
 	if not yaw then
 		ns.Print("  |cffff8800I do not know which way he faces|r: turn the camera " ..
 			"for a moment and come back in (|cffffff00/rts fc|r explains it).")
 	end
-	ns.Print("  |cff888888The mouse and Q/E turn, W/A/S/D adjust the spot and " ..
-		"SPACE/C the height. The hero carries you.|r")
+	ns.Print("  |cff888888W/S closer and further away, A/D pivot around him, " ..
+		"SPACE/C the height. The right drag pivots and tilts.|r")
 	return true
 end
 
@@ -1114,7 +1456,11 @@ function F:Step(dt)
 
 	-- FIRST the live angles, THEN our keys. The other way round, this frame Q/E
 	-- turning would be lost: the adoption overwrites the whole yaw.
-	AdoptLook()
+	-- AND NOT IN THE HERO VIEW, the one mode that owns its own angles: there the
+	-- yaw is a CONSEQUENCE of where the hero looks, so adopting the live one
+	-- would be letting the right drag fight the follow over the same number --
+	-- and the drag would win on every frame the hero did not turn.
+	if not self.eyes then AdoptLook() end
 	-- RIGHT AFTER ADOPTING and before Q/E touch anything: here `st.yaw` is still
 	-- the LIVE yaw of the camera, which is the only one that can be compared with
 	-- the forward the DLL publishes. One frame later it would already be the yaw
@@ -1139,7 +1485,10 @@ function F:Step(dt)
 	local turn = 0
 	if input.yawL then turn = turn + 1 end
 	if input.yawR then turn = turn - 1 end
-	if turn ~= 0 then
+	-- Q/E DO NOT TURN IN THE HERO VIEW: there they pivot, like A/D, and they do
+	-- it in `Follow`, where the orbit lives. Writing `st.yaw` here as well would
+	-- be writing a number that gets recomputed a few lines further down.
+	if turn ~= 0 and not self.eyes then
 		st.yaw = (st.yaw + turn * c.yawSign * c.turn * dt) % 360
 	end
 
@@ -1153,11 +1502,15 @@ function F:Step(dt)
 	-- here and not somewhere separate because it is one more input to the same
 	-- solver: that way moving with the mouse and turning at once comes free, on
 	-- the same frame.
-	if mouseLeft and mouseRight then my = my + 1 end
+	if mouseLeft and mouseRight and not self.eyes then my = my + 1 end
 	if input.right then mx = mx + 1 end
 	if input.left then mx = mx - 1 end
 
-	if mx ~= 0 or my ~= 0 then
+	-- AND THE PLANE IS DEAD IN THE HERO VIEW, which is what makes it all
+	-- keyboard: the same four keys mean something else there (dolly and pivot,
+	-- in `Follow`) and `wantX/wantY` stay at zero, so `st.vx/vy` ease down to
+	-- nothing and there is no velocity left over waiting for the way out.
+	if (mx ~= 0 or my ~= 0) and not self.eyes then
 		local fx, fy = FlatForward()
 		if fx then
 			-- El lateral es el avance girado 90 grados en el plano. NO se usa
@@ -1700,6 +2053,10 @@ local LABEL = {
 	ease = "suavizado del arranque/parada en el plano (k)",
 	lockSmooth = "con que fuerza el candado persigue al heroe (k)",
 	eyeH = "altura sobre los PIES del heroe con la camara enganchada (yd); ESPACIO y C la mueven",
+	eyeD = "distancia POR DETRAS del heroe con la camara enganchada (yd); W y S la mueven",
+	eyeTurn = "con que fuerza la camara persigue el giro del heroe (k)",
+	eyeSnap = "grados de golpe que cuentan como giro brusco y sueltan la camara",
+	eyeBack = "velocidad del regreso lento a su espalda tras uno (grados/s; 0 = nunca)",
 }
 
 function F:Set(key, value)
@@ -1754,8 +2111,10 @@ function F:Report()
 	-- segunda en que la distancia de ahora no sea la que se capturo.
 	if self.eyes then
 		local hx = HeroPos()
-		ns.Print(("  |cff00ff00VISTA DEL HEROE|r: %.1f yd sobre sus pies (ESPACIO/C)%s"):format(
-			c.eyeH, hx and "" or "   |cffff8800sin heroe publicado|r"))
+		ns.Print(("  |cff00ff00VISTA DEL HEROE|r: %.1f yd de alto (ESPACIO/C), " ..
+			"%.1f yd por detras (W/S), giro %+.0f grados (A/D)%s"):format(
+			c.eyeH, c.eyeD, Wrap180(st.orbit or 0),
+			hx and "" or "   |cffff8800sin heroe publicado|r"))
 	elseif self.lock then
 		local hx, hy, hz = HeroPos()
 		local d = hx and math.sqrt((st.x - hx) ^ 2 + (st.y - hy) ^ 2 + (st.z - hz) ^ 2)

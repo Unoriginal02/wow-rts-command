@@ -71,7 +71,7 @@ local ICON_DIR = "Interface\\Icons\\"
 --
 -- `cmd2` IS THE SECOND ORDER, the RIGHT-CLICK one, and almost nothing carries
 -- it. It is only worth it when the two are the same thing seen two ways -- the
--- lock pins the camera at its current distance on left-click and puts it ABOVE
+-- lock pins the camera at its current distance on left-click and puts it BEHIND
 -- THE HERO on right-click -- because right-click already had an owner in the
 -- tray (the dropdown that changes the slot), and taking that away in exchange
 -- for just any second order would be hiding the only way to configure it. On
@@ -179,7 +179,7 @@ local LIST = {
 	  icon = "INV_Misc_Key_03", art = "candado",
 	  cmd = { "/rts fc lock" },  d = "pins the camera to your hero",
 	  cmd2 = { "/rts fc eyes" },
-	  d2 = "puts the camera above the hero, facing his way, and attaches it" },
+	  d2 = "puts the camera BEHIND the hero and keeps it at his back, and it turns with him" },
 	{ id = "camera", g = "Windows", name = "Camera", raw = true,
 	  icon = "INV_Misc_Spyglass_03",
 	  cmd = { "/rts fc home" },  d = "brings the camera back over your hero" },
