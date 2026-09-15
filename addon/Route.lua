@@ -393,6 +393,18 @@ end
 -- `announce` distingue el primer punto de una ruta (donde la orden de seguir
 -- tiene que salir) de los shift+click que vienen detras (donde ya salio, y
 -- repetirla soltaria las anclas otra vez por cada punto).
+--
+-- Y NO SE CANTA EN CADA PASO (2026-09-16). `announce` separa el primer punto de
+-- los shift+click, pero CADA click derecho nuevo es un primer punto, asi que
+-- caminar por el mundo era una linea identica por paso: catorce seguidas en la
+-- captura del jugador. Se guarda A QUIEN se le dijo y solo se habla cuando esa
+-- lista cambia -- la primera vez, y despues solo si cambias la seleccion.
+--
+-- LA ORDEN SE SIGUE MANDANDO SIEMPRE. Lo unico que se calla es la linea: un
+-- aviso que sale en cada paso no informa de nada, y ademas tapa lo que si
+-- importa (el botin, los susurros) empujandolo fuera de la ventana.
+local told = nil
+
 local function RouteUnits(announce)
 	local units = SelectedUnits()
 	if #units < 2 then return units end
@@ -406,8 +418,17 @@ local function RouteUnits(announce)
 
 	if announce then
 		ns.Orders:FollowThese(others)
-		ns.Print(("Ruta: |cffffff00la marcas tu|r y te siguen %d compañero%s.")
-			:format(#others, #others == 1 and "" or "s"))
+		-- La firma se ORDENA antes de comparar: la seleccion puede devolver los
+		-- mismos cuatro en otro orden, y eso no es un cambio de escolta.
+		local sorted = {}
+		for _, n in ipairs(others) do tinsert(sorted, n) end
+		table.sort(sorted)
+		local sig = table.concat(sorted, ",")
+		if sig ~= told then
+			told = sig
+			ns.Print(("Ruta: |cffffff00la marcas tu|r y te siguen %d compañero%s.")
+				:format(#others, #others == 1 and "" or "s"))
+		end
 	end
 
 	return { me }
