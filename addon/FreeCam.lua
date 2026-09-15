@@ -1,146 +1,149 @@
 --[[
-	FreeCam.lua -- el controlador de la camara RTS.
+	FreeCam.lua -- the RTS camera controller.
 
-	Sustituye a la criatura poseida. Las cuatro capas que pedia el brief, en el
-	orden en que corren una vez por frame:
+	It replaces the possessed creature. The four layers the brief asked for, in
+	the order they run once per frame:
 
-	    INPUT     teclas -> intenciones           (botones propios, por flanco)
-	    SOLVER    intenciones -> objetivo         (plano horizontal + suelo)
-	    SMOOTHING objetivo -> posicion actual     (exponencial por dt)
-	    APPLY     una sola escritura              (ns.Camera:SpecPlace)
+	    INPUT     keys -> intentions              (our own buttons, by edge)
+	    SOLVER    intentions -> target            (horizontal plane + ground)
+	    SMOOTHING target -> current position      (exponential by dt)
+	    APPLY     a single write                  (ns.Camera:SpecPlace)
 
-	=== POR QUE ESTO PUEDE EXISTIR AHORA Y NO ANTES ==========================
+	=== WHY THIS CAN EXIST NOW AND COULD NOT BEFORE =========================
 
-	La camara de siempre era una criatura del servidor que el jugador POSEE, asi
-	que el cliente era dueño de su posicion y desde el servidor solo se la podia
-	mover con `NearTeleportTo` -- que CANCELA el movimiento que el cliente esta
-	aplicando. Todo lo que este fichero hace estaba bloqueado por ese hecho:
+	The old camera was a server creature the player POSSESSES, so the client
+	owned its position and the server could only move it with `NearTeleportTo`
+	-- which CANCELS the movement the client is applying. Everything this file
+	does was blocked by that one fact:
 
-	  * avanzar y subir a la vez era imposible (cada teleport corta el avance),
-	  * la altura sobre el terreno se construyo por los DOS caminos posibles y
-	    se borro el 2026-08-23, porque el del servidor es un ascensor y el del
-	    cliente (hover) necesita la gravedad encendida, que es justo lo que hace
-	    que la camara se quede donde se la pone,
-	  * y el suavizado por dt no tenia sentido: no eramos dueños de la
-	    transformada, asi que no habia nada que interpolar.
+	  * moving forward and rising at the same time was impossible (each
+	    teleport cuts the forward motion),
+	  * height over terrain was built BOTH possible ways and deleted on
+	    2026-08-23, because the server one is a lift and the client one (hover)
+	    needs gravity switched on, which is exactly what stops the camera
+	    staying where you put it,
+	  * and smoothing by dt made no sense: we did not own the transform, so
+	    there was nothing to interpolate.
 
-	Con `CommentatorSetCamera` la transformada es NUESTRA -- seis valores, una
-	llamada, y se queda puesta (medido en juego: deriva 0.00). Asi que las tres
-	dejan de ser problemas de mecanismo y pasan a ser aritmetica.
+	With `CommentatorSetCamera` the transform is OURS -- six values, one call,
+	and it stays put (measured in game: 0.00 drift). So all three stop being
+	mechanism problems and become arithmetic.
 
-	=== ADELANTE ES PLANO, NUNCA EL VECTOR DE VISTA =========================
+	=== FORWARD IS FLAT, NEVER THE VIEW VECTOR =============================
 
-	Es el requisito explicito y es tambien la leccion de la etapa 5f, donde
-	`SetCanFly(true)` era la razon de que la camara "volara": en modo vuelo el
-	cliente mueve la unidad a lo largo de su VISTA, asi que mirando al suelo y
-	pulsando W desciendes.
+	It is the explicit requirement and it is also the lesson of stage 5f, where
+	`SetCanFly(true)` was the reason the camera "flew": in flight mode the
+	client moves the unit along its VIEW, so looking at the ground and pressing
+	W makes you descend.
 
-	Aqui adelante sale del vector de avance de la camara PROYECTADO en el plano
-	horizontal y renormalizado, asi que la inclinacion solo cambia lo que VES.
-	W/S mueven en el plano que define la altura, que es lo que se pidio.
+	Here forward comes from the camera forward vector PROJECTED onto the
+	horizontal plane and renormalised, so tilting only changes what you SEE.
+	W/S move on the plane the height defines, which is what was asked for.
 
-	Y ese vector se le pide al DLL (`RTS_CamFwdX/Y`) en vez de derivarlo de
-	nuestro yaw, lo que evita de golpe la pregunta de cual es la convencion de
-	angulos de `CommentatorSetCamera` -- que no se puede leer del binario. El
-	yaw solo se usa para GIRAR; la direccion de avance nunca depende de el.
+	And that vector is asked of the DLL (`RTS_CamFwdX/Y`) rather than derived
+	from our yaw, which sidesteps the question of what `CommentatorSetCamera`
+	angle convention is -- something that cannot be read from the binary. Yaw is
+	only used to TURN; the direction of travel never depends on it.
 
-	=== LA ALTURA SE MIDE CONTRA EL SUELO DE DONDE ESTA LA CAMARA ============
+	=== HEIGHT IS MEASURED AGAINST THE GROUND UNDER THE CAMERA ==============
 
-	`targetZ = suelo + offset`, con el suelo de `RTS_CamGroundZ` -- un rayo
-	vertical que el DLL lanza bajo la camara cada tick. El unico suelo que se
-	publicaba antes estaba bajo el JUGADOR, y no sirve: en una camara RTS la
-	camara pasa la mayor parte del tiempo donde el personaje no esta, que es
-	justamente cuando hace falta.
+	`targetZ = ground + offset`, with the ground from `RTS_CamGroundZ` -- a
+	vertical ray the DLL fires under the camera every tick. The only ground
+	published before was under the PLAYER, and that is no use: in an RTS camera
+	the camera spends most of its time where the character is not, which is
+	exactly when it is needed.
 
-	ESPACIO y C no mueven la Z: mueven el OFFSET. Por eso se puede avanzar y
-	subir a la vez sin que ninguna de las dos cosas corte a la otra -- las dos
-	son entradas del mismo solver y se integran en el mismo frame, que es lo que
-	el brief pedia en su §7.
+	SPACE and C do not move Z: they move the OFFSET. That is why you can travel
+	and rise at once without either cutting the other -- both are inputs to the
+	same solver and are integrated in the same frame, which is what the brief
+	asked for in its section 7.
 
-	=== "EL SUELO" NO ES "LO PRIMERO QUE HAY DEBAJO" (2026-09-10) ============
+	=== "THE GROUND" IS NOT "THE FIRST THING UNDERNEATH" (2026-09-10) =======
 
-	Las dos cosas se dicen igual y solo son la misma en campo abierto. En
-	cuanto hay algo construido, lo primero que hay debajo de la camara al
-	acercarse a una casa es el TEJADO -- asi que la altura se corregia contra el
-	tejado, la camara subia sola y entrar era imposible. Un cartel de madera
-	hacia lo mismo en pequeno: un salto de seis yardas y vuelta.
+	The two are said the same way and are only the same thing in open country.
+	The moment there is anything built, the first thing under the camera as it
+	nears a house is the ROOF -- so height was corrected against the roof, the
+	camera rose by itself and getting inside was impossible. A wooden sign did
+	the same in miniature: a six-yard jump and back.
 
-	El DLL publica desde 0.25.0 las DOS alturas -- `RTS_CamGroundZ` (todo) y
-	`RTS_CamLandZ` (solo terreno, otra mascara de banderas del mismo rayo del
-	cliente) -- y `floor` elige. Con `floor = 1` un tejado deja de ser suelo:
-	la camara pasa por encima sin inmutarse y puede bajar hasta DENTRO de la
-	casa, donde el cliente ademas dibuja el interior y recorta el exterior el
-	solo, que es la version buena del corte que se descarto esta misma manana.
+	Since 0.25.0 the DLL publishes BOTH heights -- `RTS_CamGroundZ` (everything)
+	and `RTS_CamLandZ` (terrain only, another flag mask on the same client ray)
+	-- and `floor` picks. With `floor = 1` a roof stops being ground: the camera
+	passes over it unmoved and can descend right INSIDE the house, where the
+	client also draws the interior and clips the exterior on its own, which is
+	the good version of the cutaway discarded that same morning.
 
-	=== Y UN ESCALON NO ES UNA CUESTA ======================================
+	=== AND A STEP IS NOT A SLOPE =========================================
 
-	Aunque no haya tejados, el terreno tambien tiene bordes. Un suavizado sobre
-	el error de la camara no puede distinguirlos, porque seis yardas de error
-	son las mismas en los dos casos. Lo que si los distingue es CUANTO CORRE EL
-	SUELO: una cuesta a toda velocidad son ~20 yd/s, el borde de un escalon son
-	seis yardas EN UN FRAME -- cientos.
+	Even with no roofs, terrain has edges too. Smoothing over the camera error
+	cannot tell them apart, because six yards of error are the same six yards in
+	both cases. What DOES tell them apart is HOW FAST THE GROUND MOVES: a slope
+	at full speed is ~20 yd/s, the edge of a step is six yards IN ONE FRAME --
+	hundreds.
 
-	Asi que hay un filtro DELANTE del suavizado, sobre la senal de suelo, con la
-	velocidad limitada y el limite bajando con el tamano del escalon pendiente
-	(`climb`, `soft`, `slow`). Una cuesta se sigue de cerca; un escalon apenas
-	se empieza, y si te quedas encima acabas subiendo. Cuanto mas alto el
-	escalon, mas despacio -- que es exactamente al reves de lo que hace un
-	suavizado normal, y es lo que se pidio.
+	So there is a filter IN FRONT of the smoothing, on the ground signal, with a
+	speed limit whose ceiling drops as the pending step grows (`climb`, `soft`,
+	`slow`). A slope is followed closely; a step is barely begun, and if you
+	stay on top of it you do end up climbing. The taller the step, the slower --
+	which is exactly the opposite of what normal smoothing does, and is what was
+	asked for.
 
-	=== Y EL CANDADO ES LA CUARTA CAPA APAGADA (2026-09-13) =================
+	=== AND THE LOCK IS THE FOURTH LAYER SWITCHED OFF (2026-09-13) ==========
 
-	La casilla CANDADO del panel clava la camara al heroe: se captura la
-	distancia que hay en ese instante y se mantiene mientras el heroe viaja.
-	Sirve para acompanar al grupo por el camino sin conducir la camara a mano.
+	The panel LOCK slot pins the camera to the hero: the distance at that
+	instant is captured and held while the hero travels. It is for going along
+	with the party without flying the camera by hand.
 
-	Y ESA CASILLA ES LA UNICA BOCA. No hay tecla ni comando: se penso una tecla
-	y el jugador no la quiso (2026-09-13), asi que el candado no coge ninguna.
+	AND THAT SLOT IS THE ONLY MOUTH. There is no key and no command: a key was
+	considered and the player did not want one (2026-09-13), so the lock takes
+	none.
 
-	Es un DESVIO, no una capa mas: con el candado puesto el SOLVER de suelo
-	entero -- rayo, filtro de escalon, suelo duro, presupuesto de empuje -- no
-	corre. La Z sale del heroe, que ya va por el suelo por su cuenta, y dos
-	duenos de la misma Z es la forma de pelea que este fichero ya ha perdido dos
-	veces.
+	It is a DETOUR, not another layer: with the lock on, the whole ground SOLVER
+	-- ray, step filter, hard floor, push budget -- does not run. Z comes from
+	the hero, who already walks the ground on his own, and two owners of the
+	same Z is the kind of fight this file has already lost twice.
 
-	Y NO ENCUADRA NADA POR SU CUENTA: ni angulo, ni altura, ni distancia. Lo
-	pone el jugador con el raton y las teclas de siempre -- que con el candado
-	puesto mueven el ENCUADRE en vez de la camara -- y se queda hasta que lo
-	vuelva a tocar.
+	AND IT FRAMES NOTHING BY ITSELF: not the angle, not the height, not the
+	distance. The player sets that with the mouse and the usual keys -- which,
+	with the lock on, move the FRAMING instead of the camera -- and it stays
+	until they touch it again.
 
-	=== Y LA VISTA DEL HEROE ES EL MISMO CANDADO SIN PLANO =================
+	=== AND THE HERO VIEW IS THE SAME LOCK WITH A DIFFERENT ENTRANCE ========
 
-	Clic DERECHO en la casilla del candado pone la camara JUSTO ENCIMA del heroe
-	-- cinco yardas de fabrica -- mirando a donde mira el, y engancha las dos
-	cosas: se queda ahi mientras el anda, pelea o le lleva su IA.
+	RIGHT-clicking the lock slot puts the camera RIGHT ABOVE the hero -- five
+	yards by default -- facing the way he faces, and attaches both: it stays
+	there while he walks, fights, or his AI drives him.
 
-	    raton, Q/E      giran
-	    W/A/S/D         retocan el sitio, igual que con el candado
-	    ESPACIO, C      suben y bajan la altura sobre el
+	    mouse, Q/E      turn
+	    W/A/S/D         nudge the spot, exactly as with the lock
+	    SPACE, C        raise and lower the height above him
 
-	LO QUE ESTE MODO COMPRA ES LA ENTRADA, NO UNA RESTRICCION (2026-09-15).
-	Nacio prohibiendo W/A/S/D -- "solo mirar" -- y esa mitad se ha ido a
-	peticion del jugador: no compraba nada. Lo caro y lo util es lo otro, que en
-	UN CLIC la camara este sobre tu heroe, orientada como el, sin conducirla.
+	WHAT THIS MODE BUYS IS THE ENTRANCE, NOT A RESTRICTION (2026-09-15). It was
+	born forbidding W/A/S/D -- "look only" -- and that half is gone at the
+	player request: it bought nothing. The expensive, useful part is the other
+	one: that in ONE CLICK the camera is over your hero, oriented like him,
+	without flying it there.
 
-	Y LA ALTURA SE MIDIO DOS VECES. Empezo en 2.2 -- la cabeza de un humano,
-	literalmente dentro -- y era **muy baja**: a ras de cabeza la cuesta de
-	delante tapa lo que hay detras y el propio modelo se come el tercio de abajo
-	de la pantalla. Siete se sintio alto. Cinco es lo que quedo.
+	AND THE HEIGHT WAS MEASURED TWICE. It started at 2.2 -- a human head,
+	literally inside -- and was **far too low**: at head height the slope in
+	front hides whatever is behind it and your own model eats the bottom third
+	of the screen. Seven felt high. Five is what stuck.
 
-	NO ES UN QUINTO MODO. Es el candado que en vez de capturar el encuadre que
-	haya en pantalla lo pone en (0, 0, `eyeH`) y ademas orienta, asi que hereda
-	entero el seguimiento suavizado del heroe -- que ahi es mas necesario que
-	nunca: el DLL publica la posicion a 33 Hz y la pantalla va a 60, o sea que
-	copiarla en crudo son 0.2 yardas de tiron treinta y tres veces por segundo
-	justo encima del heroe. Lo que en vista de pajaro no se ve, aqui marea.
+	IT IS NOT A FIFTH MODE. It is the lock, which instead of capturing whatever
+	framing is on screen sets it to (0, 0, `eyeH`) and also orients, so it
+	inherits the whole smoothed hero follow -- which matters more there than
+	anywhere: the DLL publishes the position at 33 Hz and the screen runs at 60,
+	so copying it raw is 0.2 yards of jerk thirty-three times a second right
+	above the hero. What does not show from a bird eye view makes you seasick
+	here.
 
-	=== SIN DLL ESTO NO ARRANCA, Y LO DICE ==================================
+	=== WITHOUT THE DLL THIS DOES NOT START, AND IT SAYS SO =================
 
-	Necesita dos cosas que solo el DLL da: el vector de avance y el suelo bajo
-	la camara. Sin `rts_core` inyectado no hay ninguna de las dos, asi que el
-	controlador se niega a arrancar en vez de dibujar una camara que se va a
-	quedar clavada -- un modo degradado que no se anuncia es peor que uno que
-	falla.
+	It needs two things only the DLL gives: the forward vector and the ground
+	under the camera. Without `rts_core` injected there is neither, so the
+	controller refuses to start rather than draw a camera that is going to sit
+	there frozen -- a degraded mode nobody announces is worse than one that
+	fails.
 ]]
 
 local ADDON, ns = ...
@@ -150,162 +153,162 @@ ns.FreeCam = F
 
 F.active = false
 
---- Ajustes -----------------------------------------------------------------
+--- Settings ---------------------------------------------------------------
 --
--- Todos por personaje, porque son de tacto: la velocidad buena depende de la
--- resolucion y de la costumbre, igual que la sensibilidad del raton.
+-- All per character, because they are a matter of feel: the right speed
+-- depends on your resolution and your habits, same as mouse sensitivity.
 local D = {
-	speed   = 30.0,   -- yardas/segundo en el plano
-	lift    = 14.0,   -- yardas/segundo de offset con ESPACIO y C
-	turn    = 90.0,   -- grados/segundo con Q y E
-	height  = 30.0,   -- offset inicial sobre el suelo
-	minH    = 4.0,    -- lo mas bajo que puede valer `height`. NO es un suelo del
-	                  -- vuelo: con C se atraviesa lo que sea
-	maxH    = 300.0,  -- techo del offset
-	smoothZ = 8.0,    -- k del suavizado de altura (1/s); mas alto, mas seco
-	-- === EL SUELO NO ES LO PRIMERO QUE HAY DEBAJO ========================
+	speed   = 30.0,   -- yards/second on the plane
+	lift    = 14.0,   -- yards/second of offset with SPACE and C
+	turn    = 90.0,   -- degrees/second with Q and E
+	height  = 30.0,   -- starting offset above the ground
+	minH    = 4.0,    -- the lowest `height` may be. NOT a floor on the flight:
+	                  -- with C you go through anything
+	maxH    = 300.0,  -- ceiling on the offset
+	smoothZ = 8.0,    -- k of the height smoothing (1/s); higher is sharper
+	-- === THE GROUND IS NOT THE FIRST THING UNDERNEATH =====================
 	--
-	-- `floor = 1` mide contra el TERRENO y nada mas: un tejado, un cartel o la
-	-- copa de un arbol dejan de contar como suelo, asi que la camara ni sube
-	-- sola al acercarse a una casa ni se queda fuera. `floor = 0` es lo de
-	-- antes -- lo primero que choque -- y sirve para sobrevolar un pueblo sin
-	-- meterse en ningun sitio.
-	floor   = 1,      -- 1 = solo terreno, 0 = lo primero que haya debajo
-	-- === Y LA CAMARA NO CHOCA CON NADA ===================================
+	-- `floor = 1` measures against TERRAIN and nothing else: a roof, a sign or
+	-- a treetop stop counting as ground, so the camera neither rises by itself
+	-- as it nears a house nor gets locked out of it. `floor = 0` is the old
+	-- behaviour -- whatever it hits first -- and is useful for flying over a
+	-- village without dropping into anything.
+	floor   = 1,      -- 1 = terrain only, 0 = whatever is underneath
+	-- === AND THE CAMERA COLLIDES WITH NOTHING =============================
 	--
-	-- La camara de comentarista SI colisiona de serie, y con las mismas
-	-- banderas que el rayo de suelo -- terreno, edificios y doodads. Es la
-	-- segunda mitad de "no puedo entrar en la casa": una la subia al tejado y
-	-- la otra la empujaba fuera de la pared.
+	-- The commentator camera DOES collide out of the box, and with the same
+	-- flags as the ground ray -- terrain, buildings and doodads. It is the
+	-- second half of "I cannot get into the house": one raised it onto the roof
+	-- and the other pushed it out of the wall.
 	--
-	-- Con `noclip = 1` se apaga ese rayo al entrar y se vuelve a encender al
-	-- salir, asi que lo unico que detiene a la camara es NUESTRO suelo. Todo lo
-	-- que hace falta para leer eso en el binario esta en `Camera:SetCollision`.
-	noclip  = 1,      -- 1 = atraviesa todo; 0 = colision del cliente, como antes
-	-- === Y EL ESCALON SE PERSIGUE DESPACIO, LA CUESTA NO =================
+	-- With `noclip = 1` that ray is switched off on entry and back on on exit,
+	-- so the only thing stopping the camera is OUR ground. Everything needed to
+	-- read that in the binary is in `Camera:SetCollision`.
+	noclip  = 1,      -- 1 = passes through everything; 0 = client collision
+	-- === AND A STEP IS CHASED SLOWLY, A SLOPE IS NOT ======================
 	--
-	-- Estas tres son el filtro que separa una cuesta de un salto. La velocidad
-	-- con la que el suelo medido persigue al de verdad es
+	-- These three are the filter that separates a slope from a jump. The speed
+	-- at which the measured ground chases the real one is
 	--
-	--     v = climb / (1 + (pendiente/soft)^2),  nunca menos de `slow`
+	--     v = climb / (1 + (pending/soft)^2),  never below `slow`
 	--
-	-- o sea que cuanto MAS grande es el escalon que queda por subir, MAS
-	-- despacio se sube -- que es justo al reves de lo que hace un suavizado
-	-- normal, y es lo que pedia el jugador: pasar por encima de un cartel no
-	-- se nota, y si de verdad quieres subirte a el, esperas.
-	climb   = 60.0,   -- yd/s cuando la diferencia es minima (una cuesta)
-	soft    = 2.5,    -- yardas; el codo. Mas pequeno, mas quisquilloso
-	slow    = 6.0,    -- yd/s; el suelo de esa velocidad (si no, un acantilado
-	                  -- de verdad no se subiria nunca)
-	-- POSITIVO MIRA HACIA ABAJO, y lo dice el juego, no yo.
+	-- so the BIGGER the step left to climb, the SLOWER it is climbed -- exactly
+	-- the opposite of what normal smoothing does, and what the player asked
+	-- for: passing over a sign does not show, and if you genuinely want to get
+	-- on top of it, you wait.
+	climb   = 60.0,   -- yd/s when the difference is tiny (a slope)
+	soft    = 2.5,    -- yards; the knee. Smaller is fussier
+	slow    = 6.0,    -- yd/s; the floor under that speed (without it a real
+	                  -- cliff would never be climbed at all)
+	-- POSITIVE LOOKS DOWN, and the game says so, not me.
 	--
-	-- Lo puse a -45 razonando "abajo es negativo" y sale al contrario: con -45
-	-- la camara apunta al CIELO. Es la convencion de `CommentatorSetCamera`, que
-	-- no se puede leer del binario -- el desensamblado solo ensena que el
-	-- argumento se multiplica por DEG2RAD y se guarda.
+	-- I set it to -45 reasoning "down is negative" and it comes out the other
+	-- way: at -45 the camera points at the SKY. It is the
+	-- `CommentatorSetCamera` convention, which cannot be read from the binary
+	-- -- the disassembly only shows the argument being multiplied by DEG2RAD
+	-- and stored.
 	--
-	-- Otra constante de signo adivinada, que es el error que este proyecto lleva
-	-- pagando desde los dos signos de `SetPosition` del retrato. Ahi la salida
-	-- fue una tabla de siete encuadres para probarlos; aqui basta con haberlo
-	-- visto una vez.
-	pitch   = 45.0,   -- grados; POSITIVO mira abajo (medido en juego 2026-09-07)
-	clear   = 2.0,    -- margen duro sobre el suelo
-	-- === Y EL SUELO DURO TAMBIEN TIENE VELOCIDAD (2026-09-12) =============
+	-- Another guessed sign constant, which is the mistake this project has been
+	-- paying for since the two `SetPosition` signs on the portrait. There the
+	-- way out was a table of seven framings to try them; here having seen it
+	-- once is enough.
+	pitch   = 45.0,   -- degrees; POSITIVE looks down (measured in game 2026-09-07)
+	clear   = 2.0,    -- hard margin above the ground
+	-- === AND THE HARD FLOOR HAS A SPEED TOO (2026-09-12) ==================
 	--
-	-- Sin esto el suelo duro era un `st.z = ground + clear` a pelo: un salto de
-	-- OCHENTA yardas en UN frame. Era el unico camino del fichero capaz de
-	-- teletransportar la camara, y es el "plop" al cruzar la boca de una cueva.
+	-- Without this the hard floor was a bare `st.z = ground + clear`: an EIGHTY
+	-- yard jump in ONE frame. It was the only path in the file capable of
+	-- teleporting the camera, and it is the "plop" when crossing a cave mouth.
 	--
-	-- Y el filtro de escalon de arriba no lo impedia, AL CONTRARIO -- ver el
-	-- comentario del tope de retraso. Los dos se saltaban el limitador a la vez
-	-- y por el mismo motivo: los dos leen `ground` EN CRUDO.
+	-- And the step filter above did not prevent it, QUITE THE OPPOSITE -- see
+	-- the comment on the lag cap. Both skipped the limiter at once and for the
+	-- same reason: both read `ground` RAW.
 	--
-	-- 40 yd/s es holgado para terreno de verdad: la camara avanza a `speed`
-	-- (30), asi que una ladera de 45 grados mueve el suelo 30 yd/s y una de 53
-	-- grados 40. Mas empinado que eso es un acantilado, y ahi que la camara se
-	-- meta un instante en la roca y salga por arriba es preferible al salto.
-	push    = 40.0,   -- yd/s; lo mas deprisa que el suelo duro puede EMPUJAR
-	yawSign = 1,      -- si Q y E salen al reves, esto es -1
-	ease    = 9.0,    -- k del arranque/parada en el plano (1/s); mas alto, mas seco
-	-- === EL ANCLA NO ES RIGIDA, Y NO PUEDE SERLO =========================
+	-- 40 yd/s is generous for real terrain: the camera travels at `speed` (30),
+	-- so a 45 degree slope moves the ground 30 yd/s and a 53 degree one 40.
+	-- Steeper than that is a cliff, and there having the camera dip into the
+	-- rock for an instant and come out the top beats the jump.
+	push    = 40.0,   -- yd/s; the fastest the hard floor may PUSH
+	yawSign = 1,      -- if Q and E come out backwards, this is -1
+	ease    = 9.0,    -- k of the start/stop on the plane (1/s); higher is sharper
+	-- === THE ANCHOR IS NOT RIGID, AND CANNOT BE ===========================
 	--
-	-- El candado (la casilla del panel) clava la camara a una distancia fija del
-	-- heroe, y lo obvio seria copiar su posicion tal cual cada frame. No sale
-	-- bien, y la causa no esta en este fichero: el DLL publica `RTS_PX/PY/PZ` a
-	-- 33 Hz y la pantalla va a 60 o mas, asi que la posicion del heroe es una
-	-- ESCALERA de unos 30 ms de peldano mientras el cliente dibuja al heroe
-	-- interpolado a cada frame. Copiarla clava la camara al peldano, no al
-	-- heroe: corriendo a 7 yd/s eso son 0.2 yardas de tiron, adelante y atras,
-	-- treinta y tres veces por segundo.
+	-- The lock (the panel slot) pins the camera at a fixed distance from the
+	-- hero, and the obvious thing would be to copy his position verbatim every
+	-- frame. It does not come out well, and the cause is not in this file: the
+	-- DLL publishes `RTS_PX/PY/PZ` at 33 Hz and the screen runs at 60 or more,
+	-- so the hero position is a STAIRCASE with ~30 ms treads while the client
+	-- draws the hero interpolated every frame. Copying it pins the camera to
+	-- the tread, not to the hero: running at 7 yd/s that is 0.2 yards of jerk,
+	-- back and forth, thirty-three times a second.
 	--
-	-- Asi que el ancla PERSIGUE al heroe con el mismo suavizado exponencial que
-	-- usa la altura. El precio es un retraso fijo de `v / lockSmooth` -- a 25 y
-	-- corriendo, 0.28 yardas de treinta -- que es un desplazamiento constante e
-	-- invisible, y solo cambia mientras el heroe acelera o frena. La escalera,
-	-- en cambio, se ve.
-	lockSmooth = 25.0,   -- k del seguimiento del heroe con el candado (1/s)
-	-- LA ALTURA DE LA VISTA DEL HEROE, Y DE FABRICA NO ES SU CABEZA (2026-09-15).
+	-- So the anchor CHASES the hero with the same exponential smoothing the
+	-- height uses. The price is a fixed lag of `v / lockSmooth` -- at 25 and
+	-- running, 0.28 yards out of thirty -- which is a constant, invisible
+	-- offset that only changes while the hero accelerates or brakes. The
+	-- staircase, by contrast, shows.
+	lockSmooth = 25.0,   -- k of the hero follow with the lock on (1/s)
+	-- THE HERO VIEW HEIGHT, AND BY DEFAULT IT IS NOT HIS HEAD (2026-09-15).
 	--
-	-- Empezo en 2.2 -- la cabeza de un humano, literalmente dentro -- y el
-	-- jugador la midio en juego: **muy baja**. Y tiene sentido, porque a la
-	-- altura de la cabeza el mundo se ve como lo ve un peaton: la cuesta de
-	-- delante tapa lo que hay detras, el propio modelo se come el tercio de
-	-- abajo de la pantalla, y de una camara enganchada al heroe lo que se quiere
-	-- es VER POR DONDE VA, no comprobar que tiene los pies en el suelo.
+	-- It started at 2.2 -- a human head, literally inside -- and the player
+	-- measured it in game: **far too low**. And that makes sense, because at
+	-- head height the world looks the way it looks to a pedestrian: the slope
+	-- in front hides what is behind it, your own model eats the bottom third of
+	-- the screen, and what you want from a camera attached to your hero is to
+	-- SEE WHERE HE IS GOING, not to check his feet are on the floor.
 	--
-	-- Quedo en CINCO, medido en juego en dos vueltas: 2.2 era dentro de la
-	-- cabeza, 7 se sentia alto, 5 es lo que pidio. Por encima del modelo y de
-	-- casi todo lo que hay a ras de suelo, y todavia lo bastante cerca como
-	-- para que sea la vista DE ESE personaje y no una camara RTS mas.
+	-- It settled on FIVE, measured in game over two rounds: 2.2 was inside the
+	-- head, 7 felt high, 5 is what he asked for. Above the model and above
+	-- almost everything at ground level, and still close enough that it is THAT
+	-- character view and not just another RTS camera.
 	--
-	-- Y SIGUE SIENDO UN AJUSTE, que es lo que era antes: `ESPACIO` y `C` lo
-	-- suben y lo bajan en vivo, y `/rts fc eyeH 4` lo pone a dedo. Las dos bocas
-	-- escriben ESTE numero y no una copia viva, que es lo que hace que la altura
-	-- a la que subas sea la altura con la que entres la proxima vez.
-	eyeH    = 5.0,    -- yardas sobre los PIES del heroe, con la camara enganchada
+	-- AND IT IS STILL A SETTING, which is what it was before: `SPACE` and `C`
+	-- raise and lower it live, and `/rts fc eyeH 4` sets it by hand. Both
+	-- mouths write THIS number and not a live copy, which is what makes the
+	-- height you climb to the height you get next time.
+	eyeH    = 5.0,    -- yards above the hero FEET, with the camera attached
 }
 
--- SELLO DE GENERACION, y hace falta porque un ajuste CAMBIO DE SIGNIFICADO.
+-- GENERATION STAMP, and it is needed because a setting CHANGED MEANING.
 --
--- La generacion 1 guardaba `pitch = -45` creyendo que negativo miraba abajo. En
--- este cliente es al contrario. Y `-45` sigue estando dentro del rango valido,
--- asi que el acotado de `Cfg()` lo dejaba pasar tal cual: cambiar el valor por
--- defecto a +45 no hizo absolutamente nada en un cliente que ya lo tenia
--- guardado, y la camara siguio mirando al cielo.
+-- Generation 1 saved `pitch = -45` believing negative looked down. On this
+-- client it is the other way round. And `-45` is still inside the valid range,
+-- so `Cfg()` clamping let it through untouched: changing the default to +45 did
+-- absolutely nothing on a client that already had it saved, and the camera went
+-- on looking at the sky.
 --
--- COMPARAR EL RANGO NO BASTA CUANDO LO QUE SE MUEVE ES LO QUE EL NUMERO QUIERE
--- DECIR. Es el caso exacto del `railCropGen` de la etapa 5o -- un indice valido
--- cuyo significado cambio -- y la unica salida coherente es no fiarse de nada
--- de lo guardado: se tira la tabla entera y se dice.
--- GEN 3: el giro con el raton pasa a ser NATIVO, asi que `lookSens` y `lookInv`
--- dejan de existir -- los tenia el addon y ahora los lleva el cliente con tus
--- propios ajustes de raton. Un ajuste que ya no se lee es un mando que gira sin
--- conectar a nada.
+-- COMPARING THE RANGE IS NOT ENOUGH WHEN WHAT MOVED IS WHAT THE NUMBER MEANS.
+-- It is the exact case of stage 5o `railCropGen` -- a valid index whose meaning
+-- changed -- and the only coherent way out is to trust none of what was saved:
+-- the whole table is thrown away, and it is said out loud.
+-- GEN 3: mouse turning becomes NATIVE, so `lookSens` and `lookInv` stop
+-- existing -- the addon used to own them and now the client does, with your own
+-- mouse settings. A setting nobody reads any more is a dial wired to nothing.
 local GEN = 3
 
--- Los topes de la altura enganchada. Por debajo de cero se miraria desde debajo
--- de los pies del heroe; por encima de cincuenta ya no es su vista, es la camara
--- libre con el candado puesto -- que existe, y se pide soltando la primera
--- persona en vez de estirando esta hasta que signifique lo mismo.
+-- The caps on the attached height. Below zero you would be looking from under
+-- the hero feet; above fifty it is no longer his view, it is the free camera
+-- with the lock on -- which exists, and is asked for by dropping the hero view
+-- rather than by stretching this one until it means the same thing.
 local EYE_MIN, EYE_MAX = 0.0, 50.0
 
--- === Y SUBIR EL DE FABRICA NO LE LLEGA A QUIEN YA LO TIENE GUARDADO ======
+-- === AND RAISING THE DEFAULT DOES NOT REACH ANYONE WHO HAS IT SAVED ======
 --
--- Esta es la tercera vez que este proyecto se da con la misma piedra, y las dos
--- anteriores estan escritas unas lineas mas abajo: el `pitch` que cambio de
--- signo y siguio mirando al cielo, y el `yawSign` que se invirtio en el defecto
--- y no hizo absolutamente nada. **Lo guardado gana al defecto**, asi que subir
--- `D.eyeH` de 2.2 a 7.0 no habria movido ni una yarda la camara de quien ya
--- hubiera entrado una vez en la vista del heroe -- o sea del unico que la ha
--- usado -- y el sintoma habria sido "lo he cambiado y sigue igual de baja".
+-- This is the third time this project has hit the same rock, and the other two
+-- are written a few lines below: the `pitch` that changed sign and went on
+-- looking at the sky, and the `yawSign` that was inverted in the default and
+-- did absolutely nothing. **What is saved beats the default**, so raising
+-- `D.eyeH` from 2.2 to 7.0 would not have moved the camera of anyone who had
+-- already entered the hero view once -- that is, of the only person using it --
+-- and the symptom would have been "I changed it and it is still just as low".
 --
--- Un sello SOLO PARA ESTA CLAVE, y no un `GEN` nuevo de toda la tabla: una
--- generacion tira `speed`, `height`, `ease` y las otras quince, y aqui lo que
--- ha cambiado de criterio es un numero. Se mueve ese, se dice, y no se toca
--- nada mas.
+-- A stamp for THIS KEY ALONE, not a new `GEN` for the whole table: a generation
+-- throws away `speed`, `height`, `ease` and the other fifteen, and what changed
+-- its mind here is one number. That one moves, it is announced, and nothing
+-- else is touched.
 --
--- 2 -> 3: de siete a cinco, medido en juego. El sello sube otra vez porque el
--- problema es el mismo: quien ya tenga 7.0 escrito no veria el 5.0 nunca.
+-- 2 -> 3: from seven to five, measured in game. The stamp goes up again because
+-- the problem is the same: anyone with 7.0 written down would never see the 5.0.
 local EYE_GEN = 3
 
 local function MigrateEye(c)
@@ -313,13 +316,13 @@ local function MigrateEye(c)
 	local was = c.eyeH
 	c.eyeGen = EYE_GEN
 	c.eyeH = D.eyeH
-	-- Se dice SIEMPRE que habia un valor distinto, aunque fuera el de fabrica
-	-- viejo: desde fuera "se lo he cambiado yo" y "se lo ha cambiado el addon"
-	-- se ven igual, y callarselo convierte un cambio anunciado en una sorpresa.
+	-- It is ALWAYS said when there was a different value, even the old default:
+	-- from outside "I changed it myself" and "the addon changed it" look
+	-- identical, and keeping quiet turns an announced change into a surprise.
 	if type(was) == "number" and math.abs(was - c.eyeH) > 0.01 then
-		ns.Print(("|cffffd100camara RTS:|r la altura de la vista del heroe pasa de " ..
-			"%.1f a |cffffff00%.1f|r yd (la de antes se medio en juego y era muy " ..
-			"baja). |cffffff00/rts fc eyeH %.1f|r la devuelve."):format(
+		ns.Print(("|cffffd100RTS camera:|r the hero view height goes from %.1f to " ..
+			"|cffffff00%.1f|r yd (the old one was measured in game and was far too " ..
+			"low). |cffffff00/rts fc eyeH %.1f|r puts it back."):format(
 			was, c.eyeH, was))
 	end
 end
@@ -328,15 +331,15 @@ local function Cfg()
 	RTSCommandDB.freeCam = RTSCommandDB.freeCam or {}
 	local c = RTSCommandDB.freeCam
 	if c.gen ~= GEN then
-		-- Se tira TODO y no solo `pitch`. Una generacion significa "lo guardado
-		-- ya no quiere decir lo mismo", asi que salvar las claves que "parecen
-		-- bien" es volver a decidir a mano lo que la generacion existe para no
-		-- tener que decidir. El precio -- perder los ajustes que el jugador si
-		-- habia tocado -- se paga diciendolo, que es lo que separa una purga de
-		-- una perdida.
+		-- EVERYTHING is thrown away, not just `pitch`. A generation means "what
+		-- was saved no longer means the same thing", so keeping the keys that
+		-- "look fine" is deciding by hand all over again the very thing the
+		-- generation exists to avoid deciding. The price -- losing the settings
+		-- the player HAD tuned -- is paid by saying so, which is what separates
+		-- a purge from a loss.
 		if c.gen ~= nil or c.pitch ~= nil then
-			ns.Print("|cffffd100camara RTS:|r ajustes reiniciados (el signo de la " ..
-				"inclinacion cambio de significado).")
+			ns.Print("|cffffd100RTS camera:|r settings reset (the sign of the " ..
+				"tilt changed meaning).")
 		end
 		RTSCommandDB.freeCam = { gen = GEN }
 		c = RTSCommandDB.freeCam
@@ -344,14 +347,14 @@ local function Cfg()
 	for k, v in pairs(D) do
 		if type(c[k]) ~= "number" then c[k] = v end
 	end
-	-- DESPUES del relleno y ANTES del acotado. Despues, porque un `eyeH` que
-	-- todavia no existe tiene que valer algo antes de compararlo; antes, porque
-	-- lo que escribe la migracion tambien se acota, como todo lo demas.
+	-- AFTER the fill and BEFORE the clamping. After, because an `eyeH` that does
+	-- not exist yet has to be worth something before it can be compared; before,
+	-- because what the migration writes gets clamped too, like everything else.
 	MigrateEye(c)
-	-- LO GUARDADO SE ACOTA AL LEERLO, no solo al escribirlo. Las
-	-- SavedVariables sobreviven a la version que las escribio, asi que un
-	-- ajuste de una version anterior puede estar fuera de rango y los `Set*`
-	-- solo corren cuando el jugador teclea. Misma leccion que el `grow = 688`.
+	-- WHAT IS SAVED GETS CLAMPED ON READING, not only on writing. SavedVariables
+	-- outlive the version that wrote them, so a setting from an earlier version
+	-- can be out of range and the `Set*` paths only run when the player types.
+	-- Same lesson as `grow = 688`.
 	if c.speed  <= 0 or c.speed  > 300 then c.speed  = D.speed  end
 	if c.lift   <= 0 or c.lift   > 200 then c.lift   = D.lift   end
 	if c.turn   <= 0 or c.turn   > 720 then c.turn   = D.turn   end
@@ -359,54 +362,57 @@ local function Cfg()
 	if c.maxH   <= c.minH               then c.maxH   = D.maxH   end
 	if c.height < c.minH or c.height > c.maxH then c.height = D.height end
 	if c.smoothZ <= 0 or c.smoothZ > 60 then c.smoothZ = D.smoothZ end
-	-- `floor` es una eleccion, no una magnitud: cualquier otra cosa es basura y
-	-- vuelve al de fabrica en vez de recortarse. Y se compara con 0/1 y no con
-	-- `~= 1`, porque un `nil` de una version anterior ya lo ha resuelto el
-	-- bucle de arriba y lo que queda aqui es un numero cualquiera.
+	-- `floor` is a choice, not a magnitude: anything else is garbage and goes
+	-- back to the default rather than being clipped. And it is compared against
+	-- 0/1 rather than `~= 1`, because a `nil` from an earlier version has
+	-- already been handled by the loop above and what is left here is some
+	-- arbitrary number.
 	if c.floor ~= 0 and c.floor ~= 1 then c.floor = D.floor end
 	if c.noclip ~= 0 and c.noclip ~= 1 then c.noclip = D.noclip end
 	if c.climb <= 0 or c.climb > 500 then c.climb = D.climb end
 	if c.soft  <= 0 or c.soft  > 100 then c.soft  = D.soft  end
 	if c.slow  <  0 or c.slow  > 200 then c.slow  = D.slow  end
-	-- A cero el suelo duro deja de empujar y la camara se queda enterrada sin
-	-- forma de salir, que es peor que el fallo que esto viene a arreglar. Un
-	-- valor absurdo es basura y vuelve al de fabrica, no se recorta.
+	-- At zero the hard floor stops pushing and the camera stays buried with no
+	-- way out, which is worse than the bug this came to fix. An absurd value is
+	-- garbage and goes back to the default; it is not clipped.
 	if c.push  <= 0 or c.push  > 1000 then c.push  = D.push  end
-	-- El suelo de la velocidad por encima del techo dejaria el codo sin efecto
-	-- y el ajuste `soft` sin nada que hacer -- un mando que gira sin conectar.
-	-- Se baja el SUELO y no se sube el techo: bajar `climb` es una intencion
-	-- clara ("que todo vaya despacio") y subirsela por detras seria desobedecer.
+	-- A speed floor above the ceiling would leave the knee with no effect and
+	-- the `soft` setting with nothing to do -- a dial wired to nothing. The
+	-- FLOOR is lowered rather than the ceiling raised: lowering `climb` is a
+	-- clear intention ("make everything slow") and raising it back behind the
+	-- player would be disobeying.
 	if c.slow > c.climb then c.slow = c.climb end
 	if c.pitch < -89 or c.pitch > 89    then c.pitch  = D.pitch  end
 	if c.clear < 0 or c.clear > 50      then c.clear  = D.clear  end
 	if c.yawSign ~= 1 and c.yawSign ~= -1 then c.yawSign = 1 end
 	if c.ease <= 0 or c.ease > 60 then c.ease = D.ease end
-	-- A cero el ancla no se moveria nunca y el candado pareceria no hacer nada;
-	-- por arriba se convierte en la copia rigida que el comentario de `D`
-	-- explica que no se quiere. Fuera de rango es basura y vuelve al de fabrica.
+	-- At zero the anchor would never move and the lock would look like it does
+	-- nothing; too high it becomes the rigid copy the `D` comment explains is
+	-- not wanted. Out of range is garbage and goes back to the default.
 	if c.lockSmooth <= 0 or c.lockSmooth > 200 then c.lockSmooth = D.lockSmooth end
-	-- EL MISMO TOPE QUE USAN LAS TECLAS, y tiene que ser el mismo numero: si
-	-- `ESPACIO` pudiera pasar de aqui, esta linea lo consideraria basura y lo
-	-- devolveria al de fabrica EN EL FRAME SIGUIENTE -- o sea que subir del tope
-	-- se veria como que la camara se cae de golpe. Dos topes distintos para el
-	-- mismo numero es un tope que se olvida; ya paso con el suelo del FOV.
+	-- THE SAME CAP THE KEYS USE, and it has to be the same number: if `SPACE`
+	-- could get past this, this line would call the result garbage and send it
+	-- back to the default ON THE NEXT FRAME -- so climbing past the cap would
+	-- look like the camera falling out of the sky. Two different caps on the
+	-- same number is a cap that gets forgotten; it already happened with the
+	-- FOV floor.
 	if c.eyeH < EYE_MIN or c.eyeH > EYE_MAX then c.eyeH = D.eyeH end
 	return c
 end
 
---- INPUT -------------------------------------------------------------------
+--- INPUT ------------------------------------------------------------------
 --
--- Ocho teclas, con los DOS flancos. Registrar solo la bajada da un evento por
--- pulsacion y ninguna forma de saber que se solto, que es justo lo que un
--- control de mantener-para-mover necesita -- es la misma razon y el mismo
--- mecanismo que ya usaban ESPACIO y C para la camara vieja.
+-- Eight keys, on BOTH edges. Registering only the down edge gives one event per
+-- press and no way of knowing it was released, which is exactly what a
+-- hold-to-move control needs -- the same reason and the same mechanism SPACE
+-- and C already used for the old camera.
 --
--- Y EL CANDADO NO ESTA AQUI, a peticion del jugador (2026-09-13): se pone y se
--- quita SOLO desde su casilla del panel. Esta tabla se queda las ocho teclas de
--- movimiento y ninguna mas -- cada tecla que se coge es una tecla que hay que
--- devolver, y una que no se coge no se puede quedar mal devuelta.
+-- AND THE LOCK IS NOT HERE, at the player request (2026-09-13): it is put on
+-- and taken off ONLY from its panel slot. This table keeps the eight movement
+-- keys and nothing else -- every key you take is a key you have to give back,
+-- and one you never take cannot be given back wrong.
 --
--- NO son botones seguros a proposito: nada de lo que hacen esta protegido.
+-- They are deliberately NOT secure buttons: nothing they do is protected.
 
 local input = { fwd = false, back = false, left = false, right = false,
                 up = false, down = false, yawL = false, yawR = false }
@@ -440,18 +446,18 @@ local function MakeButtons()
 	end
 end
 
--- LAS TECLAS SE APUNTAN ANTES DE TOCARLAS Y VUELVEN AL SALIR, que es la regla
--- dura de este proyecto. Las ocho estan ocupadas de fabrica -- WASD es el
--- movimiento, ESPACIO salta, C abre la ficha, Q/E son strafe -- asi que
--- devolverlas no es cortesia: sin eso el jugador se queda sin moverse en juego
--- normal despues de haber entrado una vez en modo RTS.
+-- THE KEYS ARE RECORDED BEFORE BEING TOUCHED AND COME BACK ON EXIT, which is
+-- the hard rule of this project. All eight are taken out of the box -- WASD is
+-- movement, SPACE jumps, C opens the character sheet, Q/E strafe -- so giving
+-- them back is not courtesy: without it the player is left unable to move in
+-- normal play after entering RTS mode once.
 --
--- `SaveBindings` NO se llama nunca: se restauran en la salida y no se guardan,
--- asi que una recarga, una desconexion o un cierre inesperado dejan intactas
--- las teclas de verdad del jugador.
+-- `SaveBindings` is NEVER called: they are restored on the way out and never
+-- saved, so a reload, a disconnect or an unexpected crash leaves the player
+-- real bindings untouched.
 local function GrabKeys()
 	if InCombatLockdown() then
-		ns.Print("|cffff8800camara:|r las teclas no se pueden coger en combate.")
+		ns.Print("|cffff8800camera:|r the keys cannot be taken in combat.")
 		return false
 	end
 	MakeButtons()
@@ -480,33 +486,33 @@ end
 
 --- SOLVER + SMOOTHING ------------------------------------------------------
 
--- EL PITCH ES ESTADO, NO SOLO AJUSTE: el raton lo cambia (ver `AdoptLook`), asi
--- que el valor de `Cfg().pitch` es solo con lo que se ENTRA.
+-- PITCH IS STATE, NOT JUST A SETTING: the mouse changes it (see `AdoptLook`),
+-- so the `Cfg().pitch` value is only what you ENTER with.
 local st = { x = nil, y = nil, z = nil, yaw = 0, pitch = nil, offset = nil,
              vx = 0, vy = 0,
-             -- `gz` es el suelo FILTRADO: el que la camara cree que tiene
-             -- debajo, que persigue al medido con una velocidad limitada. Es
-             -- estado y no una variable local del tick a proposito -- sin
-             -- memoria entre frames no hay filtro, solo un rebautizo del suelo.
+             -- `gz` is the FILTERED ground: the one the camera believes is
+             -- under it, chasing the measured one at a limited speed. It is
+             -- state and not a tick-local on purpose -- with no memory between
+             -- frames there is no filter, only the ground under a new name.
              gz = nil, gstep = 0,
-             -- EL CANDADO: `a*` es el ancla (el heroe, perseguido con
-             -- suavizado) y `o*` el encuadre (lo que separa a la camara del
-             -- ancla). La camara con el candado puesto NO tiene posicion
-             -- propia: es siempre `ancla + encuadre`, y las teclas mueven el
-             -- ENCUADRE, no la camara. Por eso el encuadre "se queda": nada
-             -- mas lo escribe.
+             -- THE LOCK: `a*` is the anchor (the hero, chased with
+             -- smoothing) and `o*` the framing (what separates the camera from
+             -- the anchor). With the lock on the camera has NO position of its
+             -- own: it is always `anchor + framing`, and the keys move the
+             -- FRAMING, not the camera. That is why the framing "stays":
+             -- nothing else writes it.
              ax = nil, ay = nil, az = nil,
              ox = 0, oy = 0, oz = 0 }
 
--- El candado esta encendido. Va en `F` y no en `st` porque lo preguntan desde
--- fuera -- el informe, el comando -- y `st` es del solver.
+-- The lock is on. It lives on `F` and not on `st` because it gets asked about
+-- from outside -- the report, the command -- and `st` belongs to the solver.
 F.lock = false
 
--- Y LA PRIMERA PERSONA ES UNA SEGUNDA BANDERA, NO UN VALOR DE LA PRIMERA.
--- `eyes` implica `lock` -- la camara cuelga del heroe igual -- y lo que anade es
--- que el encuadre deja de ser del jugador. Guardarlo como "lock = 2" habria
--- obligado a cada `if self.lock` del fichero a preguntar cual de los dos, que es
--- como se cuelan las ramas que solo funcionan en un modo.
+-- AND THE HERO VIEW IS A SECOND FLAG, NOT A VALUE OF THE FIRST. `eyes` implies
+-- `lock` -- the camera hangs off the hero just the same -- and what it adds is
+-- that the framing stops being the player. Storing it as "lock = 2" would have
+-- forced every `if self.lock` in the file to ask which of the two, which is how
+-- branches that only work in one mode get in.
 F.eyes = false
 
 -- Ninguna de las funciones de comentarista se habia llamado nunca en este
