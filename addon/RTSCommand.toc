@@ -13,6 +13,7 @@ State.lua
 Channel.lua
 Camera.lua
 FreeCam.lua
+Radar.lua
 Orders.lua
 Route.lua
 Marks.lua

@@ -620,6 +620,10 @@ local function Initialise()
 	ns.Channel:Create()
 	ns.Camera:Create()
 	ns.FreeCam:Create()
+	-- El punto de la camara en el mapa del mundo. No dibuja hasta que se abre
+	-- el mapa con la camara libre encendida, pero su textura cuelga de
+	-- `WorldMapDetailFrame`, que es de FrameXML y ya existe aqui.
+	ns.Radar:Create()
 	ns.Chrome:Create()
 	-- La escala de pixel. No dibuja nada: es el contenedor del que cuelgan la
 	-- barra de abajo y las ventanas propias.
@@ -1001,6 +1005,7 @@ local HELP = {
 	"|cffffff00/rts amove|r - attack-move to the cursor",
 	"|cffffff00/rts flare|r - order marker settings (time/size/start/hold/alpha/ease/fade)",
 	"|cffffff00/rts markers|r - halo that follows the mouse pointer (off by default)",
+	"|cffffff00/rts punto|r - marca en el MAPA donde esta la camara libre (|cffffff00on|r/|cffffff00off|r lo cambia)",
 	"|cffffff00/rts route|r - rutas con shift + click derecho; |cffffff00off|r las apaga",
 	"|cffffff00/rts mark|r - el marcador de suelo de cada punto de ruta: |cffffff00next|prev|find|r para elegir visual, |cffffff00size|r el tamano",
 	"|cffffff00/rts loot|r - botin libre del grupo; |cffffff00/rts lootall|r que los bots recojan todo",
@@ -1132,6 +1137,18 @@ SlashCmdList["RTSCOMMAND"] = function(msg)
 			ns.Print("|cffffff00/rts cal stop|r / |cffffff00report|r / |cffffff00apply|r / |cffffff00auto|r / |cffffff00dump|r / |cffffff00clear|r")
 			ns.Print("Scales are derived from the camera's diagonal FOV by default;")
 			ns.Print("|cffffff00auto|r restores that, |cffffff00apply|r overrides it with a measurement.")
+		end
+
+	elseif cmd == "punto" or cmd == "radar" then
+		local sub = strlower(strtrim(rest or ""))
+		if sub == "" or sub == "show" or sub == "status" then
+			ns.Radar:Status()
+		elseif sub == "on" or sub == "si" then
+			ns.Radar:Set(true)
+		elseif sub == "off" or sub == "no" then
+			ns.Radar:Set(false)
+		else
+			ns.Radar:Toggle()
 		end
 
 	elseif cmd == "markers" then
