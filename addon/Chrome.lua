@@ -130,8 +130,13 @@ local ITEMS = {
 	{ n = "CombatLogQuickButtonFrame_Custom",  s = "chat" },
 
 	-- Derecha: seguimiento de misiones, durabilidad, avisos de zona.
-	{ n = "QuestWatchFrame",         s = "quest"  },
-	{ n = "QuestTimerFrame",         s = "quest"  },
+	-- SE LLAMA `WatchFrame`. Aqui ponia `QuestWatchFrame` y `QuestTimerFrame`,
+	-- que son los nombres de antes de 3.0: el `FrameXML.toc` de ESTE cliente
+	-- (sacado del `patch-esES.MPQ`) no los trae, trae `WatchFrame.xml`. O sea
+	-- que el conjunto `quest` no cubria NI UN frame y `/rts ui quest` no hacia
+	-- nada -- el fallo silencioso que la cabecera de la tabla describe: un
+	-- nombre que no existe se ignora.
+	{ n = "WatchFrame",              s = "quest"  },
 	{ n = "DurabilityFrame",         s = "misc"   },
 	{ n = "TicketStatusFrame",       s = "misc"   },
 	{ n = "WorldStateAlwaysUpFrame", s = "misc"   },
@@ -364,6 +369,91 @@ local function ApplyLift()
 	return LiftDown()
 end
 
+--- EL HUECO QUE DEJAN LAS BARRAS A LA DERECHA ----------------------------
+--
+-- El seguimiento de misiones se quedaba PEGADO A LAS BARRAS QUE YA NO ESTAN:
+-- en modo RTS las dos verticales de la derecha se esconden, y el seguimiento
+-- seguia noventa pixeles adentro, como si siguieran puestas.
+--
+-- De `UIParent.lua` de este cliente, al final de
+-- `FramePositionDelegate:UIParentManageFramePositions`:
+--
+--     WatchFrame:SetPoint("TOPRIGHT", "MinimapCluster", "BOTTOMRIGHT",
+--                         -CONTAINER_OFFSET_X, anchorY)
+--     WatchFrame:SetPoint("BOTTOMRIGHT", "UIParent", "BOTTOMRIGHT",
+--                         -CONTAINER_OFFSET_X, CONTAINER_OFFSET_Y)
+--
+-- y `CONTAINER_OFFSET_X` sale de `UIPARENT_MANAGED_FRAME_POSITIONS`: 0 sin
+-- barras verticales, 48 con `MultiBarRight`, 93 con las dos. Lo mismo mueve la
+-- durabilidad, los marcadores de zona y la segunda ventana de chat.
+--
+-- EL NUMERO NO SE CALCULA AQUI. Quien lo recalcula lee `MultiBarRight:IsShown()`
+-- en el momento, asi que con las barras escondidas da la respuesta correcta el
+-- solo: el problema nunca fue el numero, es que esconder un frame a mano NO
+-- dispara ese recalculo. Asi que se le pide a Blizzard que lo vuelva a hacer --
+-- lo mismo que hace `ns.SyncBonusBar` con la barra de postura, y lo mismo que
+-- arreglaba esto con un /reload.
+--
+-- ES UN RECALCULO DE FRAMES PROTEGIDOS: coloca `MultiBarRight`,
+-- `PetActionBarFrame`, `ShapeshiftBarFrame`. En combate no se puede, asi que
+-- devuelve false y lo recoge el aplazamiento a PLAYER_REGEN_ENABLED que ya
+-- existe para todo lo demas de este fichero.
+
+local lastLayout = 0
+
+local function Relayout()
+	if type(UIParent_ManageFramePositions) ~= "function" then return true end
+	if InCombatLockdown() then return false end
+	UIParent_ManageFramePositions()
+	lastLayout = GetTime()
+	return true
+end
+
+--- Y EL SUELO DEL SEGUIMIENTO, POR ENCIMA DE LA BANDEJA -------------------
+--
+-- El ancla de abajo es la que manda cuanto puede crecer la lista. Con las
+-- barras escondidas, el recalculo de arriba la deja a `menuBarTop + 10` del
+-- borde -- 65 pixeles, u 85 en pantalla ancha -- porque ese hueco lo reservaba
+-- la barra principal. En su sitio esta el dock, que es mas alto, asi que una
+-- lista larga de misiones seguiria creciendo POR DETRAS de los macros.
+--
+-- Mismo remedio que las dos verticales y que el tooltip, y con el mismo
+-- `ConsoleTopIn`: los tres se paran en el mismo techo y por eso se alinean sin
+-- que nadie lo calcule dos veces.
+--
+-- `WatchFrame` NO ES PROTEGIDO -- es un `Frame` normal de `WatchFrame.xml`, hijo
+-- de UIParent -- asi que esto si se puede hacer dentro de combate.
+--
+-- NO HAY NADA QUE DEVOLVER al salir del modo: el recalculo vuelve a escribir
+-- las dos anclas enteras.
+
+local WATCH_GAP = 10
+
+local function LiftWatch()
+	if not C.active then return end
+	local f = _G.WatchFrame
+	if not f or not f:IsShown() then return end
+
+	local point, rel, relPoint, x, y
+	for i = 1, f:GetNumPoints() do
+		local p, r, rp, px, py = f:GetPoint(i)
+		if p == "BOTTOMRIGHT" then point, rel, relPoint, x, y = p, r, rp, px, py end
+	end
+	if not point then return end
+
+	local want = ConsoleTopIn(f)
+	if not want then return end
+	want = want + WATCH_GAP
+
+	-- Ya esta por encima: la bandeja es baja, o el jugador la tiene escondida.
+	if (y or 0) >= want then return end
+
+	-- Un `SetPoint` sobre un punto que ya existe lo SUSTITUYE, asi que el ancla
+	-- de arriba (la del minimapa, que es la que decide la x) se queda como
+	-- estaba. Nada de ClearAllPoints aqui.
+	f:SetPoint(point, rel or f:GetParent(), relPoint, x or 0, want)
+end
+
 --- QUE TOOLTIP ES EL DE UNIDAD -------------------------------------------
 --
 -- El conjunto `tooltip` dice "tooltip de unidad", y eso es lo unico que tenia
@@ -459,7 +549,19 @@ function C:Apply()
 		end
 	end
 
+	-- Lo que se acaba de esconder (o devolver) cambia el hueco reservado a la
+	-- derecha. Ver el bloque de arriba: el recalculo lo hace Blizzard, aqui
+	-- solo se le avisa, porque un Hide() a mano no le avisa solo.
+	--
+	-- VA ANTES DE LAS DOS CORRECCIONES, no despues: ese recalculo devuelve
+	-- `MultiBarRight` a su ancla de fabrica y reescribe las dos del
+	-- seguimiento, o sea que deshace justo lo que las dos lineas de abajo
+	-- ponen. Al reves habria medio segundo de barras en su sitio viejo hasta
+	-- el siguiente barrido.
+	if not Relayout() then blocked = true end
+
 	if not ApplyLift() then blocked = true end
+	LiftWatch()
 
 	if self.active and self.hide.tooltip and GameTooltip:IsShown()
 	   and IsWorldTip(GameTooltip) then
@@ -494,11 +596,7 @@ local function EnsureSweeper()
 			C:Apply()
 		end
 
-		-- La bandeja cambia de alto con la resolucion y con la fila de botones
-		-- del juego, asi que a que altura van las dos verticales se revisa cada
-		-- barrido. Cuesta una resta salvo el tick en que de verdad cambia.
-		ApplyLift()
-
+		local repuesto = false
 		for _, item in ipairs(ITEMS) do
 			-- Wanted y no C.hide: mientras el chat esta asomado NO se le puede
 			-- volver a esconder por debajo, o desapareceria a media frase.
@@ -509,9 +607,28 @@ local function EnsureSweeper()
 					-- lo repuso), se anota igual para poder devolverlo luego.
 					if not parked[item.n] then parked[item.n] = { shown = true } end
 					f:Hide()
+					repuesto = true
 				end
 			end
 		end
+
+		-- Si Blizzard repuso una barra, recalculo la derecha CON ELLA PUESTA y
+		-- luego se la hemos vuelto a esconder: el hueco queda otra vez de mas.
+		-- Se le pide de nuevo, PERO CON FRENO -- ese mismo recalculo ensena la
+		-- barra de totems de un chaman (`ShowMultiCastActionBar` al final de
+		-- `UIParentManageFramePositions`), que este barrido vuelve a esconder,
+		-- y sin freno los dos se turnarian cada medio segundo para siempre.
+		if repuesto and GetTime() - lastLayout > 2 then
+			Relayout()
+		end
+
+		-- Y las dos correcciones al final, por lo mismo que en `Apply`: el
+		-- recalculo de arriba deshace las dos. La bandeja ademas cambia de alto
+		-- con la resolucion y con la fila de botones del juego, asi que a que
+		-- altura van las verticales y donde acaba el seguimiento se revisa cada
+		-- barrido. Cuesta una resta salvo el tick en que de verdad cambia.
+		ApplyLift()
+		LiftWatch()
 	end)
 end
 
@@ -699,6 +816,17 @@ function C:Create()
 	if type(GameTooltip_SetDefaultAnchor) == "function" then
 		hooksecurefunc("GameTooltip_SetDefaultAnchor", function(tip)
 			if tip == GameTooltip then LiftWorldTip(tip) end
+		end)
+	end
+
+	-- Blizzard reescribe las DOS anclas del seguimiento cada vez que recalcula
+	-- la derecha (salir de un vehiculo, tocar una barra en las opciones, entrar
+	-- al mundo), y ahi se lleva por delante el suelo que le ponemos sobre la
+	-- bandeja. Se corrige en el mismo momento: el barrido lo cogeria medio
+	-- segundo mas tarde, que es justo cuando se ve el salto.
+	if type(UIParent_ManageFramePositions) == "function" then
+		hooksecurefunc("UIParent_ManageFramePositions", function()
+			if C.active then LiftWatch() end
 		end)
 	end
 
