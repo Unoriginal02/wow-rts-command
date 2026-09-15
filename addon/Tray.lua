@@ -15,6 +15,14 @@
 	  pueden -- su icono sale por numero de una lista cerrada del cliente donde
 	  no hay ni bolsas del grupo ni registro de misiones.
 
+	  SALVO EN LAS CASILLAS CON SEGUNDA ORDEN. Alguna orden del catalogo lleva
+	  `cmd2` -- el candado clava la camara SOBRE el heroe con el izquierdo y la
+	  mete DENTRO DE SU CABEZA con el derecho -- y ahi el derecho la lanza y el
+	  desplegable se aparta a MAYUS+derecho. Es el unico sitio del addon donde
+	  el derecho significa dos cosas distintas segun la casilla, asi que el
+	  tooltip de esas casillas lo dice entero: un gesto que no se anuncia es un
+	  gesto que no existe, y uno que cambia sin avisar es peor.
+
 	  ARRASTRAR -> un macro del juego, como siempre. Sigue haciendo falta para
 	  todo lo que lleve un verbo protegido dentro (`/cast`, `/use`, `/target`),
 	  que desde Lua no se puede lanzar ni con el mejor boton.
@@ -193,6 +201,11 @@ end
 -- anuncie -- y una funcion escondida es una funcion que no existe.
 local HINT = "|cff888888Clic derecho: elegir orden. Arrastra un macro para poner uno.|r"
 
+-- El mismo pie para las casillas cuyo derecho ya tiene dueno. Se escribe aparte
+-- y no se compone al vuelo porque el cambio de gesto es lo unico que el jugador
+-- tiene que leer ahi, y enterrarlo dentro de la frase de siempre es no decirlo.
+local HINT2 = "|cff888888Mayus+clic derecho: elegir otra orden.|r"
+
 local function Empty(b, tip, body)
 	b.icon:SetTexture("Interface\\Buttons\\UI-Quickslot")
 	b.icon:SetTexCoord(0, 1, 0, 1)
@@ -214,7 +227,14 @@ function T:Paint(i)
 		if e then
 			ns.Actions:Paint(b.icon, e)
 			b.label:SetText("")
-			ns.W:Tip(b, e.name, (e.d or "") .. "\n" .. HINT)
+			-- LAS DOS ORDENES, LAS DOS EN EL TOOLTIP. La del derecho no se ve
+			-- en ningun sitio si no se escribe aqui.
+			if e.cmd2 and e.d2 then
+				ns.W:Tip(b, e.name, (e.d or "") ..
+					"\n|cffffff00Clic derecho:|r " .. e.d2 .. "\n" .. HINT2)
+			else
+				ns.W:Tip(b, e.name, (e.d or "") .. "\n" .. HINT)
+			end
 		else
 			-- Una orden que se quito del catalogo. No se borra la casilla sola:
 			-- misma regla que con un macro renombrado, mas abajo.
@@ -319,6 +339,15 @@ local function Slot(i, parent, size)
 			Apply(self, self.slot)
 
 			if button == "RightButton" then
+				-- LA SEGUNDA ORDEN GANA AL DESPLEGABLE, y solo en las casillas
+				-- que llevan una. MAYUS lo devuelve, que es como se sigue
+				-- pudiendo cambiar la casilla del candado.
+				local id = T:Action(self.slot)
+				local e = id and ns.Actions:Find(id)
+				if e and e.cmd2 and not IsShiftKeyDown() then
+					ns.Actions:Run(id, true)
+					return
+				end
 				T:Choose(self.slot)
 				return
 			end

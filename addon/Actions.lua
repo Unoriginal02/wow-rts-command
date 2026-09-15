@@ -64,6 +64,17 @@ local ICON_DIR = "Interface\\Icons\\"
 -- un macro. `raw` significa que ya son comandos nuestros; sin el, son verbos de
 -- playerbots y se mandan con `/rtscmd`.
 --
+-- `cmd2` ES LA SEGUNDA ORDEN, la del CLIC DERECHO, y casi ninguna la tiene.
+-- Solo vale cuando las dos son la misma cosa vista de dos maneras -- el candado
+-- pone la camara SOBRE el heroe con el izquierdo y DENTRO DE SU CABEZA con el
+-- derecho -- porque el derecho ya tenia dueno en la bandeja (el desplegable que
+-- cambia la casilla), y quitarselo a cambio de cualquier segunda orden seria
+-- esconder la unica forma de configurar. En las casillas que la llevan, el
+-- desplegable se aparta a MAYUS+derecho y el tooltip lo dice.
+--
+-- `d2` es su descripcion. Sin `d2` no hay nada que ensenar en el tooltip, asi
+-- que una `cmd2` sin `d2` es una funcion escondida -- lo mismo que no tenerla.
+--
 -- NINGUN VERBO ES INVENTADO: cada uno esta en `ChatCommandHandlerStrategy.cpp`
 -- o es un nombre de estrategia de `StrategyContext.h`.
 --
@@ -156,7 +167,9 @@ local LIST = {
 	  cmd = { "/rts misiones" }, d = "el registro de misiones de TODO el grupo" },
 	{ id = "candado",  g = "Ventanas", name = "Candado", raw = true,
 	  icon = "INV_Misc_Key_03", art = "candado",
-	  cmd = { "/rts fc lock" },  d = "clava la camara a tu heroe" },
+	  cmd = { "/rts fc lock" },  d = "clava la camara a tu heroe",
+	  cmd2 = { "/rts fc ojos" },
+	  d2 = "la camara se mete en la cabeza del heroe (solo puedes mirar)" },
 	{ id = "camara",   g = "Ventanas", name = "Camara", raw = true,
 	  icon = "INV_Misc_Spyglass_03",
 	  cmd = { "/rts fc home" },  d = "devuelve la camara sobre tu heroe" },
@@ -234,15 +247,15 @@ end
 -- lanzarla y escribirla en un macro -- y componerlas dos veces es como se
 -- acaba con una bandeja que hace una cosa y un macro del mismo nombre que
 -- hace otra.
-local function Lines(entry)
+local function Lines(entry, alt)
 	local out = {}
-	for _, c in ipairs(entry.cmd) do
+	for _, c in ipairs((alt and entry.cmd2) or entry.cmd) do
 		table.insert(out, entry.raw and c or (MARK .. " " .. c))
 	end
 	return out
 end
 
-function A:Run(id)
+function A:Run(id, alt)
 	local e = self:Find(id)
 	if not e then
 		ns.Print("|cffff8800ordenes:|r esa casilla apunta a |cffffff00" ..
@@ -250,7 +263,11 @@ function A:Run(id)
 			"Clic derecho encima para cambiarla.")
 		return
 	end
-	for _, line in ipairs(Lines(e)) do RunLine(line) end
+	-- Pedir la segunda de una orden que no la tiene no lanza la primera en su
+	-- lugar: el jugador pidio otra cosa, y hacerle la que no pidio es peor que
+	-- no hacer nada. Quien llama ya ha mirado si existe (`entry.cmd2`).
+	if alt and not e.cmd2 then return end
+	for _, line in ipairs(Lines(e, alt)) do RunLine(line) end
 end
 
 -- El cuerpo escrito: para el tooltip y para los macros de `Macros.lua`.

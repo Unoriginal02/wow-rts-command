@@ -107,6 +107,21 @@
 	puesto mueven el ENCUADRE en vez de la camara -- y se queda hasta que lo
 	vuelva a tocar.
 
+	=== Y LA PRIMERA PERSONA ES EL MISMO CANDADO CON EL ENCUADRE FIJO =======
+
+	Clic DERECHO en la casilla del candado mete la camara dentro de la cabeza
+	del heroe -- un poco por encima, para no mirar el modelo por dentro -- y ahi
+	se queda mientras el heroe anda, pelea o le lleva su IA. Se entra mirando a
+	donde mira el heroe y a partir de ese instante la orientacion es del
+	jugador: el raton y Q/E giran, y nada mas. Las teclas de mover NO mueven.
+
+	NO ES UN QUINTO MODO. Es el candado con el encuadre clavado en (0, 0,
+	`eyeH`) y las teclas desconectadas de el, asi que hereda entero el
+	seguimiento suavizado del heroe -- que ahi es mas necesario que nunca: el
+	DLL publica la posicion a 33 Hz y la pantalla va a 60, o sea que copiarla en
+	crudo son 0.2 yardas de tiron treinta y tres veces por segundo A LA ALTURA
+	DE LOS OJOS. Lo que en vista de pajaro no se ve, aqui marea.
+
 	=== SIN DLL ESTO NO ARRANCA, Y LO DICE ==================================
 
 	Necesita dos cosas que solo el DLL da: el vector de avance y el suelo bajo
@@ -217,6 +232,17 @@ local D = {
 	-- invisible, y solo cambia mientras el heroe acelera o frena. La escalera,
 	-- en cambio, se ve.
 	lockSmooth = 25.0,   -- k del seguimiento del heroe con el candado (1/s)
+	-- LA ALTURA DE LOS OJOS ES UN AJUSTE PORQUE LAS RAZAS NO MIDEN LO MISMO.
+	-- Un gnomo mide la mitad que un tauren y el cliente no publica la altura
+	-- del modelo por ninguna via: `UnitHeight` no existe en 3.3.5a. Asi que el
+	-- de fabrica es un humano y el resto se toca una vez -- `/rts fc eyeH 3` --
+	-- en vez de que el addon adivine por raza y falle con las monturas, las
+	-- formas de druida y los hechizos que cambian de tamano.
+	--
+	-- Y VA UN POCO POR ENCIMA DE LA CABEZA, no dentro: dentro se ve el modelo
+	-- por dentro (el cliente no recorta las caras traseras de un personaje que
+	-- sigue dibujandose), que es una pantalla de carne y nada mas.
+	eyeH    = 2.2,    -- yardas sobre los PIES del heroe en primera persona
 }
 
 -- SELLO DE GENERACION, y hace falta porque un ajuste CAMBIO DE SIGNIFICADO.
@@ -294,6 +320,9 @@ local function Cfg()
 	-- por arriba se convierte en la copia rigida que el comentario de `D`
 	-- explica que no se quiere. Fuera de rango es basura y vuelve al de fabrica.
 	if c.lockSmooth <= 0 or c.lockSmooth > 200 then c.lockSmooth = D.lockSmooth end
+	-- Negativo seria mirar desde debajo de los pies y veinte yardas ya no es una
+	-- cabeza, es la camara de antes. Fuera de ahi es basura y vuelve al humano.
+	if c.eyeH < 0 or c.eyeH > 20 then c.eyeH = D.eyeH end
 	return c
 end
 
@@ -404,6 +433,13 @@ local st = { x = nil, y = nil, z = nil, yaw = 0, pitch = nil, offset = nil,
 -- El candado esta encendido. Va en `F` y no en `st` porque lo preguntan desde
 -- fuera -- el informe, el comando -- y `st` es del solver.
 F.lock = false
+
+-- Y LA PRIMERA PERSONA ES UNA SEGUNDA BANDERA, NO UN VALOR DE LA PRIMERA.
+-- `eyes` implica `lock` -- la camara cuelga del heroe igual -- y lo que anade es
+-- que el encuadre deja de ser del jugador. Guardarlo como "lock = 2" habria
+-- obligado a cada `if self.lock` del fichero a preguntar cual de los dos, que es
+-- como se cuelan las ramas que solo funcionan en un modo.
+F.eyes = false
 
 -- Ninguna de las funciones de comentarista se habia llamado nunca en este
 -- proyecto, asi que todas pasan por aqui: si una no existe, el controlador
@@ -609,6 +645,112 @@ local function AdoptLook()
 	st.pitch = pitch
 end
 
+-- === HACIA DONDE MIRA EL HEROE, EN YAW DE COMENTARISTA =================
+--
+-- Entrar en primera persona es lo unico de este fichero que necesita PEDIR un
+-- yaw concreto -- el del heroe -- y ahi vuelve la pregunta que todo lo demas
+-- lleva evitando desde el principio: CUAL ES LA CONVENCION DE ANGULOS DE
+-- `CommentatorSetCamera`. No se puede leer del binario (el desensamblado solo
+-- ensena que el argumento se multiplica por DEG2RAD y se guarda), y este
+-- proyecto ya ha pagado DOS VECES por adivinar un signo: el `pitch` de aqui
+-- arriba y los dos `SetPosition` del retrato.
+--
+-- Asi que no se adivina: se MIDE, con dos datos que ya estan en pantalla.
+--
+--   * `CommentatorGetCamera` da el yaw VIVO de la camara.
+--   * el DLL publica su adelante en coordenadas del MUNDO (`RTS_CamFwdX/Y`),
+--     que en angulo es `atan2(fy, fx)` -- la misma convencion que `RTS_PF`.
+--
+-- Con un solo par no basta: dice el desfase pero NO EL SIGNO -- un yaw que
+-- creciera al reves encaja igual de bien en una sola muestra, y el error solo
+-- se veria como una entrada espejada. Con dos pares a yaws distintos salen los
+-- dos de golpe:
+--
+--     mundo = signo * yaw + desfase
+--
+-- Y LAS MUESTRAS SE TOMAN CON LA CAMARA QUIETA. El adelante viene del DLL a 100
+-- Hz y el yaw se lee en este mismo frame: mientras se gira son dos instantes
+-- distintos, o sea que la medida saldria torcida justo cuando mas se mueve.
+-- Parada, los dos son del mismo sitio y la resta es exacta.
+--
+-- NO HACE FALTA PEDIRLE NADA AL JUGADOR. La segunda muestra llega sola en
+-- cuanto gire la camara, que es lo primero que hace cualquiera; hasta entonces
+-- se usa el desfase de una sola con el signo supuesto, que es lo que habria
+-- habido de todas formas.
+local look = { prev = nil, refY = nil, refW = nil, sign = nil, delta = nil }
+
+local function Wrap180(d)
+	d = d % 360
+	if d > 180 then d = d - 360 end
+	return d
+end
+
+local function CamWorldAngle()
+	if RTS_HasCam ~= 1 then return nil end
+	local fx, fy = RTS_CamFwdX, RTS_CamFwdY
+	if type(fx) ~= "number" or type(fy) ~= "number" then return nil end
+	-- Mirando a plomo la proyeccion es casi cero y el angulo deja de estar
+	-- definido; misma criba que `FlatForward` y por la misma razon.
+	if (fx * fx + fy * fy) < 0.000001 then return nil end
+	return math.deg(math.atan2(fy, fx))
+end
+
+local function CalibrateYaw()
+	local yaw, prev = st.yaw, look.prev
+	look.prev = yaw
+	if not yaw or not prev then return end
+	if math.abs(Wrap180(yaw - prev)) > 0.02 then return end   -- girando: no vale
+	local w = CamWorldAngle()
+	if not w then return end
+	if not look.refY then
+		look.refY, look.refW = yaw, w
+		return
+	end
+	local dy = Wrap180(yaw - look.refY)
+	local ady = math.abs(dy)
+	-- Por debajo de 20 grados la medida es todo ruido; por encima de 170 el
+	-- signo del envoltorio deja de estar claro (a 180 justos, +1 y -1 dan lo
+	-- mismo). Fuera de esa ventana no se concluye nada y se sigue esperando.
+	if ady < 20 or ady > 170 then return end
+	local dw = Wrap180(w - look.refW)
+	-- LA COMPROBACION QUE CONVIERTE UNA SUPOSICION EN UNA MEDIDA: si el mundo no
+	-- ha girado LO MISMO que el yaw, la relacion no es `signo * yaw + desfase` y
+	-- no hay nada que deducir. Sin esto, un modelo equivocado saldria como un
+	-- signo con toda la confianza del mundo.
+	if math.abs(math.abs(dw) - ady) > 5 then return end
+	look.sign = (dw * dy >= 0) and 1 or -1
+	look.delta = Wrap180(w - look.sign * yaw)
+	look.refY, look.refW = yaw, w
+end
+
+-- Una direccion del MUNDO (radianes, la convencion de `RTS_PF`) en yaw.
+local function YawForWorld(rad)
+	local sign, delta = look.sign, look.delta
+	if not sign then
+		-- Sin las dos muestras todavia: el desfase de UNA, dando por hecho que
+		-- el yaw crece como el angulo del mundo. Si eso fuera falso, esta
+		-- entrada sale espejada y la siguiente ya no -- en cuanto el jugador
+		-- gire, la medida de verdad esta hecha.
+		local w = CamWorldAngle()
+		if not w or not st.yaw then return nil end
+		sign, delta = 1, Wrap180(w - st.yaw)
+	end
+	return ((math.deg(rad) - delta) * sign) % 360
+end
+
+local function LookReport()
+	if look.sign then
+		return ("signo %+d, desfase %.1f |cff888888(medido con dos muestras)|r"):format(
+			look.sign, look.delta)
+	end
+	local w = CamWorldAngle()
+	if w and st.yaw then
+		return ("desfase %.1f |cffff8800(una sola muestra: gira la camara para medir el signo)|r"):format(
+			Wrap180(w - st.yaw))
+	end
+	return "|cffff8800sin medir|r (¿camara publicada?)"
+end
+
 -- Los botones, del DLL. `IsMouseButtonDown` devuelve NO mientras el cliente
 -- tiene el raton cogido, asi que para saber si estan los DOS pulsados no hay
 -- otra fuente. Se queda solo para el gesto de avanzar; el giro ya no lo usa.
@@ -677,15 +819,24 @@ local function Follow(c, dt)
 		end
 	end
 
-	-- Las teclas RETOCAN EL ENCUADRE. Misma velocidad y mismo suavizado que en
-	-- el modo libre: `st.vx/vy` ya vienen calculadas del mismo solver de
-	-- arriba, asi que el plano se siente igual con el candado puesto.
-	st.ox = st.ox + st.vx * dt
-	st.oy = st.oy + st.vy * dt
-	local lift = 0
-	if input.up then lift = lift + 1 end
-	if input.down then lift = lift - 1 end
-	if lift ~= 0 then st.oz = st.oz + lift * c.lift * dt end
+	if F.eyes then
+		-- EN PRIMERA PERSONA EL ENCUADRE NO ES DEL JUGADOR: es la cabeza del
+		-- heroe y nada mas. Se reescribe entero cada frame en vez de ponerlo una
+		-- vez al entrar, y eso es lo que hace que `/rts fc eyeH 3` se vea AHORA
+		-- -- un ajuste que solo entra al volver a entrar en el modo se lee como
+		-- un ajuste que no funciona.
+		st.ox, st.oy, st.oz = 0, 0, c.eyeH
+	else
+		-- Las teclas RETOCAN EL ENCUADRE. Misma velocidad y mismo suavizado que
+		-- en el modo libre: `st.vx/vy` ya vienen calculadas del mismo solver de
+		-- arriba, asi que el plano se siente igual con el candado puesto.
+		st.ox = st.ox + st.vx * dt
+		st.oy = st.oy + st.vy * dt
+		local lift = 0
+		if input.up then lift = lift + 1 end
+		if input.down then lift = lift - 1 end
+		if lift ~= 0 then st.oz = st.oz + lift * c.lift * dt end
+	end
 
 	st.x = st.ax + st.ox
 	st.y = st.ay + st.oy
@@ -721,6 +872,11 @@ function F:SetLock(on)
 	if not on then
 		if self.lock then
 			self.lock = false
+			-- SOLTAR EL CANDADO SUELTA TAMBIEN LA PRIMERA PERSONA, porque la
+			-- primera persona ES el candado: dejar `eyes` puesto con `lock`
+			-- quitado seria una bandera encendida que ya no manda sobre nada,
+			-- y la casilla diria "primera persona" con la camara suelta.
+			self.eyes = false
 			-- `offset` se recalcula solo en el primer tick libre (el bloque del
 			-- anclaje): con `gz` a nil, la altura que tenga la camara AHORA
 			-- pasa a medirse contra el suelo de donde este. Sin esto la camara
@@ -758,6 +914,81 @@ function F:ToggleLock()
 	return self:SetLock(not self.lock)
 end
 
+--- LA PRIMERA PERSONA -----------------------------------------------------
+--
+-- La camara se mete en la cabeza del heroe y se queda ahi. Lo unico que hace
+-- falta decidir aqui es POR DONDE SE ENTRA -- el sitio y hacia donde se mira --
+-- porque a partir del frame siguiente lo lleva todo `Follow`.
+--
+-- ENTRAR TIENE QUE SER INSTANTANEO, no un viaje. Si esto se limitara a poner
+-- las banderas, la camara viajaria desde donde estuviera hasta la cabeza
+-- arrastrada por el suavizado del ancla -- cien yardas de vuelo desde la vista
+-- de pajaro -- que se ve como que el modo tarda en arrancar. Se escribe la
+-- posicion entera aqui mismo y se aplica en el acto.
+function F:SetEyes(on)
+	if not self.active then
+		ns.Print("|cffff8800camara RTS:|r la camara libre no esta activa.")
+		return false
+	end
+
+	if not on then
+		if self.eyes then
+			self.eyes = false
+			self.lock = false
+			-- Con `gz` a nil el primer tick libre mide el suelo de DONDE ESTA la
+			-- camara (la cabeza del heroe) en vez de traerse el de antes de
+			-- entrar: si no, salir de primera persona seria un salto de altura.
+			st.gz, st.gstep, st.buried = nil, 0, 0
+			Repaint()
+			ns.Print("|cff33ccffcamara RTS:|r primera persona |cffff8800FUERA|r " ..
+				"|cff888888(la camara se queda donde estaba la cabeza)|r.")
+		end
+		return true
+	end
+
+	local hx, hy, hz = HeroPos()
+	if not hx then
+		ns.Print("|cffff0000camara RTS:|r el DLL no publica la posicion de tu heroe.")
+		return false
+	end
+
+	local c = Cfg()
+	st.ax, st.ay, st.az = hx, hy, hz
+	st.ox, st.oy, st.oz = 0, 0, c.eyeH
+	st.x, st.y, st.z = hx, hy, hz + c.eyeH
+	-- La velocidad del plano se tira a la basura: con las teclas desconectadas
+	-- no hay quien la frene, asi que un W a medio soltar al entrar se quedaria
+	-- guardado y saldria de golpe al salir.
+	st.vx, st.vy = 0, 0
+	st.gz, st.gstep, st.buried = nil, 0, 0
+
+	-- HACIA DONDE MIRA EL HEROE, Y SOLO AL ENTRAR. Despues es del jugador: no
+	-- se vuelve a tocar el yaw ni un frame mas, que es la mitad de lo que se
+	-- pidio -- "que despues se pueda reorientar".
+	local yaw = (type(RTS_PF) == "number") and YawForWorld(RTS_PF) or nil
+	if yaw then st.yaw = yaw end
+	-- Al horizonte. Un heroe no entra mirandose los pies, y la inclinacion de
+	-- la camara RTS (45 grados hacia abajo de fabrica) ahi dentro es el suelo.
+	st.pitch = 0
+
+	self.lock = true
+	self.eyes = true
+	Repaint()
+	ns.Camera:SpecPlace(st.x, st.y, st.z, st.yaw, st.pitch, nil)
+	ns.Print(("|cff33ccffcamara RTS:|r |cff00ff00primera persona|r, %.1f yd sobre los pies del heroe."):format(c.eyeH))
+	if not yaw then
+		ns.Print("  |cffff8800No se hacia donde mira|r: gira la camara un momento " ..
+			"y vuelve a entrar (|cffffff00/rts fc|r lo explica).")
+	end
+	ns.Print("  |cff888888El raton y Q/E giran. Las teclas de mover no mueven: " ..
+		"te lleva el heroe.|r")
+	return true
+end
+
+function F:ToggleEyes()
+	return self:SetEyes(not self.eyes)
+end
+
 function F:Step(dt)
 	if not self.active then return end
 	-- Un frame perdido (carga de zona, alt-tab) puede traer un dt enorme, y
@@ -771,6 +1002,11 @@ function F:Step(dt)
 	-- PRIMERO los angulos vivos, DESPUES nuestras teclas. Al reves, el giro de
 	-- Q/E de este frame se perderia: la adopcion sobreescribe el yaw entero.
 	AdoptLook()
+	-- JUSTO DESPUES DE ADOPTAR y antes de que Q/E toquen nada: aqui `st.yaw` es
+	-- todavia el yaw VIVO de la camara, que es el unico que se puede comparar
+	-- con el adelante que publica el DLL. Un frame mas tarde ya seria el yaw que
+	-- vamos a pedir, y la medida compararia dos instantes distintos.
+	CalibrateYaw()
 	local mouseLeft, mouseRight = MouseButtons()
 
 	-- --- giro ---------------------------------------------------------
@@ -804,6 +1040,13 @@ function F:Step(dt)
 	if mouseLeft and mouseRight then my = my + 1 end
 	if input.right then mx = mx + 1 end
 	if input.left then mx = mx - 1 end
+
+	-- EN PRIMERA PERSONA LAS TECLAS DE MOVER NO MUEVEN. Es la otra mitad de lo
+	-- que se pidio: la camara es la cabeza del heroe y quien la lleva de paseo
+	-- es el heroe. Se apaga en la FUENTE y no en `Follow` para que la velocidad
+	-- ni siquiera llegue a existir -- dejarla crecer y luego ignorarla es un
+	-- empujon guardado que sale de golpe en cuanto se sale del modo.
+	if self.eyes then mx, my = 0, 0 end
 
 	if mx ~= 0 or my ~= 0 then
 		local fx, fy = FlatForward()
@@ -1217,6 +1460,7 @@ function F:Start()
 	-- sesion anterior -- de otro continente, o de antes de un cambio de
 	-- personaje -- y lo aplicaria encima. Se entra siempre suelto.
 	self.lock = false
+	self.eyes = false
 	st.ax, st.ay, st.az = nil, nil, nil
 	st.ox, st.oy, st.oz = 0, 0, 0
 
@@ -1243,6 +1487,7 @@ function F:Stop()
 	if not self.active then return true end
 	self.active = false
 	self.lock = false
+	self.eyes = false
 	-- CAPTURAR Y DEVOLVER, con la unica pega de que aqui no hay de donde
 	-- capturar: el cliente no publica un getter de esto. Asi que se devuelve al
 	-- valor MEDIDO, no supuesto -- `0x0056BC80` escribe 1 en ese campo al
@@ -1296,6 +1541,15 @@ function F:Home()
 		return false
 	end
 	local c = Cfg()
+	-- LA SALIDA DE EMERGENCIA SACA TAMBIEN DE LA CABEZA, y tiene que hacerlo
+	-- antes de nada: en primera persona el encuadre se reescribe entero cada
+	-- frame, asi que dejar `eyes` puesto convertiria este rescate en un no-op
+	-- -- la camara volveria a la cabeza en el tick siguiente. El candado se
+	-- queda (ver abajo): lo que estorba es el encuadre clavado, no el ancla.
+	if self.eyes then
+		self.eyes = false
+		ns.Print("|cff33ccffcamara RTS:|r fuera de primera persona.")
+	end
 	st.x, st.y = RTS_PX, RTS_PY
 	st.offset = c.height
 	st.z = RTS_PZ + c.height
@@ -1336,6 +1590,7 @@ local LABEL = {
 	yawSign = "signo del giro con Q/E (1 o -1)",
 	ease = "suavizado del arranque/parada en el plano (k)",
 	lockSmooth = "con que fuerza el candado persigue al heroe (k)",
+	eyeH = "altura de los ojos sobre los PIES del heroe en primera persona (yd)",
 }
 
 function F:Set(key, value)
@@ -1388,7 +1643,11 @@ function F:Report()
 	-- EL CANDADO, CON LA DISTANCIA MEDIDA Y NO LA PEDIDA. "No me sigue" y "me
 	-- sigue mal" son dos averias distintas: la primera se ve en el ON/OFF, la
 	-- segunda en que la distancia de ahora no sea la que se capturo.
-	if self.lock then
+	if self.eyes then
+		local hx = HeroPos()
+		ns.Print(("  |cff00ff00PRIMERA PERSONA|r: %.1f yd sobre los pies del heroe%s"):format(
+			c.eyeH, hx and "" or "   |cffff8800sin heroe publicado|r"))
+	elseif self.lock then
 		local hx, hy, hz = HeroPos()
 		local d = hx and math.sqrt((st.x - hx) ^ 2 + (st.y - hy) ^ 2 + (st.z - hz) ^ 2)
 		ns.Print(("  candado |cff00ff00PUESTO|r: encuadre %.1f %.1f %.1f (%.1f yd)   ahora %s"):format(
@@ -1396,8 +1655,13 @@ function F:Report()
 			math.sqrt(st.ox * st.ox + st.oy * st.oy + st.oz * st.oz),
 			d and ("%.1f yd"):format(d) or "|cffff8800sin heroe publicado|r"))
 	else
-		ns.Print("  candado suelto |cff888888(casilla Candado del panel)|r")
+		ns.Print("  candado suelto |cff888888(izquierdo en la casilla Candado; derecho, primera persona)|r")
 	end
+	-- LA MEDIDA DEL YAW, SIEMPRE, y no solo en primera persona: es lo unico de
+	-- este fichero que depende de una convencion que no se puede leer del
+	-- binario, asi que "se entra mirando al reves" se contesta aqui en vez de
+	-- costar una ronda de pruebas. Con el signo medido, no hay nada supuesto.
+	ns.Print("  yaw -> mundo: " .. LookReport())
 	-- LOS DOS RAYOS, SIEMPRE LOS DOS, y no solo el que este en uso.
 	--
 	-- La pregunta que se hace delante de una casa es "¿por que sube la camara?",
