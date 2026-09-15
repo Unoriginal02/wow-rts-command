@@ -50,20 +50,20 @@ bool SetFov(float radians) {
     return mem::Write<float>(cam + off::kCam_Fov, radians);
 }
 
-// EL CORTE SECCIONAL VIVIO AQUI Y SE FUE ENTERO EL 2026-09-10, con lo aprendido
-// escrito en `Publisher.cpp`. Lo que queda por si vuelve a hacer falta, para no
-// volver a buscarlo:
+// THE SECTION CUT LIVED HERE AND LEFT WHOLE ON 2026-09-10, with what was learnt
+// written down in `Publisher.cpp`. What is left, in case it is ever needed
+// again, so nobody has to go looking for it twice:
 //
-//   * El plano cercano de verdad es el GLOBAL `0x00ADEED4`, no el struct de la
-//     camara. La proyeccion (0x00606B30) lo lee al rehacer el frustum.
-//   * `cam+0x38` y `cam+0x3C` son una COPIA que nadie lee para dibujar: se
-//     escriben, se quedan escritas y no recortan nada. Probado en las dos
-//     direcciones antes de creerlo.
-//   * `cam+0x3C` sigue al CVar `farclip` del cliente, asi que sirve de testigo
-//     para localizar campos: mover el mando y buscar el numero.
+//   * The real near plane is the GLOBAL `0x00ADEED4`, not the camera struct.
+//     The projection (0x00606B30) reads it when it rebuilds the frustum.
+//   * `cam+0x38` and `cam+0x3C` are a COPY that nobody reads to draw with: they
+//     get written, they stay written and they clip nothing. Tried in both
+//     directions before believing it.
+//   * `cam+0x3C` follows the client's `farclip` CVar, so it serves as a witness
+//     for locating fields: move the knob and search for the number.
 //
-// Con `Pointer()`, `ReadClip()`, `SetNearClip()` y `FindValue()` se fue tambien
-// el ultimo lector de esos dos offsets.
+// `Pointer()`, `ReadClip()`, `SetNearClip()` and `FindValue()` took the last
+// reader of those two offsets with them.
 
 bool Get(Camera* out) {
     // *(kWorldFrameBase) -> world frame; +kCameraPtrOffset -> active camera.

@@ -9,7 +9,7 @@
 #include "Player.h"
 #include "SharedDefines.h"   // SUMMON_CATEGORY_PUPPET
 #include "TemporarySummon.h"
-#include "Opcodes.h"         // SMSG_COMMENTATOR_STATE_CHANGED, para Spectate
+#include "Opcodes.h"         // SMSG_COMMENTATOR_STATE_CHANGED, for Spectate
 #include "WorldPacket.h"
 #include "WorldSession.h"
 
@@ -64,13 +64,13 @@ namespace
     // camera's own height, and the tilt takes care of itself.
     std::unordered_map<ObjectGuid, int> g_pivot;   // player -> -1 left, +1 right
 
-    // QUIEN ESTA EN LA CAMARA LIBRE. No es adorno: decide si el servidor puede
-    // mover el cuerpo del jugador. Ver `Spectate`.
+    // WHO IS IN THE FREE CAMERA. Not decoration: it decides whether the server
+    // may move the player's body. See `Spectate`.
     std::unordered_set<ObjectGuid> g_spectating;
 
-    // QUIEN HA PEDIDO QUE EL SERVIDOR SE QUEDE EL CONTROL DEL CUERPO. Vacio de
-    // fabrica desde el 2026-09-11: quitarle el control al cliente le apaga
-    // tambien la espada y el click derecho (el porque, entero, en `Arm`).
+    // WHO HAS ASKED THE SERVER TO KEEP CONTROL OF THE BODY. Empty by default
+    // since 2026-09-11: taking control away from the client also switches off
+    // its sword and its right-click (the whole why is in `Arm`).
     std::unordered_set<ObjectGuid> g_holdControl;
 
     constexpr float kDefaultPivotDist  = 12.0f;   // yards ahead of the camera
@@ -697,21 +697,21 @@ void rts::camera::Abandon(Player* player)
     if (!player)
         return;
 
-    // LOS FLAGS DEL SONDEO SE QUITAN AQUI Y SIN CONDICION, antes de mirar si
-    // habia camara. Son cosa aparte del Puppet -- se pueden haber puesto con
-    // `/rts cam spec` sin que la camara de siempre se encendiera nunca -- y
-    // `PLAYER_FLAGS_UBER` puesto y olvidado es estado del jugador que sobrevive
-    // a la sesion. Quitar de mas no cuesta nada; quitar de menos deja al
-    // personaje marcado para siempre. Ver `Spectate`.
+    // THE PROBE'S FLAGS COME OFF HERE AND UNCONDITIONALLY, before looking at
+    // whether there was a camera at all. They are a thing apart from the Puppet
+    // -- they may have been set with `/rts cam spec` without the usual camera
+    // ever being turned on -- and `PLAYER_FLAGS_UBER` set and forgotten is
+    // player state that outlives the session. Clearing too much costs nothing;
+    // clearing too little leaves the character marked forever. See `Spectate`.
     player->RemovePlayerFlag(PLAYER_FLAGS_UBER);
     player->RemovePlayerFlag(PLAYER_FLAGS_COMMENTATOR2);
-    Arm(player, false);   // y el modo, o el cliente se queda en el 6
+    Arm(player, false);   // and the mode too, or the client stays in 6
     g_holdControl.erase(player->GetGUID());
     if (g_spectating.erase(player->GetGUID()) > 0 && player->IsInWorld())
     {
-        // Devolverle el control del cuerpo. Sin esto, un logout o un cambio de
-        // mapa con la camara libre puesta deja al jugador sin poder moverse al
-        // volver -- y nada lo relaciona con la camara.
+        // Hand control of the body back. Without this, a logout or a map change
+        // with the free camera on leaves the player unable to move when they
+        // come back -- and nothing connects that to the camera.
         player->SetClientControl(player, true);
     }
 
@@ -731,74 +731,73 @@ void rts::camera::Abandon(Player* player)
     Despawn(cam);
 }
 
-// --- el sondeo de la camara libre del cliente -------------------------------
+// --- the probe into the client's own free camera ----------------------------
 //
-// El porque entero, con las direcciones desensambladas y las lineas del nucleo,
-// esta en la cabecera. Aqui solo las dos mitades que hacen falta: los flags que
-// abren la puerta, y el paquete que enciende el modo.
-// LAS DOS MITADES VAN SEPARADAS, Y LA PRIMERA VERSION LAS MANDABA JUNTAS.
+// The whole why, with the disassembled addresses and the core's own line
+// numbers, is in the header. Here there are only the two halves that are
+// needed: the flags that open the door, and the packet that turns the mode on.
+// THE TWO HALVES GO SEPARATELY, AND THE FIRST VERSION SENT THEM TOGETHER.
 //
-// Era una carrera, vista en juego el 2026-09-07 en la primera pasada:
-// `SetPlayerFlag` NO manda nada, solo marca el campo como sucio -- la
-// actualizacion de `PLAYER_FLAGS` sale en el siguiente flush de
-// `Player::Update`, unos 100 ms despues. `SendPacket` sale AHORA. Asi que el
-// paquete llegaba primero, el predicado del cliente leia los flags VIEJOS, la
-// puerta estaba cerrada...
+// It was a race, seen in game on 2026-09-07 on the first pass: `SetPlayerFlag`
+// sends NOTHING, it only marks the field dirty -- the `PLAYER_FLAGS` update
+// goes out on the next flush of `Player::Update`, some 100 ms later.
+// `SendPacket` goes out NOW. So the packet arrived first, the client's
+// predicate read the OLD flags, the door was shut...
 //
-// ...y aqui esta lo que lo hizo caro: **la rama de puerta cerrada no es un
-// no-op.** El manejador (`0x0056B8A0`) salta al mismo sitio que `enable == 0` y
-// mete la camara en modo 1 con el estado que hubiera. En pantalla: la camara se
-// fue lejisimo y por debajo del suelo. O sea que un intento fallido no deja las
-// cosas como estaban, que es la peor forma de fallar.
+// ...and here is what made it expensive: **the shut-door branch is not a
+// no-op.** The handler (`0x0056B8A0`) jumps to the same place as `enable == 0`
+// and puts the camera into mode 1 with whatever state it had. On screen: the
+// camera went miles away and below the ground. Which is to say that a failed
+// attempt does not leave things as they were, which is the worst way to fail.
 //
-// Asi que ya no se adivina el retraso: se ponen los flags, y **el cliente dice
-// cuando han llegado** -- el addon sondea `CommentatorGetCamera()`, que
-// devuelve seis numeros en cuanto la puerta esta abierta y nada mientras no lo
-// esta. Solo entonces se pide el modo con `Arm`. Es la misma leccion que
-// `HasServer()` y que el `PORTED` del cambio de personaje: **un estado que viaja
-// no es un estado que ya llego**, y el unico testigo que vale es el del otro
-// lado.
+// So the delay is no longer guessed at: the flags are set, and **the client
+// says when they have arrived** -- the addon polls `CommentatorGetCamera()`,
+// which returns six numbers as soon as the door is open and nothing while it is
+// not. Only then is the mode asked for with `Arm`. It is the same lesson as
+// `HasServer()` and as the `PORTED` of the character swap: **a state in transit
+// is not a state that has arrived**, and the only witness worth anything is the
+// one on the other side.
 bool rts::camera::Spectate(Player* player, bool on)
 {
     if (!player || !player->GetSession())
         return false;
 
-    // EL BIT 19 YA NO SE PONE AQUI, Y ESTA ES LA RAZON (2026-09-11).
+    // BIT 19 IS NO LONGER SET HERE, AND THIS IS WHY (2026-09-11).
     //
-    // `Unit::_IsValidAttackTarget` (`Unit.cpp:10762`) tiene esto, literal:
+    // `Unit::_IsValidAttackTarget` (`Unit.cpp:10762`) has this, literally:
     //
     //     if (Player const* playerAttacker = ToPlayer())
     //         if (playerAttacker->HasPlayerFlag(PLAYER_FLAGS_UBER) ||
     //             playerAttacker->IsSpectator())
     //             return false;
     //
-    // O sea: **un jugador con el bit 19 no puede atacar a nada.** Y ese es el
-    // unico uso del bit en todo el nucleo -- enumerado, no supuesto. El bit 22
-    // solo pone una etiqueta de chat (`Player.cpp:1381`) y sale en una
-    // comprobacion de un comando de GM; es inofensivo y se queda.
+    // That is: **a player with bit 19 cannot attack anything.** And that is the
+    // only use of the bit in the whole core -- enumerated, not assumed. Bit 22
+    // only puts a chat tag on you (`Player.cpp:1381`) and turns up in a check
+    // inside a GM command; it is harmless and it stays.
     //
-    // El sintoma que costo la ronda: en modo RTS el circulo del bicho se ponia
-    // rojo un tick y volvia a amarillo. El cliente empezaba el ataque, el
-    // servidor lo rechazaba aqui, y el cliente lo deshacia. Ni espada ni
-    // ataque -- y las otras dos puertas (el predicado `0x00729740` del cliente
-    // y el global que apaga `SetClientControl`) eran reales tambien, asi que
-    // abrir solo esas dos daba la espada y ningun golpe.
+    // The symptom that cost the round: in RTS mode the circle under the mob went
+    // red for a tick and came back yellow. The client started the attack, the
+    // server refused it here, and the client undid it. No sword and no attack
+    // -- and the other two doors (the client's `0x00729740` predicate and the
+    // global that `SetClientControl` switches off) were real too, so opening
+    // only those two gave the sword and not one blow.
     //
-    // PERO EL CLIENTE SI NECESITA EL BIT 19: su predicado `0x006DE980` lo exige
-    // para abrir la camara de comentarista. La salida es que cada lado tenga lo
-    // suyo -- el bit vive **solo en la memoria del cliente**, escrito por
-    // `rts_core` (`SelfShow.cpp`), que se arma al ver el bit 22 y lo reescribe
-    // cada tick por si el servidor reenvia el campo.
+    // BUT THE CLIENT DOES NEED BIT 19: its `0x006DE980` predicate demands it
+    // before it will open the commentator camera. The way out is for each side
+    // to have its own -- the bit lives **only in the client's memory**, written
+    // by `rts_core` (`SelfShow.cpp`), which arms itself on seeing bit 22 and
+    // rewrites it every tick in case the server resends the field.
     //
-    // CONSECUENCIA QUE HAY QUE SABER: la camara libre pasa a NECESITAR el DLL.
-    // Sin inyectar, el bit 19 no existe en ninguna parte, la puerta del cliente
-    // no abre y `CameraOn` se cae al Puppet, que ya es el respaldo escrito.
+    // A CONSEQUENCE WORTH KNOWING: the free camera now NEEDS the DLL. Without
+    // it injected, bit 19 exists nowhere, the client's door does not open and
+    // `CameraOn` falls back to the Puppet, which is already the written fallback.
     if (on)
     {
-        // Y SE BORRA, no se deja como este. Un bit 19 pegado de una sesion
-        // anterior (una caida con la camara puesta lo deja escrito en la base
-        // de datos) te dejaria sin poder atacar sin que nada lo explique. Es la
-        // misma leccion que la vuelta atras del 2026-09-08.
+        // AND IT IS CLEARED, not left as it is. A bit 19 stuck from an earlier
+        // session (a crash with the camera on leaves it written in the
+        // database) would leave you unable to attack with nothing to explain
+        // it. It is the same lesson as the rollback of 2026-09-08.
         player->RemovePlayerFlag(PLAYER_FLAGS_UBER);
         player->SetPlayerFlag(PLAYER_FLAGS_COMMENTATOR2);
     }
@@ -807,23 +806,23 @@ bool rts::camera::Spectate(Player* player, bool on)
         player->RemovePlayerFlag(PLAYER_FLAGS_UBER);
         player->RemovePlayerFlag(PLAYER_FLAGS_COMMENTATOR2);
 
-        // APAGAR SI MANDA EL PAQUETE, Y TIENE QUE HACERLO AQUI. La rama de
-        // `enable == 0` del cliente no pasa por el predicado, asi que funciona
-        // con los flags ya quitados -- y es la unica salida que tiene el
-        // jugador si el modo se quedo armado. Si esto esperara a un `Arm`
-        // aparte, un fallo a medias dejaria la camara donde estuviera sin nada
-        // que pulsar.
+        // TURNING OFF DOES SEND THE PACKET, AND IT HAS TO DO IT HERE. The
+        // client's `enable == 0` branch does not go through the predicate, so
+        // it works with the flags already cleared -- and it is the only way out
+        // the player has if the mode was left armed. If this waited for a
+        // separate `Arm`, a half-failure would leave the camera wherever it was
+        // with nothing to press.
         Arm(player, false);
     }
 
-    LOG_INFO("module.rts", "rts: spectate flags {} para {}", on ? "ON" : "OFF",
+    LOG_INFO("module.rts", "rts: spectate flags {} for {}", on ? "ON" : "OFF",
         player->GetName());
     return true;
 }
 
-// Pedir (o soltar) que el servidor conduzca el cuerpo. Se aplica en el acto si
-// la camara ya esta armada, para que el interruptor se pueda probar sin salir
-// del modo RTS -- que es la unica forma de comparar las dos mitades del trato.
+// Ask for (or give up) having the server drive the body. It applies on the spot
+// if the camera is already armed, so the switch can be tried without leaving
+// RTS mode -- which is the only way to compare the two halves of the bargain.
 bool rts::camera::HoldControl(Player* player, bool on)
 {
     if (!player || !player->GetSession())
@@ -837,8 +836,8 @@ bool rts::camera::HoldControl(Player* player, bool on)
     if (IsSpectating(player) && !player->GetCharm())
         player->SetClientControl(player, !on);
 
-    LOG_INFO("module.rts", "rts: control del cuerpo {} para {}",
-        on ? "AL SERVIDOR" : "al cliente", player->GetName());
+    LOG_INFO("module.rts", "rts: body control {} for {}",
+        on ? "TO THE SERVER" : "to the client", player->GetName());
     return true;
 }
 
@@ -857,71 +856,73 @@ bool rts::camera::Arm(Player* player, bool on)
     if (!player || !player->GetSession())
         return false;
 
-    // Y AHORA LA MITAD QUE SE ME OLVIDO AL JUBILAR EL PUPPET.
+    // AND NOW THE HALF I FORGOT WHEN I RETIRED THE PUPPET.
     //
-    // `orders::MoveSelf` se niega a mover tu propio cuerpo si nadie le ha
-    // quitado el control al cliente, y su comentario dice por que: *"si el
-    // cliente sigue conduciendo este personaje, un movimiento del servidor lo
-    // cancela el siguiente paquete de movimiento que manda"*. Eso lo hacia la
-    // POSESION del Puppet -- y al retirarlo se quedo sin nadie que lo hiciera,
-    // asi que ordenar a tu heroe empezo a contestar *"the RTS camera is not
-    // holding control"* y las rutas propias salian con "reached no bots".
+    // `orders::MoveSelf` refuses to move your own body if nobody has taken
+    // control away from the client, and its comment says why: *"if the client
+    // is still driving this character, a server-side move is cancelled by the
+    // next movement packet it sends"*. That was done by the Puppet's
+    // POSSESSION -- and when it was retired there was nobody left to do it, so
+    // ordering your hero started answering *"the RTS camera is not holding
+    // control"* and your own routes came back with "reached no bots".
     //
-    // La razon de la guarda sigue siendo verdad; lo que estaba mal era suponer
-    // que la unica forma de cumplirla es poseer algo. `SetClientControl` con el
-    // propio jugador como objetivo manda `SMSG_CLIENT_CONTROL_UPDATE` y **no**
-    // toca el viewpoint (`Player.cpp:13171`, `if (this != target)`), asi que no
-    // deja ningun seer colgando -- que es justo el fallo que mato al cliente
-    // cuando esto se hizo a mano la primera vez.
+    // The reason for the guard is still true; what was wrong was assuming the
+    // only way to satisfy it is to possess something. `SetClientControl` with
+    // the player themselves as the target sends `SMSG_CLIENT_CONTROL_UPDATE`
+    // and does **not** touch the viewpoint (`Player.cpp:13171`, `if (this !=
+    // target)`), so it leaves no seer dangling -- which is exactly the bug that
+    // killed the client when this was done by hand the first time.
     //
-    // Es la separacion que el rediseno buscaba: **quien conduce el cuerpo** (el
-    // servidor) y **donde esta la camara** (el cliente) dejan de ser la misma
-    // decision. El Puppet las ataba porque era las dos cosas a la vez.
-    // SOLO SI NO HAY NADA POSEIDO, y esa condicion es el arreglo del heroe
-    // invisible.
+    // It is the separation the redesign was after: **who drives the body** (the
+    // server) and **where the camera is** (the client) stop being the same
+    // decision. The Puppet tied them together because it was both at once.
+    // ONLY IF NOTHING IS POSSESSED, and that condition is the fix for the
+    // invisible hero.
     //
-    // `SetClientControl(player, false)` no cambia el mover en el servidor -- el
-    // `SetMover` esta detras de `if (allowMove)` (`Player.cpp:13173`) -- pero
-    // MANDA `SMSG_CLIENT_CONTROL_UPDATE` con el guid del jugador, y eso es
-    // literalmente *"tu unidad activa es esta"*. El cliente lo recibia despues
-    // de la posesion del Puppet y volvia a hacerte el mover.
+    // `SetClientControl(player, false)` does not change the mover on the server
+    // -- the `SetMover` sits behind `if (allowMove)` (`Player.cpp:13173`) --
+    // but it DOES SEND `SMSG_CLIENT_CONTROL_UPDATE` with the player's guid, and
+    // that is literally *"your active unit is this one"*. The client used to
+    // receive it after the Puppet's possession and made you the mover again.
     //
-    // Y el mover es quien el cliente NO DIBUJA. `PRUEBAS-5` D2 ya lo decia con
-    // la camara vieja: *"tu personaje no es el active mover, asi que el cliente
-    // calcula las interacciones contra la camara y no contra ti"* -- y por eso
-    // con el Puppet el heroe SE VEIA. Mi linea deshacia exactamente eso, un
-    // instante despues de ponerlo.
+    // And the mover is the one the client DOES NOT DRAW. `PRUEBAS-5` D2 already
+    // said so with the old camera: *"your character is not the active mover, so
+    // the client works out the interactions against the camera and not against
+    // you"* -- and that is why with the Puppet the hero WAS VISIBLE. My line
+    // undid exactly that, an instant after setting it.
     //
-    // Con el Puppet puesto no hace falta: la posesion ya le ha quitado el
-    // control al cliente por el camino bueno, y la guarda de `MoveSelf` la
-    // cumple `GetCharm()`. Sin Puppet -- `/rts cam spec 1` a mano -- se sigue
-    // necesitando, y de ahi la condicion en vez de borrarlo.
-    // ...Y ESA LINEA ES LA QUE SE LLEVO POR DELANTE LA ESPADA Y EL CLICK
-    // DERECHO (2026-09-11). Leido en el cliente, no supuesto:
+    // With the Puppet up it is not needed: the possession has already taken
+    // control away from the client by the proper road, and `MoveSelf`'s guard
+    // is satisfied by `GetCharm()`. Without a Puppet -- `/rts cam spec 1` by
+    // hand -- it is still needed, hence the condition instead of deleting it.
+    // ...AND THAT LINE IS THE ONE THAT TOOK THE SWORD AND THE RIGHT-CLICK DOWN
+    // WITH IT (2026-09-11). Read in the client, not assumed:
     //
-    //   * `SMSG_CLIENT_CONTROL_UPDATE` acaba en `0x0071C930(allowMove)`, que
-    //     enciende o apaga el bit 10 de `[unidad + 0xa30]`, y **para el jugador
-    //     local escribe ese bit en el global `0x00BCFB8C`** (`0x00520FE0`).
-    //   * El cursor de ataque lo decide `0x004F7A50`, y en `0x004F7FA5` hace
-    //     `cmp dword [0x00BCFB8C], 0` -> si es cero **no pone ningun cursor**.
-    //   * Y el ataque de verdad muere en el mismo sitio: el `AttackTarget` de
-    //     Lua (`0x0051A650`) baja a `0x0072C2B0`, que vuelve a mirar ese global
-    //     en `0x0072C3E9`. Un solo interruptor apaga las dos cosas, que es
-    //     exactamente el sintoma: ni espada ni ataque.
+    //   * `SMSG_CLIENT_CONTROL_UPDATE` ends up in `0x0071C930(allowMove)`,
+    //     which turns bit 10 of `[unit + 0xa30]` on or off, and **for the local
+    //     player it writes that bit into the global `0x00BCFB8C`**
+    //     (`0x00520FE0`).
+    //   * The attack cursor is decided by `0x004F7A50`, and at `0x004F7FA5` it
+    //     does `cmp dword [0x00BCFB8C], 0` -> if it is zero it **sets no cursor
+    //     at all**.
+    //   * And the attack itself dies in the same place: Lua's `AttackTarget`
+    //     (`0x0051A650`) goes down into `0x0072C2B0`, which looks at that same
+    //     global again at `0x0072C3E9`. One single switch turns both off, which
+    //     is exactly the symptom: no sword and no attack.
     //
-    // O sea: decirle al cliente "no conduces tu cuerpo" es decirle tambien "no
-    // puedes pegar a nadie". Es coherente -- es el mismo estado que usa el
-    // nucleo para congelar a un jugador tras las puertas de un campo de batalla
-    // (`Battleground.cpp:1020`, *"movement disabled"*) -- y es incompatible con
-    // querer el raton normal dentro del modo RTS.
+    // That is: telling the client "you are not driving your body" is also
+    // telling it "you cannot hit anybody". It is coherent -- it is the same
+    // state the core uses to freeze a player behind the gates of a battleground
+    // (`Battleground.cpp:1020`, *"movement disabled"*) -- and it is
+    // incompatible with wanting the ordinary mouse inside RTS mode.
     //
-    // ASI QUE AHORA ES UNA ELECCION Y NO UN EFECTO SECUNDARIO. De fabrica el
-    // cliente SE QUEDA con el control: la camara libre no lo necesita para nada
-    // (la puerta del modo comentarista son los flags, y esos siguen puestos).
-    // `CAM CTRL 1` lo vuelve a quitar, que es lo que hacia falta para que el
-    // servidor condujera tu propio heroe -- y ese es el precio a medir, no una
-    // suposicion: `orders::MoveSelf` sigue pasando su guarda por
-    // `IsSpectating`, lo que esta por ver es si el cuerpo se mueve en pantalla.
+    // SO NOW IT IS A CHOICE AND NOT A SIDE EFFECT. By default the client KEEPS
+    // control: the free camera does not need it for anything (the door to
+    // commentator mode is the flags, and those are still set). `CAM CTRL 1`
+    // takes it away again, which is what was needed for the server to drive
+    // your own hero -- and that is the price to measure, not a supposition:
+    // `orders::MoveSelf` still passes its guard via `IsSpectating`, what is
+    // left to see is whether the body moves on screen.
     bool const possessing = player->GetCharm() != nullptr;
     bool const hold = g_holdControl.count(player->GetGUID()) > 0;
     if (on)
@@ -933,24 +934,25 @@ bool rts::camera::Arm(Player* player, bool on)
     else
     {
         g_spectating.erase(player->GetGUID());
-        // Devolverlo SIEMPRE, se pidiera o no. Un control que no vuelve porque
-        // "el interruptor estaba apagado" es la misma trampa que dejo los flags
-        // escritos en la base de datos: el estado que se quita se quita sin
-        // condicion, y devolver el control a quien ya lo tiene no hace nada.
+        // Hand it back ALWAYS, asked for or not. A control that does not come
+        // back because "the switch was off" is the same trap that left the
+        // flags written in the database: state that comes off comes off with no
+        // condition, and handing control back to someone who already has it
+        // does nothing.
         if (!possessing)
             player->SetClientControl(player, true);
     }
 
-    // EL GUID VA EN EL PAQUETE Y TIENE QUE SER EL DEL RECEPTOR. El manejador
-    // del cliente (0x0056B8A0) lo compara contra el guid de su propio objeto de
-    // jugador y descarta el paquete si no cuadra -- en silencio, como todo lo
-    // demas de este camino.
+    // THE GUID GOES IN THE PACKET AND IT HAS TO BE THE RECEIVER'S. The client's
+    // handler (0x0056B8A0) compares it against the guid of its own player
+    // object and discards the packet if they do not match -- silently, like
+    // everything else on this road.
     WorldPacket data(SMSG_COMMENTATOR_STATE_CHANGED, 8 + 1);
-    data << player->GetGUID();          // los 8 bytes sin empaquetar, como SMSG_DESTROY_OBJECT
+    data << player->GetGUID();          // the 8 bytes unpacked, like SMSG_DESTROY_OBJECT
     data << uint8(on ? 1 : 0);
     player->GetSession()->SendPacket(&data);
 
-    LOG_INFO("module.rts", "rts: spectate modo {} para {}", on ? "6 (libre)" : "1 (normal)",
+    LOG_INFO("module.rts", "rts: spectate mode {} for {}", on ? "6 (free)" : "1 (normal)",
         player->GetName());
     return true;
 }

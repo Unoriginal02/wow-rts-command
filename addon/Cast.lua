@@ -1,58 +1,58 @@
 --[[
-	Cast.lua -- los huecos de hechizo de la barra de abajo.
+	Cast.lua -- the spell slots on the bottom bar.
 
-	Es el contenido de la parte IZQUIERDA del `Dock`, y dibuja los dos estados
-	que el decide:
+	It is the contents of the LEFT half of the `Dock`, and it draws the two
+	states the Dock decides on:
 
-	  A  ninguno o uno   el nombre y DIEZ huecos
-	  B  dos o mas       por columna: nombre y 2x2 de CUATRO
+	  A  none or one     the name and TEN slots
+	  B  two or more     per column: name and a 2x2 of FOUR
 
-	Los datos y las acciones no estan aqui: `Skills.lua` los tiene. Aqui esta el
-	DIBUJO y el GESTO. En el estado B hay hasta cinco columnas pidiendo lo mismo
-	a la vez, y con la logica dentro del panel serian cinco copias de todo.
+	The data and the actions are not here: `Skills.lua` has them. What is here
+	is the DRAWING and the GESTURE. In state B there are up to five columns
+	asking for the same thing at once, and with the logic inside the panel that
+	would be five copies of everything.
 
-	=== LOS MACROS SE FUERON DE AQUI ======================================
+	=== THE MACROS LEFT THIS FILE =============================================
 
-	Hasta el 2026-09-13 este fichero dibujaba tambien cuatro barras de macro por
-	personaje, con un catalogo de doce acciones ESCRITAS EN EL CODIGO (`stay`,
-	`follow`, `max dps`...). Se fueron enteras: las ordenes a los bots son ahora
-	macros del juego de verdad, en la bandeja de la derecha (`Tray.lua`), y el
-	catalogo que las crea es el de `Macros.lua`, que ya existia.
+	Until 2026-09-13 this file also drew four macro bars per character, with a
+	catalogue of twelve actions WRITTEN INTO THE CODE (`stay`, `follow`,
+	`max dps`...). They went away whole: the orders to the bots are now real
+	game macros, in the tray on the right (`Tray.lua`), and the catalogue that
+	creates them is the one in `Macros.lua`, which already existed.
 
-	Lo unico que sobrevivio de aquel catalogo es CUIDAR (`PFOCUS`), y no por
-	nostalgia: es la unica de las doce que no cabe en un macro, porque necesita
-	un segundo click para elegir sobre quien. Vive aqui como gesto y se dispara
-	desde `/rts focus`, que SI cabe en un macro.
+	The only thing that survived from that catalogue is LOOK AFTER (`PFOCUS`),
+	and not out of nostalgia: it is the only one of the twelve that does not fit
+	in a macro, because it needs a second click to choose who for. It lives here
+	as a gesture and it is fired from `/rts focus`, which DOES fit in a macro.
 
-	=== LOS CUATRO DEL ESTADO B NO SON LOS CUATRO PRIMEROS DE LOS DIEZ =====
+	=== THE FOUR OF STATE B ARE NOT THE FIRST FOUR OF THE TEN =================
 
-	Son otro juego (`Skills`: "group"). La razon esta en `Dock.lua`.
+	They are another set (`Skills`: "group"). The reason is in `Dock.lua`.
 
-	=== EL GESTO DE §5, Y LA LUZ CIRCULAR =================================
+	=== THE GESTURE OF §5, AND THE CIRCLING LIGHT =============================
 
-	Pulsar un hueco cuyo hechizo necesita objetivo no lo manda: lo deja ARMADO,
-	y el icono se pone a dar vueltas con **la luz de las mascotas de cazador**.
-	El siguiente click elige sobre quien -- en un marco del juego o en el mundo
-	3D, indistintamente.
+	Pressing a slot whose spell needs a target does not send it: it leaves it
+	ARMED, and the icon starts spinning with **the hunter pet light**. The next
+	click chooses who for -- on a game frame or out in the 3D world, either way.
 
-	LA LUZ ES DEL CLIENTE Y NO SE REIMPLEMENTA. Sacado de leer su FrameXML
-	(`Data\esES\patch-esES.MPQ`, ver `CLAUDE.md`), no de memoria:
+	THE LIGHT BELONGS TO THE CLIENT AND IS NOT REIMPLEMENTED. Taken from reading
+	its FrameXML (`Data\esES\patch-esES.MPQ`, see `CLAUDE.md`), not from memory:
 
-	  * `AutoCastShineTemplate` (UIPanelTemplates.xml:699) son 16 texturas de
-	    chispa con su `OnLoad`, y es una plantilla VIRTUAL corriente.
-	  * `AutoCastShine_AutoCastStart(frame, r, g, b)` la enciende y
-	    `..._AutoCastStop(frame)` la apaga (UIParent.lua:3477,3494).
-	  * **LA ANIMACION SALE GRATIS**: la mueve el `OnUpdate` de `UIParent`.
+	  * `AutoCastShineTemplate` (UIPanelTemplates.xml:699) is 16 sparkle
+	    textures with their `OnLoad`, and it is an ordinary VIRTUAL template.
+	  * `AutoCastShine_AutoCastStart(frame, r, g, b)` turns it on and
+	    `..._AutoCastStop(frame)` turns it off (UIParent.lua:3477,3494).
+	  * **THE ANIMATION COMES FOR FREE**: `UIParent`'s `OnUpdate` moves it.
 
-	Y UNA TRAMPA: `AutoCastShine_OnLoad` busca sus chispas por nombre
-	(`_G[name..i]`), asi que **el frame TIENE que tener nombre**.
+	AND ONE TRAP: `AutoCastShine_OnLoad` looks its sparkles up by name
+	(`_G[name..i]`), so **the frame HAS to have a name**.
 
-	=== CONFIGURAR UN HUECO ===============================================
+	=== SETTING UP A SLOT =====================================================
 
-	CLICK DERECHO abre la lista de hechizos de ESE personaje -- que es su barra
-	de acciones, no tu libro, porque tu libro no tiene la Polimorfia del mago
-	(ver `Skills.lua`). "Arrastrar del libro" no puede existir para un bot y no
-	es rodeable: `PickupSpell` solo coge lo que tu conoces.
+	RIGHT CLICK opens the spell list of THAT character -- which is its action
+	bar, not your book, because your book does not have the mage's Polymorph
+	(see `Skills.lua`). "Drag it out of the book" cannot exist for a bot and
+	there is no way round it: `PickupSpell` only picks up what you know.
 ]]
 
 local ADDON, ns = ...
@@ -62,91 +62,92 @@ ns.Cast = C
 
 C.active = false
 
-local spellBtn = {}       -- i -> boton cuadrado (estado A)
+local spellBtn = {}       -- i -> square button (state A)
 local colBtn = {}         -- ci -> { head, spells = {} }
 local headName
 local flyout
 
---- Los nombres, acotados a lo largo ---------------------------------------
+--- The names, clipped by length --------------------------------------------
 --
--- Un nombre de este cliente llega a doce letras, y a cuerpo 32 eso es una
--- etiqueta mas ancha que media fila de huecos: el rotulo pesaba mas que lo que
--- hay debajo, que es lo que de verdad se usa. Se corta.
+-- A name on this client runs to twelve letters, and at size 32 that is a label
+-- wider than half a row of slots: the caption weighed more than what is below
+-- it, which is what actually gets used. So it gets cut.
 --
--- SIN PUNTOS SUSPENSIVOS a proposito: los tres puntos devuelven casi todo el
--- ancho que se acaba de quitar, asi que serian el mismo problema escrito de
--- otra forma. Y un nombre cortado se reconoce igual: son los cinco de tu grupo,
--- no una lista de desconocidos.
+-- NO ELLIPSIS, on purpose: the three dots give back nearly all the width you
+-- just took away, so they would be the same problem written another way. And a
+-- cut name is just as recognisable: they are the five in your group, not a list
+-- of strangers.
 --
--- La columna del estado B se corta antes que el rotulo grande porque es mas
--- estrecha -- ahi ya habia un `SetWidth` para que un nombre largo no se dibujara
--- encima del de al lado, pero un `SetWidth` no recorta: PARTE EN DOS LINEAS, y
--- la segunda se sale del alto de la cabecera.
-local NAME_A = 10         -- el rotulo grande, encima de los diez huecos
-local NAME_B = 8          -- el de cada columna
+-- The state B column is cut shorter than the big caption because it is
+-- narrower -- there was already a `SetWidth` there so that a long name would
+-- not draw on top of the one next to it, but a `SetWidth` does not clip: IT
+-- BREAKS INTO TWO LINES, and the second one spills out of the header's height.
+local NAME_A = 10         -- the big caption, above the ten slots
+local NAME_B = 8          -- the one on each column
 
 local function Clip(name, max)
 	name = tostring(name or "")
 	if name:len() <= max then return name end
 	local cut = name:sub(1, max)
-	-- No partir una letra por la mitad. En UTF-8 los bytes de continuacion van
-	-- de 0x80 a 0xBF y un byte suelto se dibuja como un rombo negro; el cliente
-	-- en espanol admite tildes en los nombres, asi que puede pasar.
+	-- Do not split a letter down the middle. In UTF-8 the continuation bytes run
+	-- from 0x80 to 0xBF and a stray byte is drawn as a black diamond; the
+	-- Spanish client allows accents in names, so it can happen.
 	while cut ~= "" do
 		local b = cut:byte(-1)
 		if b < 0x80 or b >= 0xC0 then break end
 		cut = cut:sub(1, -2)
 	end
-	-- Y si lo ultimo que queda es el ARRANQUE de una letra multibyte, sobra
-	-- tambien: su cola se fue en el corte.
+	-- And if the last thing left is the START of a multibyte letter, it has to
+	-- go too: its tail went with the cut.
 	local b = cut:byte(-1)
 	if b and b >= 0xC0 then cut = cut:sub(1, -2) end
 	return cut
 end
 
---- Estado del foco --------------------------------------------------------
+--- Focus state -------------------------------------------------------------
 --
--- name -> guid, para poder dibujar quien lo lleva puesto. Lo dice el servidor
--- al confirmar, no lo suponemos nosotros: un boton que se enciende con su
--- propia peticion esconde justo el caso en el que la peticion no salio.
+-- name -> guid, so we can draw who is wearing it. The server says so when it
+-- confirms, we do not assume it ourselves: a button that lights up off its own
+-- request hides exactly the case where the request never went out.
 C.focus = {}
 
 function C:PointAt(name, guid, label)
 	if not ns.Link:HasServer() then
-		ns.Print("|cffff8800cuidar:|r hace falta mod-rts.")
+		ns.Print("|cffff8800look after:|r mod-rts is needed.")
 		return
 	end
 	local hex = guid and (tostring(guid):gsub("^0[xX]", "")) or "-"
 	ns.SendServer("PFOCUS " .. name .. " " .. hex)
 	if label then
-		ns.Print(("|cff33ccff%s|r se dedica a |cffffd100%s|r."):format(name, label))
+		ns.Print(("|cff33ccff%s|r now looks after |cffffd100%s|r."):format(name, label))
 	end
 end
 
 function C:ClearFocus(name)
 	if not ns.Link:HasServer() then
-		ns.Print("|cffff8800cuidar:|r hace falta mod-rts.")
+		ns.Print("|cffff8800look after:|r mod-rts is needed.")
 		return
 	end
 	ns.SendServer("PFOCUS " .. name .. " -")
 end
 
--- ARMAR EL GESTO DE CUIDAR. Lo llama `/rts focus`, que es lo que el jugador
--- pone en un macro de la bandeja.
+-- ARMING THE LOOK AFTER GESTURE. `/rts focus` calls it, which is what the
+-- player puts in a macro on the tray.
 function C:StartFocus(name)
 	name = name or ns.Dock:Subject()
 	if not name then return end
 	self.pendingFocus = name
-	ns.Print(("|cffffd100Cuidar (%s):|r elige a quien; el click derecho cancela."):format(name))
+	ns.Print(("|cffffd100Look after (%s):|r choose who; right click cancels."):format(name))
 	self:Refresh()
 end
 
---- La luz de armado -------------------------------------------------------
+--- The arming light --------------------------------------------------------
 
 local shineSeq = 0
 
--- La luz se sale del boton a proposito -- las chispas giran POR FUERA del
--- icono -- asi que con un 9% por lado no llega a pisar al vecino.
+-- The light spills out of the button on purpose -- the sparkles spin OUTSIDE
+-- the icon -- so at 9% per side it does not reach far enough to tread on the
+-- neighbour.
 local SHINE_SCALE = 1.18
 local SHINE_LIFT  = 10
 
@@ -167,10 +168,11 @@ local function SetArmed(b, on)
 	local f = Shine(b)
 	if not f then return end
 	if on then
-		-- Se remide y se resube CADA VEZ, no al crearlo: el boton cambia de
-		-- nivel al reparentarse entre el estado A y el B, y un nivel puesto una
-		-- sola vez se queda viejo sin dar error -- la luz volveria debajo del
-		-- icono y pareceria que no sale.
+		-- It gets remeasured and raised again EVERY TIME, not on creation: the
+		-- button changes level when it is reparented between state A and state
+		-- B, and a level set only once goes stale without raising an error --
+		-- the light would go back under the icon and it would look like it
+		-- never comes up.
 		f:SetWidth(b:GetWidth() * SHINE_SCALE)
 		f:SetHeight(b:GetHeight() * SHINE_SCALE)
 		f:SetFrameLevel(b:GetFrameLevel() + SHINE_LIFT)
@@ -180,7 +182,7 @@ local function SetArmed(b, on)
 	end
 end
 
---- El desplegable de eleccion ---------------------------------------------
+--- The picker flyout -------------------------------------------------------
 
 local ROW_H = 34
 local rows = {}
@@ -210,8 +212,8 @@ local function FlyoutRow(i)
 	b.icon:SetPoint("LEFT", b, "LEFT", 4, 0)
 	b.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
 
-	-- Un Button sin plantilla no trae FontString, asi que `SetText` no dibujaria
-	-- nada. Se crea a mano, como en el resto del addon.
+	-- A Button with no template brings no FontString, so `SetText` would draw
+	-- nothing. It gets made by hand, like everywhere else in the addon.
 	b.text = ns.W:Text(b, ns.W.FONT.normal)
 	b.text:SetPoint("LEFT", b.icon, "RIGHT", 8, 0)
 	b.text:SetJustifyH("LEFT")
@@ -220,9 +222,10 @@ local function FlyoutRow(i)
 	return b
 end
 
--- CUANTAS FILAS CABEN DE UNA VEZ. El servidor manda la barra del bot Y todo lo
--- que sabe, que son cincuenta o cien entradas segun el nivel; sin paginar, la
--- lista se dibujaria de 3.000 pixeles de alto y se leeria como "no sale".
+-- HOW MANY ROWS FIT AT ONCE. The server sends the bot's bar AND everything it
+-- knows, which is fifty or a hundred entries depending on the level; without
+-- paging, the list would be drawn 3,000 pixels tall and would read as "it does
+-- not show up".
 local PAGE = 14
 
 -- `entries` = { { icon, text, sub, fn }, ... }
@@ -242,7 +245,7 @@ function C:ShowPicker(anchor, entries, page)
 	if page > 0 then
 		table.insert(shown, {
 			icon = "Interface\\Buttons\\UI-MicroStream-Green",
-			text = ("|cffffd100... anteriores|r |cff888888(%d/%d)|r"):format(page, pages),
+			text = ("|cffffd100... previous|r |cff888888(%d/%d)|r"):format(page, pages),
 			keep = true,
 			fn = function() C:ShowPicker(anchor, entries, page - 1) end,
 		})
@@ -251,7 +254,7 @@ function C:ShowPicker(anchor, entries, page)
 	if to < total then
 		table.insert(shown, {
 			icon = "Interface\\Buttons\\UI-MicroStream-Red",
-			text = ("|cffffd100mas ... |r|cff888888(%d mas, %d/%d)|r"):format(
+			text = ("|cffffd100more ... |r|cff888888(%d more, %d/%d)|r"):format(
 				total - to, page + 2, pages),
 			keep = true,
 			fn = function() C:ShowPicker(anchor, entries, page + 1) end,
@@ -268,8 +271,8 @@ function C:ShowPicker(anchor, entries, page)
 		b.icon:SetTexture(e.icon or "Interface\\Icons\\INV_Misc_QuestionMark")
 		b.text:SetText(e.text .. (e.sub and (" |cff888888" .. e.sub .. "|r") or ""))
 		b:SetScript("OnClick", function()
-			-- Una fila de navegacion NO cierra la lista: vuelve a dibujarla en
-			-- otra pagina.
+			-- A navigation row does NOT close the list: it redraws it on
+			-- another page.
 			if not e.keep then flyout:Hide() end
 			local ok, err = pcall(e.fn)
 			if not ok then ns.Print("|cffff0000dock:|r " .. tostring(err)) end
@@ -290,21 +293,21 @@ function C:HidePicker()
 	if flyout then flyout:Hide() end
 end
 
--- La lista de hechizos de un personaje, para configurar un hueco. `set` dice a
--- cual de los dos juegos va -- y se escribe en la cabecera de la lista, porque
--- "el hueco 2" significa dos cosas distintas y el jugador tiene que saber cual
--- esta tocando.
+-- A character's spell list, for setting up a slot. `set` says which of the two
+-- sets it goes to -- and it is written in the list's header, because "slot 2"
+-- means two different things and the player has to know which one they are
+-- touching.
 function C:PickSpell(anchor, name, i, set)
 	local cat = ns.Skills:Available(name)
 	if #cat == 0 then
-		ns.Print(("|cffff8800%s|r no tiene hechizos que ofrecer%s."):format(name,
-			ns.Skills:Pending(name) and " todavia (pidiendolos...)" or
-			": con el servidor al dia esto no deberia pasar -- |cffffff00/rts skills|r"))
+		ns.Print(("|cffff8800%s|r has no spells to offer%s."):format(name,
+			ns.Skills:Pending(name) and " yet (asking for them...)" or
+			": with the server up to date this should not happen -- |cffffff00/rts skills|r"))
 		return
 	end
 
 	local entries = {
-		{ icon = "Interface\\Icons\\INV_Misc_QuestionMark", text = "|cff888888(vaciar el hueco)|r",
+		{ icon = "Interface\\Icons\\INV_Misc_QuestionMark", text = "|cff888888(empty the slot)|r",
 		  fn = function() ns.Skills:SetSlot(name, i, nil, set) end },
 	}
 	for _, s in ipairs(cat) do
@@ -318,7 +321,7 @@ function C:PickSpell(anchor, name, i, set)
 	self:ShowPicker(anchor, entries)
 end
 
---- Los botones de hechizo -------------------------------------------------
+--- The spell buttons -------------------------------------------------------
 
 local function SpellButton(store, i, parent, size, set)
 	local b = store[i]
@@ -335,9 +338,9 @@ local function SpellButton(store, i, parent, size, set)
 			if self.spell then
 				ns.Skills:Use(self.owner, self.index, self.set)
 			else
-				-- UN HUECO VACIO NO SE QUEDA CALLADO. Un click que no hace nada
-				-- es indistinguible de un boton roto.
-				ns.Print("hueco vacio: click |cffffff00derecho|r para ponerle un hechizo.")
+				-- AN EMPTY SLOT DOES NOT KEEP QUIET. A click that does nothing
+				-- is indistinguishable from a broken button.
+				ns.Print("empty slot: |cffffff00right|r click to give it a spell.")
 			end
 		end)
 		store[i] = b
@@ -364,8 +367,8 @@ local function PaintSpell(b, owner, i, s, aiming, set)
 		b.icon:SetVertexColor(0.35, 0.35, 0.4)
 		b.icon:SetAlpha(0.8)
 		b.label:SetText("")
-		ns.W:Tip(b, "Hueco " .. i .. " vacio",
-			"Click derecho para elegir un hechizo de " .. owner .. ".")
+		ns.W:Tip(b, "Slot " .. i .. " empty",
+			"Right click to choose a spell of " .. owner .. ".")
 		SetArmed(b, false)
 		return
 	end
@@ -375,8 +378,8 @@ local function PaintSpell(b, owner, i, s, aiming, set)
 	b.icon:SetAlpha(1)
 	b.label:SetText("")
 
-	-- UN HECHIZO QUE YA NO ESTA EN SU BARRA SE DIBUJA APAGADO, no se borra. El
-	-- bot puede estar sin cargar o la respuesta puede no haber llegado.
+	-- A SPELL THAT IS NO LONGER ON ITS BAR IS DRAWN DIMMED, not erased. The bot
+	-- may not be loaded yet or the reply may not have arrived.
 	if s.stale then
 		b.icon:SetVertexColor(0.55, 0.4, 0.4)
 	else
@@ -384,24 +387,24 @@ local function PaintSpell(b, owner, i, s, aiming, set)
 	end
 
 	local info = ns.Skills:TypeInfo(s.type)
-	local extra = s.stale and "\n|cffff8800ya no esta en su barra|r" or ""
+	local extra = s.stale and "\n|cffff8800no longer on its bar|r" or ""
 	local q = ns.Skills:QueuedFor(owner)
 	if q and q.id == s.spellId then
-		extra = extra .. "\n|cffffd100en cola, esperando hueco|r"
+		extra = extra .. "\n|cffffd100queued, waiting for a slot|r"
 	end
-	-- LOS TRES GESTOS, ESCRITOS. Un modificador que no se cuenta en ningun sitio
-	-- es un modificador que no existe.
+	-- THE THREE GESTURES, WRITTEN DOWN. A modifier that is not spelled out
+	-- anywhere is a modifier that does not exist.
 	extra = extra .. (info.ask
-		and "\n|cff888888Click: elegir objetivo. Alt: sobre si mismo.|r"
-		or  "\n|cff888888Click: se manda ya. Shift: elegir objetivo.|r")
-	ns.W:Tip(b, s.name, ("%s -- %s%s\n|cff888888Click derecho: cambiar.|r"):format(
+		and "\n|cff888888Click: choose a target. Alt: on itself.|r"
+		or  "\n|cff888888Click: sent right away. Shift: choose a target.|r")
+	ns.W:Tip(b, s.name, ("%s -- %s%s\n|cff888888Right click: change it.|r"):format(
 		owner, info.label, extra))
 
 	SetArmed(b, aiming and aiming.owner == owner and aiming.slot == i
 		and (aiming.set or "main") == (set or "main"))
 end
 
---- Distribucion -----------------------------------------------------------
+--- Layout ------------------------------------------------------------------
 
 local function HideAll(list)
 	for _, b in ipairs(list) do b:Hide() end
@@ -468,9 +471,9 @@ function C:LayoutB()
 		col.head:ClearAllPoints()
 		col.head:SetPoint("TOPLEFT", h, "TOPLEFT", 2, 0)
 		col.head:SetHeight(ns.Dock:BHeadHeight())
-		-- EL NOMBRE SE ACOTA AL ANCHO DE SU COLUMNA. Sin esto un nombre largo se
-		-- dibuja hasta donde quiera, que con cinco columnas pegadas es encima del
-		-- de al lado.
+		-- THE NAME IS BOUNDED BY ITS COLUMN'S WIDTH. Without this a long name
+		-- draws as far as it likes, which with five columns side by side is on
+		-- top of the one next to it.
 		col.head:SetWidth(ns.Dock:ColWidth())
 		col.head:Show()
 
@@ -484,9 +487,9 @@ function C:LayoutB()
 		end
 	end
 
-	-- Las columnas que sobran de un reparto anterior. `#colBtn` no vale como
-	-- tope: se llena por indice y una bajada de cinco a dos puede dejar agujeros
-	-- que `#` corta antes de tiempo. Se recorre con `pairs`.
+	-- The columns left over from an earlier layout. `#colBtn` is no good as a
+	-- limit: it is filled by index and a drop from five to two can leave holes
+	-- that `#` cuts short of. It gets walked with `pairs`.
 	for ci, col in pairs(colBtn) do
 		if ci > #cols then
 			if col.head then col.head:Hide() end
@@ -495,7 +498,7 @@ function C:LayoutB()
 	end
 end
 
---- Refresco ---------------------------------------------------------------
+--- Refresh -----------------------------------------------------------------
 
 function C:Refresh()
 	if not self.active then return end
@@ -535,17 +538,17 @@ function C:Refresh()
 	end
 end
 
---- El segundo click de cuidar ---------------------------------------------
+--- The second click of look after ------------------------------------------
 
--- Llamada desde `RTSMode` cuando hay un foco pendiente. Devuelve true si se ha
--- comido el click.
+-- Called from `RTSMode` when there is a focus pending. Returns true if it has
+-- eaten the click.
 function C:AimAt(guid, label)
 	local who = self.pendingFocus
 	if not who then return false end
 	self.pendingFocus = nil
 
 	if not guid then
-		ns.Print("|cff888888cuidar: cancelado.|r")
+		ns.Print("|cff888888look after: cancelled.|r")
 		self:Refresh()
 		return true
 	end
@@ -562,7 +565,7 @@ function C:CancelAim()
 	return true
 end
 
---- Entrar y salir ---------------------------------------------------------
+--- Entering and leaving ----------------------------------------------------
 
 function C:Enter()
 	self.active = true
@@ -574,10 +577,10 @@ function C:Enter()
 		ns.Selection:Subscribe(function() C:Refresh() end)
 
 		ns.Link:On("PFOCUS", function(rest)
-			-- DOS SENTIDOS: mandamos `PFOCUS <bot> <guid>` y la respuesta trae
-			-- un tercer campo (hostil 0/1). Ese es el discriminante, y sin el
-			-- nuestro propio eco encenderia el estado sin que el servidor haya
-			-- dicho nada.
+			-- TWO DIRECTIONS: we send `PFOCUS <bot> <guid>` and the reply comes
+			-- back with a third field (hostile 0/1). That is what tells them
+			-- apart, and without it our own echo would light up the state
+			-- without the server having said a thing.
 			local bot, guid, hostile = rest:match("^(%S+)%s+(%S+)%s+([01])$")
 			if not bot then return end
 			C.focus[bot] = (guid ~= "-") and guid or nil
@@ -602,9 +605,9 @@ end
 
 function C:Report()
 	local owner = ns.Dock:Subject()
-	ns.Print(("|cffffff00huecos de|r |cff33ccff%s|r"):format(tostring(owner)))
-	ns.Print(("  cuida de: %s"):format(self.focus[owner] or "|cff888888nadie|r"))
-	ns.Print("  la lista de hechizos: |cffffff00/rts skills|r")
+	ns.Print(("|cffffff00slots of|r |cff33ccff%s|r"):format(tostring(owner)))
+	ns.Print(("  looks after: %s"):format(self.focus[owner] or "|cff888888nobody|r"))
+	ns.Print("  the spell list: |cffffff00/rts skills|r")
 end
 
 ns.Dock:Register(C)

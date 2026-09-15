@@ -138,10 +138,10 @@ namespace rts
         // the implementation.
         void Rescue(Player* player);
 
-        // === EL SONDEO DE LA CAMARA LIBRE DEL CLIENTE ======================
+        // === THE PROBE INTO THE CLIENT'S OWN FREE CAMERA ===================
         //
-        // Abre (o cierra) la camara de COMENTARISTA del cliente, que es una
-        // camara libre con API de Lua que este `Wow.exe` ya trae hecha:
+        // Opens (or closes) the client's COMMENTATOR camera, which is a free
+        // camera with a Lua API that this `Wow.exe` already ships:
         //
         //     CommentatorSetCamera(x, y, z, yaw, pitch, fov)   0x0056A0F0
         //     CommentatorSetCameraCollision(bool)              0x0056AB70

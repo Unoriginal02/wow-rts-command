@@ -1,69 +1,71 @@
 --[[
-	Radar.lua -- el punto del MAPA DEL MUNDO que dice donde esta la camara.
+	Radar.lua -- the dot on the WORLD MAP that says where the camera is.
 
-	En modo RTS la camara se va a volar y el personaje se queda donde estaba,
-	asi que abrir el mapa no contesta la pregunta que uno tiene: no marca donde
-	estas MIRANDO, marca donde tienes el cuerpo. Esto pone ahi un punto ambar en
-	la posicion de la camara. Nada mas.
+	In RTS mode the camera flies off and the character stays where he was, so
+	opening the map does not answer the question you actually have: it does not
+	mark where you are LOOKING, it marks where your body is. This puts an amber
+	dot there, at the camera's position. Nothing else.
 
-	EMPEZO EN EL MINIMAPA Y AHI NO VALIA. El 2026-09-15 se hizo primero sobre el
-	minimapa, que era el camino barato -- una resta de posiciones y la escala del
-	zoom, sin necesidad de saber en que zona estas. Se descarto el mismo dia: el
-	minimapa alcanza 200 o 400 yardas, y una camara RTS se sale de eso en dos
-	segundos, asi que el punto vivia pegado al borde diciendo poco mas que "por
-	ahi". El mapa grande es el que tiene sitio para la respuesta.
+	IT STARTED ON THE MINIMAP AND IT WAS NO GOOD THERE. On 2026-09-15 it was
+	done on the minimap first, which was the cheap route -- a subtraction of
+	positions and the zoom scale, with no need to know which zone you are in. It
+	was dropped the same day: the minimap reaches 200 or 400 yards, and an RTS
+	camera leaves that behind in two seconds, so the dot lived glued to the edge
+	saying little more than "over that way". The big map is the one with room for
+	the answer.
 
-	=== LO QUE HACE FALTA, Y DE DONDE SALE ==================================
+	=== WHAT IS NEEDED, AND WHERE IT COMES FROM =============================
 
-	El DLL publica la camara en coordenadas del MUNDO (`RTS_CamX/Y`, yardas), y
-	el mapa quiere una coordenada NORMALIZADA de 0 a 1 dentro de la zona que se
-	esta ensenando. Pasar de una a otra necesita el rectangulo de esa zona en
-	yardas, y ESO NO LO DA NINGUNA API de este cliente: es el motivo por el que
-	existe Astrolabe, la libreria que TomTom y Carbonite llevan dentro solo para
-	arrastrar esa tabla a mano.
+	The DLL publishes the camera in WORLD coordinates (`RTS_CamX/Y`, yards), and
+	the map wants a NORMALISED coordinate from 0 to 1 inside the zone being
+	shown. Going from one to the other needs that zone's rectangle in yards, and
+	NO API of this client GIVES THAT: it is the reason Astrolabe exists, the
+	library TomTom and Carbonite carry inside them purely to drag that table
+	around by hand.
 
-	Pero el cliente SI lo tiene, en `DBFilesClient\WorldMapArea.dbc`, que es de
-	donde sale la tabla de abajo -- leida del `patch-esES-3.MPQ` de este cliente,
-	no copiada de ningun addon. Cada fila trae, por este orden:
+	But the client DOES have it, in `DBFilesClient\WorldMapArea.dbc`, which is
+	where the table below comes from -- read out of this client's
+	`patch-esES-3.MPQ`, not copied from any addon. Each row carries, in this
+	order:
 
 	    id, mapID, areaID, areaName, locLeft, locRight, locTop, locBottom, ...
 
-	y `areaName` es exactamente la cadena que devuelve `GetMapInfo()` -- con sus
-	erratas incluidas, que es la prueba de que son el mismo dato: Orgrimmar se
-	llama "Ogrimmar" en los dos sitios.
+	and `areaName` is exactly the string `GetMapInfo()` returns -- typos
+	included, which is the proof that they are the same datum: Orgrimmar is
+	called "Ogrimmar" in both places.
 
-	En coordenadas del mundo de este cliente +X es NORTE y +Y es OESTE, asi que
-	los cuatro numeros del DBC son:
+	In this client's world coordinates +X is NORTH and +Y is WEST, so the four
+	numbers from the DBC are:
 
-	    izquierda / derecha  ->  el eje Y (oeste-este), o sea el ANCHO del mapa
-	    arriba    / abajo    ->  el eje X (norte-sur),  o sea el ALTO
+	    left / right  ->  the Y axis (west-east), that is, the map's WIDTH
+	    top  / bottom ->  the X axis (north-south), that is, the HEIGHT
 
-	    mx = (izquierda - camY) / ancho
-	    my = (arriba    - camX) / alto
+	    mx = (left - camY) / width
+	    my = (top  - camX) / height
 
-	Que la lectura de los campos es la correcta lo dijo la propia tabla antes de
-	escribir una linea de Lua: las 105 filas que traen rectangulo dan ancho/alto
-	= 1.50 clavado, que es la proporcion de todas las imagenes de mapa del
-	cliente (1002 x 668). Con los campos cruzados saldria 0.67.
+	That the fields are being read the right way round was said by the table
+	itself before a line of Lua was written: the 105 rows that carry a rectangle
+	give width/height = 1.50 dead on, which is the aspect of every map image in
+	the client (1002 x 668). With the fields crossed it would come out 0.67.
 
-	=== Y ADEMAS SE COMPRUEBA SOLA, CADA FRAME =============================
+	=== AND BESIDES, IT CHECKS ITSELF, EVERY FRAME ==========================
 
-	La misma cuenta se le hace AL HEROE, cuya posicion normalizada el cliente si
-	da (`GetPlayerMapPosition`). Si las dos no coinciden, el punto no se dibuja.
+	The same sum is done ON THE HERO, whose normalised position the client does
+	give (`GetPlayerMapPosition`). If the two do not agree, the dot is not drawn.
 
-	Eso cubre de una vez los dos modos de fallar, que desde fuera se ven igual:
-	que la fila de la tabla no sea la que toca, y que el jugador haya paseado el
-	mapa hasta OTRA zona -- donde las coordenadas de la camara no significan
-	nada. Un punto que se esconde es honesto; un punto en el sitio equivocado de
-	un mapa que no es se lee como una posicion buena.
+	That covers both ways of failing at once, which from outside look the same:
+	the table row not being the right one, and the player having wandered the map
+	off to ANOTHER zone -- where the camera's coordinates mean nothing. A dot
+	that hides itself is honest; a dot in the wrong place on a map that is not
+	yours reads as a good position.
 
-	=== LO QUE NO CUBRE ====================================================
+	=== WHAT IT DOES NOT COVER =============================================
 
-	Los mapas por PLANTAS (mazmorras, Dalaran) van por otro DBC y otras
-	coordenadas, asi que ahi no hay punto. Son tres filas sin rectangulo en el
-	propio WorldMapArea -- Dalaran, TheNexus y UtgardeKeep -- mas todo lo que
-	tenga `GetCurrentMapDungeonLevel() > 0`. `/rts punto` lo dice con su nombre
-	en vez de dejarte mirando un mapa sin punto.
+	Maps done by FLOORS (dungeons, Dalaran) go through another DBC and other
+	coordinates, so there is no dot there. They are three rows with no rectangle
+	in WorldMapArea itself -- Dalaran, TheNexus and UtgardeKeep -- plus anything
+	with `GetCurrentMapDungeonLevel() > 0`. `/rts punto` says so by name instead
+	of leaving you staring at a map with no dot.
 ]]
 
 local ADDON, ns = ...
@@ -73,15 +75,16 @@ ns.Radar = R
 
 R.enabled = true
 
---- El rectangulo de cada mapa, en yardas ----------------------------------
+--- Each map's rectangle, in yards ------------------------------------------
 --
 -- { locLeft, locTop, locLeft - locRight, locTop - locBottom }
---   la Y del borde oeste, la X del borde norte, el ancho y el alto.
+--   the Y of the west edge, the X of the north edge, the width and the height.
 --
--- Sacada de `DBFilesClient\WorldMapArea.dbc` del cliente (ver la cabecera).
--- Las tres filas que el DBC trae con el rectangulo a cero -- Dalaran, TheNexus
--- y UtgardeKeep, que son mapas por plantas -- no estan: ahi la cuenta seria una
--- division por cero, y no tenerlas es lo que hace que el punto se esconda solo.
+-- Taken from the client's `DBFilesClient\WorldMapArea.dbc` (see the header).
+-- The three rows the DBC carries with the rectangle at zero -- Dalaran,
+-- TheNexus and UtgardeKeep, which are floor-by-floor maps -- are not here: the
+-- sum would be a division by zero there, and not having them is what makes the
+-- dot hide itself.
 
 local ZONE = {
 	["Ahnkahet"]           = {     -233.3,     850.0,     972.9,    647.9 },
@@ -190,26 +193,26 @@ local ZONE = {
 	["ZulDrak"]            = {     -600.0,    7668.7,    4993.8,   3329.2 },
 }
 
---- La cuenta --------------------------------------------------------------
+--- The sum ----------------------------------------------------------------
 
 local DOT   = "Interface\\AddOns\\RTSCommand\\art\\punto.tga"
-local SIZE  = 16         -- lado del punto, en unidades del mapa
-local AGREE = 0.02       -- lo que se le tolera al heroe entre la cuenta y el cliente
+local SIZE  = 16         -- the dot's side, in map units
+local AGREE = 0.02       -- how far the hero may differ between our sum and the client
 
--- Ambar: no se confunde con la flecha del heroe ni con los iconos de mision,
--- que son los otros dos que hay encima del mapa.
+-- Amber: it is not confused with the hero's arrow or with the quest icons,
+-- which are the other two things sitting on top of the map.
 local COLOR = { 1.0, 0.82, 0.25 }
 
 local dot
 
--- De yardas del mundo a la coordenada 0..1 del mapa que se esta ensenando.
+-- From world yards to the 0..1 coordinate of the map being shown.
 local function ToMap(z, wx, wy)
 	if not z then return nil end
 	return (z[1] - wy) / z[3], (z[2] - wx) / z[4]
 end
 
--- El mapa de ahora, si es uno de los que se pueden calcular. El segundo valor
--- es POR QUE no, para que el informe pueda decirlo con su nombre.
+-- The map you are on right now, if it is one of the ones that can be worked
+-- out. The second value is WHY not, so the report can say it by name.
 local function Zone()
 	if type(GetCurrentMapDungeonLevel) == "function" then
 		local ok, lvl = pcall(GetCurrentMapDungeonLevel)
@@ -236,22 +239,22 @@ local function HeroPos()
 	return x, y
 end
 
--- La comprobacion de la cabecera: la misma cuenta sobre el heroe tiene que dar
--- lo que el cliente dice del heroe. Devuelve el error, o nil si no se puede
--- comprobar -- y sin comprobacion no se dibuja.
+-- The check from the header: the same sum done on the hero has to give what the
+-- client says about the hero. Returns the error, or nil if it cannot be checked
+-- -- and with no check, nothing is drawn.
 local function HeroError(z)
 	local hx, hy = HeroPos()
 	if not hx then return nil end
 	local cx, cy = GetPlayerMapPosition("player")
 	if type(cx) ~= "number" or type(cy) ~= "number" then return nil end
-	-- 0,0 es lo que devuelve el cliente cuando el heroe NO esta en el mapa que
-	-- se ensena. No es una esquina, es un "no se".
+	-- 0,0 is what the client returns when the hero is NOT on the map being
+	-- shown. It is not a corner, it is an "I don't know".
 	if cx == 0 and cy == 0 then return nil end
 	local mx, my = ToMap(z, hx, hy)
 	return math.max(math.abs(mx - cx), math.abs(my - cy))
 end
 
---- El dibujo --------------------------------------------------------------
+--- The drawing ------------------------------------------------------------
 
 local function Build()
 	if dot then return end
@@ -259,9 +262,9 @@ local function Build()
 	dot:SetTexture(DOT)
 	dot:SetWidth(SIZE)
 	dot:SetHeight(SIZE)
-	-- El disco de la textura es BLANCO y el aro de fuera NEGRO, asi que el
-	-- tinte solo pinta el disco: multiplicar negro por un color sigue dando
-	-- negro. Por eso el punto se lee igual sobre mar, nieve o desierto.
+	-- The texture's disc is WHITE and the ring around it BLACK, so the tint
+	-- only paints the disc: multiplying black by a colour still gives black.
+	-- That is why the dot reads the same over sea, snow or desert.
 	dot:SetVertexColor(COLOR[1], COLOR[2], COLOR[3])
 	dot:Hide()
 end
@@ -279,10 +282,10 @@ local function Place()
 	local mx, my = ToMap(z, cx, cy)
 	if mx < 0 or mx > 1 or my < 0 or my > 1 then dot:Hide() return end
 
-	-- El mismo anclaje que usa Blizzard para la flecha del heroe
-	-- (`WorldMapFrame.lua`): desde la esquina de arriba a la izquierda del marco
-	-- del dibujo, que es el que se escala con el mapa. Por eso el punto no se
-	-- descuadra con el mapa en ventana.
+	-- The same anchoring Blizzard uses for the hero's arrow
+	-- (`WorldMapFrame.lua`): from the top-left corner of the detail frame, which
+	-- is the one that scales with the map. That is why the dot does not drift
+	-- out of true with the map in windowed mode.
 	dot:ClearAllPoints()
 	dot:SetPoint("CENTER", WorldMapDetailFrame, "TOPLEFT",
 		mx * WorldMapDetailFrame:GetWidth(),
@@ -290,7 +293,7 @@ local function Place()
 	dot:Show()
 end
 
---- El tick ----------------------------------------------------------------
+--- The tick ---------------------------------------------------------------
 
 local ticker
 
@@ -301,7 +304,7 @@ local function EnsureTicker()
 	local acc = 0
 	ticker:SetScript("OnUpdate", function(_, e)
 		acc = acc + e
-		-- El DLL publica a 33 Hz: mirar mas a menudo no ensena nada nuevo.
+		-- The DLL publishes at 33 Hz: looking more often shows nothing new.
 		if acc < 0.03 then return end
 		acc = 0
 		if not R.enabled or not WorldMapFrame:IsShown()
@@ -323,61 +326,61 @@ function R:Set(on)
 	RTSCommandDB.radar = self.enabled
 	EnsureTicker()
 	if not self.enabled and dot then dot:Hide() end
-	ns.Print("punto de la camara en el mapa: " ..
-		(self.enabled and "|cff00ff00SI|r" or "|cffff0000NO|r"))
+	ns.Print("camera dot on the map: " ..
+		(self.enabled and "|cff00ff00YES|r" or "|cffff0000NO|r"))
 end
 
 function R:Toggle()
 	self:Set(not self.enabled)
 end
 
---- Por que no se ve -------------------------------------------------------
+--- Why it is not showing --------------------------------------------------
 --
--- Son cinco condiciones y todas acaban igual -- no hay punto -- asi que el
--- informe las enumera por separado en vez de contestar si o no.
+-- There are five conditions and they all end the same way -- no dot -- so the
+-- report lists them one by one instead of answering yes or no.
 
 function R:Status()
-	ns.Print(("punto de la camara en el mapa: %s"):format(
-		self.enabled and "|cff00ff00si|r" or "|cffff0000no|r"))
+	ns.Print(("camera dot on the map: %s"):format(
+		self.enabled and "|cff00ff00yes|r" or "|cffff0000no|r"))
 
 	if not (ns.FreeCam and ns.FreeCam.active) then
-		ns.Print("  |cff888888la camara libre esta apagada: sin ella la vista va " ..
-		         "pegada al heroe y el punto seria su flecha.|r")
+		ns.Print("  |cff888888the free camera is off: without it the view rides " ..
+		         "glued to the hero and the dot would be his arrow.|r")
 	end
 
 	local z, why = Zone()
 	if not z then
 		if why == "plantas" then
-			ns.Print("  |cffff8800este mapa va por plantas|r -- las mazmorras y " ..
-			         "Dalaran usan otro DBC y otras coordenadas.")
+			ns.Print("  |cffff8800this map goes by floors|r -- dungeons and Dalaran " ..
+			         "use another DBC and other coordinates.")
 		elseif why == "sin mapa" then
-			ns.Print("  |cff888888no hay ningun mapa de zona abierto.|r")
+			ns.Print("  |cff888888there is no zone map open.|r")
 		else
-			ns.Print(("  |cffff8800'%s' no esta en la tabla|r de WorldMapArea."):format(
+			ns.Print(("  |cffff8800'%s' is not in the table|r of WorldMapArea."):format(
 				tostring(why)))
 		end
 		return
 	end
 
-	ns.Print(("  mapa |cffffff00%s|r: %.0f x %.0f yardas"):format(why, z[3], z[4]))
+	ns.Print(("  map |cffffff00%s|r: %.0f x %.0f yards"):format(why, z[3], z[4]))
 
 	local err = HeroError(z)
 	if not err then
-		ns.Print("  |cffff8800no se puede comprobar|r -- o falta el DLL, o tu heroe " ..
-		         "no esta en el mapa que tienes abierto.")
+		ns.Print("  |cffff8800cannot be checked|r -- either the DLL is missing, or " ..
+		         "your hero is not on the map you have open.")
 	else
-		ns.Print(("  comprobacion sobre tu heroe: |cff%s%.4f|r (se admite %.2f)"):format(
+		ns.Print(("  check against your hero: |cff%s%.4f|r (%.2f is allowed)"):format(
 			err <= AGREE and "00ff00" or "ff4040", err, AGREE))
 	end
 
 	local cx, cy = CamPos()
 	if not cx then
-		ns.Print("  |cffff8800sin posicion de camara|r -- sale de RTS_CamX/Y, y hoy no hay.")
+		ns.Print("  |cffff8800no camera position|r -- it comes from RTS_CamX/Y, and today there is none.")
 	else
 		local mx, my = ToMap(z, cx, cy)
-		ns.Print(("  camara en |cffffff00%.0f, %.0f|r del mundo -> %.1f%%, %.1f%% del mapa"):format(
+		ns.Print(("  camera at |cffffff00%.0f, %.0f|r in the world -> %.1f%%, %.1f%% of the map"):format(
 			cx, cy, mx * 100, my * 100))
 	end
 
-	ns.Print("  |cffffff00/rts punto on|off|r lo enciende y lo apaga.")
+	ns.Print("  |cffffff00/rts punto on|off|r turns it on and off.")
 end

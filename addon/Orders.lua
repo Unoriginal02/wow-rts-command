@@ -190,12 +190,14 @@ end
 -- True when mod-rts is present to take orders directly. Set by the first reply
 -- the server sends us; until then everything falls back to chat commands.
 --
--- LO SABE `Link`, NO ESTE FICHERO, desde 2026-09-02: es un hecho del canal, no
--- de las ordenes. Se queda el nombre porque es el que leen trece sitios y
--- porque "hay servidor para mandar" es la pregunta que se hace desde aqui.
+-- `Link` KNOWS IT, NOT THIS FILE, since 2026-09-02: it is a fact about the
+-- channel, not about the orders. The name stays because it is the one thirteen
+-- places read, and because "is there a server to give orders to" is the question
+-- asked from here.
 --
--- Y sigue siendo una PROMESA durante el primer segundo: quien necesite actuar
--- en cuanto haya servidor usa `ns.Link:WhenServer(fn)`, no un bucle propio.
+-- And it is still a PROMISE during the first second: anyone who needs to act as
+-- soon as there is a server uses `ns.Link:WhenServer(fn)`, not a loop of their
+-- own.
 function O:HasServer()
 	return ns.Link:HasServer()
 end
@@ -397,11 +399,11 @@ end
 -- row (Skills.lua), driven by whoever is selected, with no mode to enter.
 --
 -- It came back on 2026-09-06 as `/rts play` and went for good on 2026-09-11:
--- *"posees raro, eso quitalo"*. It never could be anything else -- possession
--- changes who MOVES you, not who you ARE, so talking to an NPC went through
--- your own character, standing somewhere else, and failed on range. This time
--- the server half went with it, so there is nothing left to reach for; the
--- thing that does what it promised is `SWAP`.
+-- *"your possession is weird, take it out"*. It never could be anything else --
+-- possession changes who MOVES you, not who you ARE, so talking to an NPC went
+-- through your own character, standing somewhere else, and failed on range.
+-- This time the server half went with it, so there is nothing left to reach
+-- for; the thing that does what it promised is `SWAP`.
 
 --- Attack-move -------------------------------------------------------------
 -- Advance to a point, engaging on the way. There is no attack-move verb in
@@ -427,9 +429,9 @@ function O:AttackMoveTo(x, y, z)
 		self.holding[name] = true
 	end
 
-	-- El mismo tramo '@' que el click derecho: el avance con ataque tambien
-	-- sale del cursor, asi que el servidor le corta el suelo de verdad al rayo
-	-- y desplaza los destinos en bloque. Ver Orders:Click.
+	-- The same '@' tail as the right-click: attack-move also comes out of the
+	-- cursor, so the server cuts the ray against the real ground and shifts the
+	-- destinations as a block. See Orders:Click.
 	local ox, oy, oz, dx, dy, dz = ns.Markers:CursorRay()
 	if ox then
 		tinsert(parts, ("@ 0 %.2f %.2f %.2f %.5f %.5f %.5f %.2f %.2f %.2f")
@@ -452,12 +454,13 @@ function O:Talk()
 	return self:Send("talk", "Interact")
 end
 
--- SIN SELECCION, A TODO EL GRUPO -- y diciendolo.
+-- WITH NO SELECTION, TO THE WHOLE GROUP -- and saying so.
 --
--- Es lo que ya hacia `/rtscmd`, que es por donde iban estas dos ordenes hasta
--- hoy: sin nadie cogido, el susurro se convertia en una linea al grupo. Al
--- pasarlas a directas habia que traerse esa regla o la tecla dejaria de hacer
--- nada justo cuando no hay seleccion, que es la mitad de las veces que se usa.
+-- It is what `/rtscmd` already did, which is how these two orders travelled
+-- until today: with nobody held, the whisper turned into one line to the group.
+-- Moving them onto the direct path meant bringing that rule along, or the key
+-- would stop doing anything precisely when there is no selection, which is half
+-- the times it gets used.
 local function Targets(self)
 	local sel = ns.Selection:Get()
 	if #sel > 0 then return sel end
@@ -465,20 +468,20 @@ local function Targets(self)
 	local all = {}
 	for _, m in ipairs(ns.Selection:GetRoster()) do tinsert(all, m.name) end
 	if #all > 0 then
-		ns.Print("|cffffff00sin seleccion|r -> a todo el grupo:")
+		ns.Print("|cffffff00no selection|r -> to the whole group:")
 	end
 	return all
 end
 
--- Quieto donde este cada uno. `stay` clava al bot en el sitio, que es
--- exactamente hold-position, y ADEMAS termina cualquier ruta: "quedate aqui" y
--- "sigue andando el camino" son ordenes contrarias, y dejar el camino dibujado
--- diria la equivocada.
+-- Everyone still, wherever they are. `stay` pins the bot to the spot, which is
+-- exactly hold-position, and it ALSO ends any route: "stay here" and "keep
+-- walking the path" are opposite orders, and leaving the path drawn would say
+-- the wrong one.
 --
--- DIRECTO DESDE mod-rts 0.52. Antes era un `stay` por el chat: el bot no lo veia
--- hasta su siguiente vuelta de pensamiento, y cuatro seguidos se los comia la
--- cola del cliente. El camino de chat se queda como respaldo para un servidor
--- sin el modulo, igual que en mover.
+-- DIRECT SINCE mod-rts 0.52. It used to be a `stay` over chat: the bot did not
+-- see it until its next think cycle, and four in a row got eaten by the client's
+-- queue. The chat path stays as the fallback for a server without the module,
+-- just as with move.
 function O:Hold()
 	local names = Targets(self)
 	if #names == 0 then
@@ -501,7 +504,7 @@ function O:Hold()
 	return self:Send("stay", "Hold position")
 end
 
--- TRAERLOS A TU LADO. La accion `summon` de playerbots, llamada por dentro.
+-- BRING THEM TO YOUR SIDE. Playerbots' `summon` action, called from the inside.
 function O:Summon(names)
 	names = names or Targets(self)
 	if #names == 0 then
@@ -514,7 +517,7 @@ function O:Summon(names)
 		return true
 	end
 
-	-- Sin modulo, por el chat del grupo: una linea para los cinco.
+	-- Without the module, through group chat: one line for all five.
 	return self:Broadcast("summon", nil)
 end
 
@@ -522,7 +525,7 @@ function O:SummonAll()
 	local all = {}
 	for _, m in ipairs(ns.Selection:GetRoster()) do tinsert(all, m.name) end
 	if #all == 0 then
-		ns.Print("Estas en grupo?")
+		ns.Print("Are you in a group?")
 		return false
 	end
 	return self:Summon(all)
@@ -550,15 +553,15 @@ function O:Follow()
 	return self:Send("follow", "Follow")
 end
 
--- Seguir, PARA UNA LISTA CONCRETA en vez de para la seleccion.
+-- Follow, FOR A SPECIFIC LIST instead of for the selection.
 --
--- Existe porque el caso que la usa no cuadra con `O:Follow`: cuando mandas
--- caminar a un grupo en el que vas TU, los bots seleccionados pasan a seguirte
--- y tu no -- o sea que la orden va a un subconjunto de lo seleccionado, y
--- `O:Follow` manda a todo lo seleccionado por definicion.
+-- It exists because the case that uses it does not fit `O:Follow`: when you send
+-- a group you are IN walking somewhere, the selected bots switch to following
+-- you and you do not -- that is to say the order goes to a subset of what is
+-- selected, and `O:Follow` goes to everything selected by definition.
 --
--- Lo demas es igual: se sueltan las anclas, porque `follow` apaga la estrategia
--- de quedarse quieto y un bot con ancla puesta volveria a ella.
+-- The rest is the same: the anchors are released, because `follow` turns off the
+-- stay strategy and a bot with its anchor set would go back to it.
 function O:FollowThese(names)
 	if not names or #names == 0 then return false end
 
@@ -577,13 +580,13 @@ function O:FollowThese(names)
 	return true
 end
 
--- Seguir, PARA EL GRUPO ENTERO, mire quien mire la seleccion.
+-- Follow, FOR THE WHOLE GROUP, whatever the selection says.
 --
--- No es `O:Follow` con todo seleccionado: `O:Follow` se planta si no hay nada
--- cogido ("No units selected"), que es lo correcto para una orden que TU das
--- con el raton y lo contrario de lo que hace falta aqui -- traer al grupo y
--- que se te peguen es una sola cosa, y no puede depender de que tuvieras algo
--- seleccionado al pulsar.
+-- It is not `O:Follow` with everything selected: `O:Follow` refuses if nothing
+-- is held ("No units selected"), which is right for an order YOU give with the
+-- mouse and the opposite of what is needed here -- summoning the group and
+-- having them stick to you is one single thing, and it cannot depend on your
+-- having had something selected when you pressed the key.
 function O:FollowAll()
 	local names = {}
 	for _, m in ipairs(ns.Selection:GetRoster()) do tinsert(names, m.name) end
@@ -597,11 +600,11 @@ function O:Flee()   return self:Send("flee",   "Flee")          end
 -- An undecided right-click: a guid (or "0"), a ground point, and who is
 -- selected. The server works out whether that means attack, interact or move,
 -- because it is the only side that can -- see RtsOrders::ClassifyClick.
--- Preguntar por el suelo de un rayo sin mandar ninguna orden. Es el camino del
--- shift + click derecho, que anota un punto de ruta y no manda nada todavia.
+-- Ask where a ray hits the ground without sending any order. It is the path of
+-- shift + right-click, which notes a waypoint and sends nothing yet.
 --
--- SIN RESPUESTA NO PASA NADA MALO: el punto se queda con la estimacion del
--- plano, que es lo que habia antes de todo esto.
+-- NO ANSWER DOES NO HARM: the point keeps the plane estimate, which is what
+-- there was before any of this.
 function O:AskGround(id)
 	if not id or id == 0 or not self:HasServer() then return false end
 	local ox, oy, oz, dx, dy, dz = ns.Markers:CursorRay()
@@ -625,42 +628,43 @@ function O:Click(guid, x, y, z, rayId)
 	-- server routes your name to the paths that work on a body the camera is
 	-- holding control of.
 	--
-	-- UNA CIFRA DECIMAL Y NO DOS, y no es cosmetico: es lo que hace que quepa.
-	-- Un mensaje de addon son 250 caracteres utiles (ver `Link.lua`), y con
-	-- cinco unidades, un guid de criatura y el rayo detras, este mensaje media
-	-- 258 y NO SALIA -- de ahi *"no atacan si esta Kirinah"*, que no era ella
-	-- sino su nombre sumando siete caracteres de mas.
+	-- ONE DECIMAL PLACE AND NOT TWO, and it is not cosmetic: it is what makes it
+	-- fit. An addon message is 250 usable characters (see `Link.lua`), and with
+	-- five units, a creature guid and the ray behind them, this message measured
+	-- 258 and NEVER WENT OUT -- hence *"they do not attack if Kirinah is in"*,
+	-- which was not her but her name adding seven characters too many.
 	--
-	-- La decima de yarda no se echa de menos por ningun lado: el destino se
-	-- recorta luego contra el suelo de verdad con el rayo, y el `position` de
-	-- playerbots redondea a yardas ENTERAS de todas formas.
+	-- The tenth of a yard is not missed anywhere: the destination is then
+	-- clipped against the real ground with the ray, and playerbots' `position`
+	-- rounds to WHOLE yards anyway.
 	local offsets = self:SpreadOffsets(#sel, self:FacingTo(x, y))
 	local parts = {}
 	for i, n in ipairs(sel) do
 		tinsert(parts, ("%s %.1f %.1f %.1f"):format(n, x + offsets[i][1], y + offsets[i][2], z))
 	end
 
-	-- EL RAYO VIAJA CON LA ORDEN, en un tramo final marcado con '@'.
+	-- THE RAY TRAVELS WITH THE ORDER, in a final tail marked with '@'.
 	--
-	-- Los puntos de arriba salen de cortar el rayo del cursor contra un PLANO
-	-- horizontal, que es lo unico que Lua puede hacer sin mapa -- y en una
-	-- cuesta ese corte cae detras de la cuesta y bajo tierra. El servidor si
-	-- tiene mapa: con el rayo y el punto base recorta el suelo de verdad y
-	-- desplaza todos los destinos en bloque, asi que la formacion se conserva y
-	-- solo se corrige de donde cuelga. Sin rayo (sin camara publicada) el
-	-- servidor usa los puntos tal cual y todo sigue como antes.
+	-- The points above come from cutting the cursor ray against a horizontal
+	-- PLANE, which is the only thing Lua can do with no map -- and on a slope
+	-- that cut lands behind the slope and underground. The server does have a
+	-- map: with the ray and the base point it clips against the real ground and
+	-- shifts every destination as a block, so the formation is preserved and
+	-- only where it hangs from gets corrected. With no ray (no published camera)
+	-- the server uses the points as they are and everything goes on as before.
 	local hex = tostring(guid):gsub("^0[xX]", "")
 	local body = ("CLICK %s %s"):format(hex, table.concat(parts, ";"))
 
-	-- EL RAYO ES LO PRIMERO QUE SE CAE SI NO CABE, y esa es la degradacion
-	-- correcta: sin el, el servidor usa los puntos tal cual -- que es lo que
-	-- habia antes de que el rayo existiera y sigue estando soportado al otro
-	-- lado. Recortar unidades en cambio dejaria bots sin orden, o sea el fallo
-	-- que esto viene a arreglar.
+	-- THE RAY IS THE FIRST THING TO GO IF IT DOES NOT FIT, and that is the right
+	-- degradation: without it, the server uses the points as they are -- which
+	-- is what there was before the ray existed and is still supported on the
+	-- other side. Trimming units instead would leave bots with no order, which
+	-- is the very bug this came to fix.
 	--
-	-- Se mide contra el limite del canal en vez de confiar en que quepa: el
-	-- largo depende de los NOMBRES del grupo y de si el click lleva guid, asi
-	-- que "cabe" es una propiedad de la partida, no del formato.
+	-- It is measured against the channel limit rather than trusting that it
+	-- fits: the length depends on the group's NAMES and on whether the click
+	-- carries a guid, so "it fits" is a property of the game in progress, not of
+	-- the format.
 	local ox, oy, oz, dx, dy, dz = ns.Markers:CursorRay()
 	if ox then
 		local tail = ("@ %d %.1f %.1f %.1f %.4f %.4f %.4f %.1f %.1f %.1f")
@@ -669,8 +673,8 @@ function O:Click(guid, x, y, z, rayId)
 			body = body .. ";" .. tail
 		elseif not self.warnedRay then
 			self.warnedRay = true
-			ns.Print(("|cffff8800click:|r con %d seleccionados el rayo no cabe en el " ..
-			          "mensaje; el destino sale del plano y en cuesta cae peor."):format(#sel))
+			ns.Print(("|cffff8800click:|r with %d selected the ray does not fit in the " ..
+			          "message; the destination comes from the plane and lands worse on a slope."):format(#sel))
 		end
 	end
 
@@ -719,12 +723,14 @@ end
 
 -- Both act on YOUR current target, so guard against having none.
 --
--- CON MODULO VA POR `ATTACK`, el mismo camino que el click derecho sobre un
--- enemigo. La victima viaja DENTRO de la orden, asi que no depende de que el
--- servidor lea tu objetivo en el momento justo -- y llega sin cola de chat.
+-- WITH THE MODULE IT GOES THROUGH `ATTACK`, the same path as the right-click on
+-- an enemy. The victim travels INSIDE the order, so it does not depend on the
+-- server reading your target at exactly the right moment -- and it arrives with
+-- no chat queue.
 --
--- `AttackGuid` vuelve aqui cuando no hay modulo, asi que el desvio tiene que
--- mirar `HasServer` y no al reves: sin esa guarda las dos se llaman en circulo.
+-- `AttackGuid` comes back here when there is no module, so the detour has to
+-- check `HasServer` and not the other way round: without that guard the two call
+-- each other in a circle.
 function O:Attack()
 	if not UnitExists("target") or not UnitCanAttack("player", "target") then
 		ns.Print("No hostile target.")
@@ -761,17 +767,17 @@ end
 
 O.FORMATIONS = { "near", "far", "melee", "queue", "chaos", "circle", "line", "shield", "arrow" }
 
--- LA MARCA DE BANDA Y LA ORDEN, EN EL MISMO GESTO.
+-- THE RAID MARK AND THE ORDER, IN THE SAME GESTURE.
 --
--- Eran dos casillas de la rejilla 4x4 (`Panel.lua`, borrado el 2026-09-13) y
--- por eso vivian dentro del panel. Ahora son macros, asi que la orden baja aqui:
--- un macro solo sabe escribir un comando, y este tiene dos mitades que TIENEN
--- que ir juntas -- poner el icono en tu objetivo y decirle al grupo que vaya a
--- por ese icono. Separadas, la mitad que falte no da error: deja al grupo
--- persiguiendo la marca anterior.
+-- They were two cells of the 4x4 grid (`Panel.lua`, deleted on 2026-09-13) and
+-- that is why they lived inside the panel. Now they are macros, so the order
+-- comes down here: a macro only knows how to write one command, and this one
+-- has two halves that HAVE to go together -- putting the icon on your target
+-- and telling the group to go for that icon. Apart, the missing half gives no
+-- error: it leaves the group chasing the previous mark.
 --
--- `rti` y `rti cc` son verbos de playerbots; el craneo (8) y la luna (5) son los
--- indices de siempre del propio cliente.
+-- `rti` and `rti cc` are playerbots verbs; the skull (8) and the moon (5) are
+-- the client's own long-standing indices.
 function O:MarkTarget(cc)
 	local key   = cc and "moon" or "skull"
 	local index = cc and 5 or 8
@@ -784,34 +790,35 @@ function O:MarkTarget(cc)
 	end
 
 	self:Broadcast((cc and "rti cc " or "rti ") .. key,
-		cc and "controlar: luna" or "objetivo: craneo")
+		cc and "crowd control: moon" or "target: skull")
 
-	-- SE DICE CUANDO NO SE HA PUESTO. La orden sale igual -- el grupo sigue la
-	-- marca que hubiera -- y sin este aviso parece que el boton no hizo nada.
+	-- IT SAYS SO WHEN IT WAS NOT PUT ON. The order goes out anyway -- the group
+	-- follows whatever mark there was -- and without this warning it looks as
+	-- though the button did nothing.
 	if not puesto then
-		ns.Print("sin objetivo: la marca no se ha puesto en nadie.")
+		ns.Print("no target: the mark was not put on anybody.")
 	end
 	return puesto
 end
 
--- EL COMPORTAMIENTO DE FABRICA A TODO EL GRUPO. Tambien era una casilla de la
--- rejilla. Va por `RESET` de mod-rts, que limpia estrategias y roles de una vez;
--- sin servidor lo mas cerca que hay es devolverlos a seguirte, que es lo que
--- hacia el boton.
+-- FACTORY BEHAVIOUR TO THE WHOLE GROUP. This was a grid cell too. It goes
+-- through mod-rts' `RESET`, which clears strategies and roles in one go; with no
+-- server the closest thing there is is putting them back on follow, which is
+-- what the button did.
 function O:ResetAll()
 	local names = {}
 	for _, m in ipairs(ns.Selection:GetRoster()) do
 		table.insert(names, m.name)
 	end
 	if #names == 0 then
-		ns.Print("reset: no hay grupo.")
+		ns.Print("reset: no group.")
 		return
 	end
 	if self:HasServer() then
 		ns.SendServer("RESET " .. table.concat(names, ";"))
-		ns.Print(("reset: comportamiento de fabrica a los %d."):format(#names))
+		ns.Print(("reset: factory behaviour on all %d."):format(#names))
 	else
-		self:Broadcast("follow", "Vuelven a seguirte")
+		self:Broadcast("follow", "Back to following you")
 	end
 end
 
@@ -827,17 +834,17 @@ function O:Raw(text)
 	return self:Send(text, "> " .. text)
 end
 
---- Lo que el servidor dice que hizo ---------------------------------------
+--- What the server says it did ---------------------------------------------
 --
--- `DID <VERBO> [n] [etiqueta]` es el acuse de cada orden: que decidio el
--- servidor que significaba el click, y a cuantos bots llego. **Se imprime
--- siempre que la respuesta sea util**, porque un click que en silencio no hace
--- nada es el fallo mas confuso de todo este sistema.
+-- `DID <VERB> [n] [label]` is the acknowledgement of every order: what the
+-- server decided the click meant, and how many bots it reached. **It is printed
+-- whenever the answer is useful**, because a click that silently does nothing
+-- is the most confusing failure in this whole system.
 --
--- Vivia en `Camera.lua` hasta 2026-09-02 y esta aqui porque son las ordenes de
--- este fichero las que se acusan. Registrado en el ambito del fichero y no en
--- un `Create` porque `Orders` no tiene: sus estructuras son tablas planas y no
--- crea ningun frame.
+-- It lived in `Camera.lua` until 2026-09-02 and it is here because it is this
+-- file's orders that get acknowledged. Registered at file scope and not in a
+-- `Create` because `Orders` has none: its structures are flat tables and it
+-- creates no frames.
 ns.Link:On("DID", function(rest)
 	local did, n, label = rest:match("^(%a+)%s*(%d*)%s*(.*)$")
 	if not did then return end

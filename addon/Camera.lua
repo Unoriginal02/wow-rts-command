@@ -56,78 +56,81 @@ C.active = false
 -- captured before its first change and restored on the way out. An earlier
 -- version set cameraDistanceMaxFactor and never gave it back, which quietly
 -- changed how far normal play could zoom out. That is the bug this prevents.
--- `rtsFov` no es un ajuste de camara -- es el canal que lleva lo unico que el
--- empaquetado de la seleccion no puede: un numero. El DLL lo lee como el campo
--- de vision que se quiere, en decimas de grado. Viaja en esta lista porque
--- necesita la misma disciplina que los CVars de verdad: capturado antes del
--- primer cambio y devuelto al salir -- que aqui significa volver a 0, o sea
--- "no toques el FOV", y con eso el angulo normal vuelve solo.
+-- `rtsFov` is not a camera setting -- it is the channel that carries the one
+-- thing the packing of the selection cannot: a number. The DLL reads it as the
+-- field of view wanted, in tenths of a degree. It travels in this list because
+-- it needs the same discipline as the real CVars: captured before its first
+-- change and given back on the way out -- which here means going back to 0,
+-- that is, "do not touch the FOV", and with that the normal angle returns by
+-- itself.
 --
--- Hasta el 2026-09-06 esto era `guildMemberNotify`, tomado prestado. Ver mas
--- abajo: ese CVar no existe en este cliente y el canal llevaba tres etapas
--- muerto sin que nada lo dijera.
--- shadowLevel es la TERCERA que no es de camara, y esta si es lo que dice ser:
--- la sombra que el cliente dibuja bajo cada personaje. Se pidio en PRUEBAS-18
--- ("sombras mas duras y grandes debajo de los personajes para distinguirlos
--- mejor") y en este Config.wtf esta a 0, o sea apagadas -- comprobado abriendo
--- el fichero, que es como se comprueba un CVar en este proyecto desde
--- `gxWindowedResolution`.
+-- Until 2026-09-06 this was `guildMemberNotify`, borrowed. See further down:
+-- that CVar does not exist in this client and the channel had spent three
+-- stages dead with nothing saying so.
+-- shadowLevel is the THIRD one that is not a camera setting, and this one IS
+-- what it says it is: the shadow the client draws under each character. It was
+-- asked for in PRUEBAS-18 ("harder, bigger shadows under the characters so they
+-- can be told apart better") and in this Config.wtf it is at 0, that is, off --
+-- checked by opening the file, which is how a CVar is checked in this project
+-- ever since `gxWindowedResolution`.
 --
--- LO QUE ESTE CVAR NO DA, dicho por delante: no hay mando de TAMANO ni de
--- DUREZA de la sombra en 3.3.5a. Es una escala de calidad, y lo unico que se
--- puede hacer es encenderla y subirla. Si con la sombra puesta las unidades
--- siguen sin distinguirse, la respuesta buena no es este CVar: es el circulo
--- nativo bajo los pies, que ya existe (etapa 5e) y admite color por unidad.
+-- WHAT THIS CVAR DOES NOT GIVE, said up front: there is no control for the SIZE
+-- or the HARDNESS of the shadow in 3.3.5a. It is a quality scale, and the only
+-- thing you can do is turn it on and turn it up. If with the shadow on the
+-- units still cannot be told apart, the right answer is not this CVar: it is
+-- the native circle under their feet, which already exists (stage 5e) and takes
+-- a colour per unit.
 local FOV_CVAR = "rtsFov"
 
--- El canal de experimentos del modelo del heroe. Existe por la misma razon que
--- `rtsFov`: el canal empaquetado no tiene bits libres y esto necesita un NUMERO.
--- Ver `/rts fc poke` y `camera::Poke` en el DLL.
--- El canal de experimentos de CAMARA: offset en bytes y valor, en dos CVars
--- separados a proposito. Meter los dos en un entero obliga a desplazar el signo
--- para poder mandar negativos, y ahi es donde se equivocan estas cosas: un
--- `-1.5` que llega como `+1.5` se lee como "el candidato no era" cuando lo que
--- fallo fue el transporte. El DLL lee el float que el propio CVar guarda.
+-- The experiment channel for the hero's model. It exists for the same reason as
+-- `rtsFov`: the packed channel has no spare bits and this needs a NUMBER. See
+-- `/rts fc poke` and `camera::Poke` in the DLL.
+-- The CAMERA experiment channel: offset in bytes and value, in two separate
+-- CVars on purpose. Cramming both into one integer forces the sign to be
+-- shifted so that negatives can be sent, and that is where these things go
+-- wrong: a `-1.5` that arrives as `+1.5` reads as "the candidate was not it"
+-- when what failed was the transport. The DLL reads the float the CVar itself
+-- stores.
 
 local CVARS = {
 	"cameraSmoothStyle", "cameraDistanceMaxFactor", "cameraDistanceMax",
 	FOV_CVAR, "shadowLevel",
 }
--- UN CVAR NUESTRO, NO UNO PRESTADO -- y el prestado NUNCA EXISTIO.
+-- A CVAR OF OUR OWN, NOT A BORROWED ONE -- and the borrowed one NEVER EXISTED.
 --
--- El canal del FOV se escribio en la etapa 5g tomando prestado
--- `guildMemberNotify`, "un aviso del registro de hermandad, inerte en un
--- servidor solitario". La cadena esta en el `Wow.exe` -- por eso parecia buena
--- -- pero el cliente no la tiene registrada como CVar, y `rts_core.log` lo lleva
--- diciendo desde entonces en una linea que nadie leyo:
+-- The FOV channel was written in stage 5g borrowing `guildMemberNotify`, "a
+-- guild roster notice, inert on a lonely server". The string is in `Wow.exe` --
+-- which is why it looked like a good one -- but the client does not have it
+-- registered as a CVar, and `rts_core.log` has been saying so ever since, in a
+-- line nobody read:
 --
 --     cvar: 'guildMemberNotify' not found -- channel unavailable
 --
--- O sea que la camara isometrica de la etapa 5g **no se ha aplicado ni una sola
--- vez**, y las dos rondas que la dieron por arreglada (0.50.0 y la 0.52.0)
--- arreglaron cosas reales que eran necesarias y no suficientes. Tres intentos
--- sobre un canal que estaba muerto por debajo.
+-- Which means the isometric camera from stage 5g **has not been applied even
+-- once**, and the two rounds that declared it fixed (0.50.0 and 0.52.0) fixed
+-- real things that were necessary and not sufficient. Three attempts on a
+-- channel that was dead underneath.
 --
--- La cura es dejar de depender de que exista un CVar ajeno que nos venga bien:
--- `RegisterCVar` crea uno, y existe en este cliente (comprobado en el binario,
--- no de memoria). Con eso el canal no puede faltar, no pisa ningun ajuste de
--- nadie, y lo unico que deja detras es una linea en Config.wtf que dice lo que
--- es.
--- Se crea si no esta. `SetCVar` sobre un nombre que no existe **no da error**:
--- no hace nada, que es exactamente como este canal llevaba tres etapas
--- fallando.
+-- The cure is to stop depending on some foreign CVar existing that happens to
+-- suit us: `RegisterCVar` creates one, and it exists in this client (checked in
+-- the binary, not from memory). With that the channel cannot go missing, it
+-- treads on nobody's settings, and all it leaves behind is one line in
+-- Config.wtf that says what it is.
+-- It is created if it is not there. `SetCVar` on a name that does not exist
+-- **gives no error**: it does nothing, which is exactly how this channel had
+-- been failing for three stages.
 --
--- Se llama desde `Create` y NO en el ambito del fichero, aunque ahi seria mas
--- corto: `ns.Print` todavia no existe cuando este fichero carga. Lo canto
--- el orden del `.toc` antes de recargar, que es donde se ve.
+-- It is called from `Create` and NOT at file scope, even though that would be
+-- shorter: `ns.Print` does not exist yet when this file loads. The `.toc` order
+-- sang it out before the reload, which is where it shows.
 --
--- CADA CVar SE MIRA POR SU CUENTA, y eso arregla un fallo latente. La version
--- anterior registraba `rtsPoke` DENTRO del `if` de `rtsFov`, asi que en cuanto
--- el primero existia (queda escrito en Config.wtf) el segundo ya no se
--- registraba nunca. Funcionaba de casualidad, porque el segundo tambien queda
--- escrito -- pero un CVar nuevo anadido a la lista mas tarde no se habria
--- creado jamas en un cliente que ya tuviera el primero, y `SetCVar` sobre lo
--- que no existe **no da error**: no hace nada.
+-- EACH CVar IS LOOKED AT ON ITS OWN, and that fixes a latent bug. The previous
+-- version registered `rtsPoke` INSIDE the `if` for `rtsFov`, so as soon as the
+-- first one existed (it gets written into Config.wtf) the second was never
+-- registered again. It worked by accident, because the second also gets written
+-- -- but a new CVar added to the list later would never have been created on a
+-- client that already had the first, and `SetCVar` on something that does not
+-- exist **gives no error**: it does nothing.
 local OURS = { FOV_CVAR }
 
 local function EnsureFovCVar()
@@ -137,10 +140,10 @@ local function EnsureFovCVar()
 		end
 	end
 	if GetCVar(FOV_CVAR) ~= nil then return true end
-	-- Si ni asi, se dice: es la diferencia entre "el FOV no se aplica" y una
-	-- tarde buscando por que.
-	ns.Print("|cffff0000camara:|r no puedo crear el CVar |cffffff00" .. FOV_CVAR ..
-	         "|r; el angulo se quedara en el del cliente.")
+	-- If not even that works, it is said out loud: it is the difference between
+	-- "the FOV is not applied" and an afternoon looking for why.
+	ns.Print("|cffff0000camera:|r cannot create the CVar |cffffff00" .. FOV_CVAR ..
+	         "|r; the angle will stay at the client's own.")
 	return false
 end
 local cvarWas = nil
@@ -207,17 +210,17 @@ function RTSCommand_CameraUp(_, _, down)
 	Vertical(down and 1 or 0)
 end
 
--- PIVOTE con Q/E, 2026-08-18.
+-- PIVOT on Q/E, 2026-08-18.
 --
--- Antes Q/E iban a TURNLEFT/TURNRIGHT del propio cliente, que gira la camara
--- SOBRE SI MISMA: lo que estabas mirando se va de pantalla. Pivotar la lleva en
--- arco alrededor del punto que mira, que se queda quieto mientras lo ves desde
--- otro lado -- el gesto de WC3/SC2.
+-- Q/E used to go to the client's own TURNLEFT/TURNRIGHT, which turns the camera
+-- ON ITS OWN AXIS: whatever you were looking at goes off screen. Pivoting
+-- carries it in an arc around the point it is looking at, which stays put while
+-- you see it from another side -- the WC3/SC2 gesture.
 --
--- El precio es que ya no lo puede hacer el cliente. Girar era gratis porque el
--- giro es suyo; orbitar es un cambio de POSICION, y la camara esta poseida, asi
--- que solo el servidor puede moverla. De ahi que estas teclas pasen a reportar
--- transiciones como +/- en vez de ir a una accion del juego.
+-- The price is that the client can no longer do it. Turning was free because the
+-- turn is its own; orbiting is a change of POSITION, and the camera is
+-- possessed, so only the server can move it. Hence these keys going over to
+-- reporting transitions as +/- instead of going to a game action.
 local pivoting = { left = false, right = false }
 
 local function Pivot(dir)
@@ -237,42 +240,44 @@ function RTSCommand_CameraPivotRight(_, _, down)
 end
 
 local function GrabTurnKeys()
-	-- NO SI LA CAMARA LIBRE YA TIENE LAS TECLAS. Las dos usan `saved` para
-	-- devolver lo que habia, asi que si la segunda captura por encima de la
-	-- primera se apunta como "original" el binding de la primera -- y al salir
-	-- el jugador se queda con ESPACIO haciendo de camara para siempre. Esa
-	-- corrupcion no da ningun error: solo teclas que ya no son suyas.
+	-- NOT IF THE FREE CAMERA ALREADY HAS THE KEYS. Both use `saved` to give back
+	-- what was there, so if the second one captures on top of the first it notes
+	-- down the first one's binding as the "original" -- and on the way out the
+	-- player is left with SPACE acting as camera forever. That corruption gives
+	-- no error at all: just keys that are no longer theirs.
 	if ns.FreeCam and ns.FreeCam.active then
-		ns.Print("|cffff8800camara:|r la camara libre ya tiene las teclas.")
+		ns.Print("|cffff8800camera:|r the free camera already has the keys.")
 		return false
 	end
 	if InCombatLockdown() then
-		ns.Print("|cffffff00Teclas de camara no disponibles en combate|r - la camara sigue yendo.")
+		ns.Print("|cffffff00Camera keys not available in combat|r - the camera is still running.")
 		return
 	end
 
-	-- Q/E PIVOTAN, desde 2026-08-18. Iban a TURNLEFT/TURNRIGHT, que es el giro
-	-- propio del cliente: continuo y suave, pero sobre el propio eje de la
-	-- camara, asi que lo que mirabas se iba de pantalla. Ahora van a botones
-	-- nuestros que solo avisan de que la tecla baja y sube; el servidor la
-	-- orbita alrededor del punto que mira.
+	-- Q/E PIVOT, since 2026-08-18. They used to go to TURNLEFT/TURNRIGHT, which
+	-- is the client's own turn: continuous and smooth, but about the camera's
+	-- own axis, so whatever you were looking at went off screen. Now they go to
+	-- buttons of ours that only report the key going down and up; the server
+	-- orbits it around the point it is looking at.
 	--
-	-- Se pierde la suavidad del movimiento del cliente y se gana el gesto
-	-- correcto. Si se nota a pasos, el dial es RTS.Camera.PivotSpeed.
+	-- The smoothness of the client's movement is lost and the correct gesture is
+	-- gained. If it feels steppy, the dial is RTS.Camera.PivotSpeed.
 	for key, button in pairs({ Q = "RTSCamPivotLeftButton",
 	                           E = "RTSCamPivotRightButton" }) do
 		saved[key] = GetBindingAction(key) or ""
 		SetBindingClick(key, button)
 	end
 
-	-- ESPACIO SUBE Y C BAJA, 2026-08-23. Antes eran +/- y el teclado numerico,
-	-- que es donde estan en un editor y no donde las busca la mano en un juego:
-	-- espacio ya es "arriba" en todo lo que vuela, y C queda al lado de WASD.
+	-- SPACE GOES UP AND C GOES DOWN, 2026-08-23. They used to be +/- and the
+	-- numeric keypad, which is where they are in an editor and not where the
+	-- hand looks for them in a game: space already means "up" on everything that
+	-- flies, and C sits right next to WASD.
 	--
-	-- Las dos son teclas OCUPADAS de fabrica -- espacio salta y C abre la ficha
-	-- del personaje -- y por eso importa que pasen por `saved`: se apuntan antes
-	-- de tocarlas y vuelven al salir del modo, igual que los CVars de la camara.
-	-- La ficha sigue estando a un click en el rail.
+	-- Both are keys that are TAKEN out of the box -- space jumps and C opens the
+	-- character sheet -- and that is why it matters that they go through
+	-- `saved`: they are noted down before they are touched and come back on
+	-- leaving the mode, just like the camera's CVars. The sheet is still one
+	-- click away on the rail.
 	for key, button in pairs({
 		["SPACE"] = "RTSCamUpButton",
 		["C"]     = "RTSCamDownButton",
@@ -299,14 +304,15 @@ local function ReleaseTurnKeys()
 	return true
 end
 
---- El canal: ya no vive aqui -----------------------------------------------
+--- The channel: it no longer lives here ------------------------------------
 --
--- `ns.SendServer`, el frame de `CHAT_MSG_ADDON` y el reparto de doce verbos
--- estuvieron en este fichero hasta 2026-09-02, por historia: la camara fue lo
--- primero que hablo con mod-rts. Estan en `Link.lua`, y la camara es hoy un
--- cliente mas del canal -- registra `CAM` y `CAMPOS` como cualquier otro.
+-- `ns.SendServer`, the `CHAT_MSG_ADDON` frame and the routing of twelve verbs
+-- were in this file until 2026-09-02, out of history: the camera was the first
+-- thing that talked to mod-rts. They are in `Link.lua`, and the camera is today
+-- just one more client of the channel -- it registers `CAM` and `CAMPOS` like
+-- anyone else.
 --
--- `Send` se queda como atajo local porque este fichero manda quince mensajes.
+-- `Send` stays as a local shorthand because this file sends fifteen messages.
 
 local function Send(body)
 	ns.Link:Send(body)
@@ -360,24 +366,25 @@ function C:Off()     Send("CAM OFF")    end
 function C:Status()  Send("CAM STATUS") end
 function C:Recenter() SendOffset() Send("CAM HERE") end
 
--- NO HAY ALTURA SOBRE EL SUELO, y esta borrada en vez de apartada. Mantener una
--- separacion constante sobre el terreno mientras panoramizas se construyo por
--- los dos caminos posibles y los dos se vieron en juego el 2026-08-23; ninguno
--- falla por como estaba ajustado, fallan por lo que son:
+-- THERE IS NO HEIGHT-ABOVE-GROUND, and it is deleted rather than set aside.
+-- Keeping a constant clearance over the terrain while you pan was built both of
+-- the two possible ways and both were seen in game on 2026-08-23; neither of
+-- them fails because of how it was tuned, they fail because of what they are:
 --
---   corrigiendolo el SERVIDOR (medir el terreno y teleportar) baja a escalones,
---   y cada teleport cancela el avance que esta aplicando el cliente, asi que el
---   movimiento se para en seco en cada uno. Parece un ascensor, no una camara.
+--   correcting it on the SERVER (measure the terrain and teleport) comes down
+--   in steps, and every teleport cancels the movement the client is applying,
+--   so the motion stops dead at each one. It looks like a lift, not a camera.
 --
---   corrigiendolo el CLIENTE (hover) necesita la GRAVEDAD ENCENDIDA, porque el
---   hover es un modificador del seguimiento del suelo del cliente y sin
---   gravedad no hay seguimiento que modificar. Y la gravedad apagada es
---   justamente lo que hace que la camara se quede donde se la pone: al armar el
---   hover la camara CAE al suelo y el hover la levanta despues. Esa caida es el
---   mecanismo, no un fallo del mecanismo -- y es lo que se vio en pantalla.
+--   correcting it on the CLIENT (hover) needs GRAVITY ON, because hover is a
+--   modifier of the client's own ground-following and with no gravity there is
+--   no following to modify. And gravity being off is precisely what makes the
+--   camera stay where it is put: on arming the hover the camera FALLS to the
+--   ground and the hover lifts it afterwards. That fall is the mechanism, not a
+--   failure of the mechanism -- and it is what was seen on screen.
 --
--- La camara vuelve a ser la de siempre: cuelga a la altura que se le da, y lo
--- unico que la mueve en vertical son las teclas de subir y bajar.
+-- The camera goes back to being the one it always was: it hangs at the height
+-- it is given, and the only thing that moves it vertically are the raise and
+-- lower keys.
 
 -- Flight decides whether forward follows the view or runs flat. Off is the RTS
 -- behaviour; on is the old flying-mount behaviour, kept so the two can be

@@ -515,86 +515,86 @@ F.lock = false
 -- branches that only work in one mode get in.
 F.eyes = false
 
--- Ninguna de las funciones de comentarista se habia llamado nunca en este
--- proyecto, asi que todas pasan por aqui: si una no existe, el controlador
--- sigue funcionando en vez de reventar en cada frame.
--- El avance plano y el suelo, las dos lecturas del DLL en las que se apoya todo
--- lo demas. Van JUNTO A `st` y no cerca del giro a proposito: las he borrado
--- por accidente DOS VECES al reescribir el bloque del raton, porque estaban
--- dentro del rango que sustituia. Aqui no hay nada que reescribir.
+-- None of the commentator functions had ever been called in this project, so
+-- every one of them goes through here: if one does not exist, the controller
+-- carries on working instead of blowing up on every frame.
+-- The flat forward and the ground, the two DLL readings everything else leans
+-- on. They live NEXT TO `st` and not near the turning on purpose: I have
+-- deleted them by accident TWICE while rewriting the mouse block, because they
+-- were inside the range I was replacing. Here there is nothing to rewrite.
 local function FlatForward()
 	if RTS_HasCam ~= 1 then return nil end
 	local fx, fy = RTS_CamFwdX, RTS_CamFwdY
 	if not fx or not fy then return nil end
 	local len = math.sqrt(fx * fx + fy * fy)
-	-- Mirando a plomo hacia abajo la proyeccion es casi cero y la direccion deja
-	-- de estar definida. No se normaliza una longitud minuscula: no hay
-	-- adelante, y ese frame no se avanza -- preferible a salir disparado en una
-	-- direccion aleatoria.
+	-- Looking straight down the projection is almost zero and the direction
+	-- stops being defined. A minuscule length is not normalised: there is no
+	-- forward, and that frame does not move -- better than being fired off in a
+	-- random direction.
 	if len < 0.001 then return nil end
 	return fx / len, fy / len
 end
 
--- EL SUELO, Y DE CUAL DE LOS DOS RAYOS SALE.
+-- THE GROUND, AND WHICH OF THE TWO RAYS IT COMES OUT OF.
 --
--- El DLL publica dos alturas bajo la camara y la diferencia entre ellas es
--- todo el problema del tejado:
+-- The DLL publishes two heights under the camera, and the difference between
+-- them is the whole roof problem:
 --
---   `RTS_CamGroundZ` -- lo PRIMERO que hay debajo. Un tejado, un cartel, la
---                       copa de un arbol. Es la que habia, y es la buena para
---                       sobrevolar un sitio sin meterse en nada.
---   `RTS_CamLandZ`   -- solo el TERRENO. Lo construido deja de ser suelo, asi
---                       que ni un tejado levanta la camara ni le impide bajar
---                       hasta dentro de la casa.
+--   `RTS_CamGroundZ` -- the FIRST thing underneath. A roof, a sign, the top of
+--                       a tree. It is the one there was, and it is the good one
+--                       for flying over a place without dropping into anything.
+--   `RTS_CamLandZ`   -- the TERRAIN only. Anything built stops being ground, so
+--                       a roof neither lifts the camera nor stops it coming
+--                       down right inside the house.
 --
--- Devuelve tambien de donde ha salido, porque "la camara sube sola" y "la
--- camara no baja" son el mismo sintoma con las dos fuentes cambiadas, y
--- distinguirlo mirando la pantalla cuesta una ronda.
+-- It also returns where it came from, because "the camera rises by itself" and
+-- "the camera will not come down" are the same symptom with the two sources
+-- swapped, and telling them apart by looking at the screen costs a round.
 
--- LA CAJA NEGRA DE LA BOCA. Avisa cuando el terreno se queda arriba, porque es
--- el unico instante que importa y dura menos de lo que se tarda en escribir
--- `/rts fc`. Se limita a un aviso cada dos segundos: dentro de una cueva la
--- condicion es cierta en TODOS los frames, y sin el freno serian sesenta lineas
--- por segundo tapando el chat.
+-- THE BLACK BOX OF THE CAVE MOUTH. It speaks up when the terrain ends up above,
+-- because that is the only instant that matters and it lasts less than it takes
+-- to type `/rts fc`. It is limited to one warning every two seconds: inside a
+-- cave the condition is true on EVERY frame, and without the brake it would be
+-- sixty lines a second burying the chat.
 local lastBox = 0
 local function BlackBox(land, solid)
 	local now = GetTime and GetTime() or 0
 	if now - lastBox < 2.0 then return end
 	lastBox = now
-	ns.Print(("|cffff8800techo de roca|r: terreno %.1f ARRIBA, solido %.1f abajo, camara %.1f -- se usa el solido")
+	ns.Print(("|cffff8800rock ceiling|r: terrain %.1f ABOVE, solid %.1f below, camera %.1f -- the solid one is used")
 		:format(land, solid, st.z or 0))
 end
 
--- EL RAYO QUE DICE QUE CHOCO SIN CHOCAR (2026-09-12).
+-- THE RAY THAT SAYS IT HIT WITHOUT HITTING (2026-09-12).
 --
--- Dentro de la cueva, `/rts fc` imprimio esto:
+-- Inside the cave, `/rts fc` printed this:
 --
---     suelo: terreno 0.0   solido 1345.7   en uso: terreno
+--     ground: terrain 0.0   solid 1345.7   in use: terrain
 --
--- `terreno 0.0` NO es "no ha contestado" -- eso se imprime como `--`. Es que
--- `RTS_CamLandHit` vino a 1 y `RTS_CamLandZ` a cero: el rayo de terreno dijo que
--- SI choco, y no escribio donde. En el DLL, `Cast` arranca `out = {0,0,0}` y lo
--- devuelve tal cual si `CGWorldFrame::Intersect` contesta cierto sin tocarlo,
--- que es lo que hace ahi donde el ADT esta agujereado a proposito -- o sea justo
--- dentro de una cueva.
+-- `terrain 0.0` is NOT "it did not answer" -- that prints as `--`. It is that
+-- `RTS_CamLandHit` came in at 1 and `RTS_CamLandZ` at zero: the terrain ray said
+-- it DID hit, and did not write where. In the DLL, `Cast` starts `out = {0,0,0}`
+-- and returns it just like that if `CGWorldFrame::Intersect` answers true
+-- without touching it, which is what it does where the ADT is deliberately
+-- holed -- that is, right inside a cave.
 --
--- Y AHI ESTA EL PLOP, entero, sin bucles ni acantilados: un suelo de 0.0 con la
--- camara a 1345 es un desnivel de mil trescientas yardas hacia abajo, mas grande
--- que `GROUND_SNAP`, asi que el filtro hace lo que tiene mandado con un salto
--- imposible -- se pone al dia DE GOLPE -- y la camara aparece a `0 + offset`, en
--- el fondo del mundo. Por eso no se sabia si iba arriba o abajo: iba abajo, del
--- todo, en un frame.
+-- AND THERE IS THE PLOP, whole, with no loops and no cliffs: a ground of 0.0
+-- with the camera at 1345 is a thirteen-hundred-yard drop, bigger than
+-- `GROUND_SNAP`, so the filter does what it is told to do with an impossible
+-- jump -- it catches up ALL AT ONCE -- and the camera turns up at `0 + offset`,
+-- at the bottom of the world. That is why it was not clear whether it went up
+-- or down: it went down, all the way, in one frame.
 --
--- La regla es que un choque tiene que caer DENTRO del segmento que se disparo.
--- El DLL lanza desde `cam.z + 5` hasta `cam.z - 1000`; cualquier cosa fuera de
--- ahi no la ha podido tocar ese rayo. No hay constante que inventar: son las dos
--- del publicador. El cero se descarta ademas por su cuenta, porque es el valor
--- que el propio publicador escribe cuando NO hay choque y ningun suelo del mundo
--- cae exactamente en 0.000.
+-- The rule is that a hit has to land INSIDE the segment that was fired. The DLL
+-- casts from `cam.z + 5` down to `cam.z - 1000`; anything outside that cannot
+-- have been touched by that ray. There is no constant to invent: they are the
+-- publisher's own two. Zero is discarded on its own account as well, because it
+-- is the value the publisher itself writes when there is NO hit, and no ground
+-- in the world falls exactly on 0.000.
 --
--- Esto tapa el sintoma en el lado barato -- un `/reload` en vez de recompilar e
--- inyectar. El arreglo de raiz es que el DLL no publique un choque que no ha
--- escrito.
+-- This covers the symptom on the cheap side -- a `/reload` instead of
+-- recompiling and injecting. The root fix is for the DLL not to publish a hit
+-- it has not written.
 local RAY_UP, RAY_DOWN = 5.0, 1000.0
 
 local function RayHit(hit, z)
@@ -606,14 +606,14 @@ local function RayHit(hit, z)
 	return z
 end
 
--- EL RAYO DEL TECHO (rts_core 0.29.0). Mira las `RAY_UP` yardas de ENCIMA de la
--- camara, y solo terreno. Es lo unico que el adelanto del rayo de abajo compraba
--- -- salir de debajo del suelo cuando el suavizado te ha colado -- separado en un
--- dato con su propio nombre, ahora que el de abajo arranca en la camara y por fin
--- significa "lo que hay DEBAJO".
+-- THE CEILING RAY (rts_core 0.29.0). It looks at the `RAY_UP` yards ABOVE the
+-- camera, and terrain only. It is the one thing the head start on the downward
+-- ray bought -- getting out from under the ground when the smoothing has slipped
+-- you through -- split out into a reading with its own name, now that the
+-- downward one starts at the camera and at last means "what is UNDERNEATH".
 --
--- Con un rts_core viejo esto es nil y no pasa nada: la franja ciega vuelve, que
--- es exactamente como se venia funcionando.
+-- With an old rts_core this is nil and nothing happens: the blind band comes
+-- back, which is exactly how it had been working all along.
 local function CeilAbove()
 	local z = RayHit(RTS_CamCeilHit, RTS_CamCeilZ)
 	if z and st.z and z >= st.z and z <= st.z + RAY_UP + 0.5 then return z end
@@ -624,50 +624,49 @@ local function GroundUnderCamera(c)
 	local land  = RayHit(RTS_CamLandHit,  RTS_CamLandZ)
 	local solid = RayHit(RTS_CamGroundHit, RTS_CamGroundZ)
 	if c.floor == 1 then
-		-- EL TERRENO DEJA DE SER SUELO CUANDO ESTA POR ENCIMA DE LA CABEZA.
+		-- TERRAIN STOPS BEING GROUND WHEN IT IS ABOVE YOUR HEAD.
 		--
-		-- Aqui estaba la causa de las cuevas, y no en la aritmetica de la
-		-- altura: la aritmetica hacia exactamente lo que se le pedia con una
-		-- MEDIDA QUE NO ERA UN SUELO. Al cruzar la boca, la XY de la camara pasa
-		-- por debajo de la silueta de la montana; el ADT solo esta agujereado en
-		-- el INTERIOR, asi que el rayo de terreno sigue contestando -- y lo que
-		-- devuelve es la ladera de fuera, decenas de yardas POR ENCIMA. El suelo
-		-- duro lee eso y hace lo unico que sabe hacer: empujar la camara hasta
-		-- `ground + clear`, o sea al tejado de la montana, atravesando la roca
-		-- durante todo el camino. Eso es la pantalla lila, y por eso el `/rts fc`
-		-- de dentro salia coherente: las cuentas cuadraban con la superficie
-		-- equivocada.
+		-- Here was the cause of the caves, and not in the height arithmetic: the
+		-- arithmetic did exactly what it was asked to do with a MEASUREMENT THAT
+		-- WAS NOT A GROUND. Crossing the mouth, the camera XY passes under the
+		-- outline of the mountain; the ADT is only holed on the INSIDE, so the
+		-- terrain ray goes on answering -- and what it returns is the slope
+		-- outside, tens of yards ABOVE. The hard floor reads that and does the
+		-- only thing it knows how to do: push the camera up to `ground + clear`,
+		-- that is, to the roof of the mountain, going through the rock the whole
+		-- way. That is the purple screen, and that is why the `/rts fc` from
+		-- inside came out coherent: the sums added up against the wrong surface.
 		--
-		-- Un suelo esta DEBAJO. Si el terreno queda arriba y el solido queda
-		-- abajo, el solido es el suelo de la cueva y el terreno es el techo de
-		-- roca que tenemos encima: no hay nada que decidir.
+		-- A ground is UNDERNEATH. If the terrain is above and the solid is
+		-- below, the solid is the floor of the cave and the terrain is the rock
+		-- ceiling over our heads: there is nothing to decide.
 		--
-		-- Y la regla no toca el acantilado, que es el caso que parece el mismo:
-		-- volando contra un risco el terreno tambien queda arriba, pero ahi NO
-		-- hay solido debajo -- el risco es terreno pelado -- asi que el `if` no
-		-- entra y la camara lo sube como hasta ahora. Hace falta que las DOS
-		-- cosas pasen a la vez, y eso solo pasa bajo techo.
+		-- And the rule does not touch the cliff, which is the case that looks
+		-- the same: flying into a crag the terrain is above as well, but there
+		-- there is NO solid underneath -- the crag is bare terrain -- so the `if`
+		-- is not entered and the camera climbs it as it always has. BOTH things
+		-- have to happen at once, and that only happens under a roof.
 		if land and solid and st.z and land > st.z and solid < st.z then
 			BlackBox(land, solid)
-			return solid, "solido (el terreno queda arriba)"
+			return solid, "solid (the terrain is above)"
 		end
-		if land then return land, "terreno" end
-		-- CAER AL SOLIDO NO ES DEGRADARSE AQUI, ES ACERTAR. Dentro de una cueva
-		-- el ADT esta agujereado a proposito y el rayo de terreno NO CONTESTA:
-		-- el suelo bueno de ese sitio es justamente el solido -- el suelo de la
-		-- cueva. Es tambien lo que pasa con un DLL viejo, que no publica
-		-- `RTS_CamLandZ` en absoluto, y ahi la camara se porta como antes en vez
-		-- de quedarse sin altura.
-		if solid then return solid, "solido (sin terreno aqui)" end
+		if land then return land, "terrain" end
+		-- FALLING BACK TO THE SOLID IS NOT DEGRADING HERE, IT IS GETTING IT
+		-- RIGHT. Inside a cave the ADT is deliberately holed and the terrain ray
+		-- DOES NOT ANSWER: the good ground for that place is precisely the solid
+		-- one -- the floor of the cave. It is also what happens with an old DLL,
+		-- which does not publish `RTS_CamLandZ` at all, and there the camera
+		-- behaves as it did before instead of being left with no height.
+		if solid then return solid, "solid (no terrain here)" end
 		return nil, nil
 	end
-	if solid then return solid, "solido" end
+	if solid then return solid, "solid" end
 	return nil, nil
 end
 
--- Un cambio de suelo mas grande que esto NO es un escalon del mundo: es un
--- teleport, un cambio de mapa o el primer frame. Filtrarlo a 6 yd/s dejaria la
--- camara subiendo durante minuto y medio, asi que ahi se salta de golpe.
+-- A change of ground bigger than this is NOT a step in the world: it is a
+-- teleport, a change of map or the first frame. Filtering it at 6 yd/s would
+-- leave the camera climbing for a minute and a half, so there it snaps.
 local GROUND_SNAP = 300.0
 
 local function Try(name, ...)
@@ -678,38 +677,40 @@ local function Try(name, ...)
 	return true, a, b, c, d, e, f
 end
 
--- === EL GIRO ES NATIVO. NOSOTROS SOLO LLEVAMOS LA POSICION ===============
+-- === THE TURNING IS NATIVE. WE ONLY CARRY THE POSITION ==================
 --
--- QUINTO INTENTO, y el que sobra es el cuarto: leer el raton en crudo desde el
--- DLL y girar nosotros. Funcionaba y se sentia mal -- **a trompicones, con
--- latencia y demasiado sensible**, y con el eje horizontal invertido. Y tenia
--- que sentirse mal por construccion: el DLL acumula deltas, los publica a 67 Hz
--- por una cadena de Lua, y el addon los aplica al frame siguiente. Tres etapas
--- de retardo y una cuantizacion, para reimplementar algo que el cliente ya hace
--- perfecto.
+-- FIFTH ATTEMPT, and the one that is surplus is the fourth: reading the mouse
+-- raw from the DLL and turning ourselves. It worked and it felt wrong -- **jerky,
+-- laggy and far too sensitive**, and with the horizontal axis inverted. And it
+-- had to feel wrong by construction: the DLL accumulates deltas, publishes them
+-- at 67 Hz through a chain of Lua, and the addon applies them on the next frame.
+-- Three stages of delay and a quantisation, to reimplement something the client
+-- already does perfectly.
 --
--- Y LA EVIDENCIA DE QUE EL CLIENTE LO HACE BIEN YA LA TENIAMOS, mal leida. En
--- la 1.17.0 el jugador dijo *"ahora he podido mover la camara con el raton pero
--- no con WASD"*. En esa version el controlador estaba CAIDO -- habia borrado
--- `FlatForward` por accidente -- asi que no escribia la camara en absoluto, y
--- el arrastre nativo del cliente movia la camara que se ve. O sea que el giro
--- nativo SI llega a nuestra camara; lo que lo mataba era que yo sobrescribiera
--- los angulos cada frame. Mi conclusion de entonces ("gira otra camara") era
--- falsa, y la saque de una prueba hecha con el controlador muerto.
+-- AND THE EVIDENCE THAT THE CLIENT DOES IT RIGHT WAS ALREADY IN OUR HANDS, read
+-- wrong. In 1.17.0 the player said *"now I have been able to move the camera
+-- with the mouse but not with WASD"*. In that version the controller was DOWN --
+-- I had deleted `FlatForward` by accident -- so it was not writing the camera at
+-- all, and the client native drag was moving the camera you see. Which means the
+-- native turning DOES reach our camera; what was killing it was me overwriting
+-- the angles every frame. My conclusion at the time ("it turns some other
+-- camera") was false, and I drew it from a test run with the controller dead.
 --
--- Asi que el reparto queda: **el cliente lleva la ORIENTACION, nosotros la
--- POSICION.** El raton derecho es el mouselook de siempre -- con la
--- sensibilidad y la inversion que el jugador ya tiene configuradas, gratis -- y
--- WASD, ESPACIO/C y la altura sobre el terreno siguen siendo nuestros.
+-- So the division of labour is: **the client carries the ORIENTATION, we carry
+-- the POSITION.** The right mouse button is the same old mouselook -- with the
+-- sensitivity and the inversion the player already has configured, for free --
+-- and WASD, SPACE/C and the height over the terrain stay ours.
 --
--- COMO SE CONVIVE, que es lo unico con truco: `CommentatorSetCamera` toma los
--- seis valores de golpe, asi que no se puede escribir la posicion sin escribir
--- los angulos. Se LEEN los vivos justo antes y se vuelven a escribir tal cual:
--- para la orientacion es un no-op y el giro del cliente se acumula solo.
+-- HOW THEY LIVE TOGETHER, which is the only part with a trick to it:
+-- `CommentatorSetCamera` takes the six values at once, so the position cannot be
+-- written without writing the angles. The live ones are READ just before and
+-- written straight back: for the orientation it is a no-op and the client
+-- turning accumulates on its own.
 --
--- Se leen con `CommentatorGetCamera`, que es SINCRONO y lee `cam+0x11C`/`+0x120`
--- de la camara activa en este mismo frame -- no `RTS_CamFwd*`, que viene del DLL
--- con un tick de retraso. Esa eleccion es la que quita la latencia.
+-- They are read with `CommentatorGetCamera`, which is SYNCHRONOUS and reads
+-- `cam+0x11C`/`+0x120` of the active camera on this very frame -- not
+-- `RTS_CamFwd*`, which comes from the DLL a tick late. That choice is what takes
+-- the latency out.
 local function AdoptLook()
 	local ok, _, _, _, yaw, pitch = Try("CommentatorGetCamera")
 	if not ok or type(yaw) ~= "number" or type(pitch) ~= "number" then return end
@@ -719,38 +720,39 @@ local function AdoptLook()
 	st.pitch = pitch
 end
 
--- === HACIA DONDE MIRA EL HEROE, EN YAW DE COMENTARISTA =================
+-- === WHICH WAY THE HERO IS FACING, IN COMMENTATOR YAW ==================
 --
--- Entrar en primera persona es lo unico de este fichero que necesita PEDIR un
--- yaw concreto -- el del heroe -- y ahi vuelve la pregunta que todo lo demas
--- lleva evitando desde el principio: CUAL ES LA CONVENCION DE ANGULOS DE
--- `CommentatorSetCamera`. No se puede leer del binario (el desensamblado solo
--- ensena que el argumento se multiplica por DEG2RAD y se guarda), y este
--- proyecto ya ha pagado DOS VECES por adivinar un signo: el `pitch` de aqui
--- arriba y los dos `SetPosition` del retrato.
+-- Entering the hero view is the only thing in this file that needs to ASK for a
+-- particular yaw -- the hero's -- and there the question everything else has
+-- been dodging from the start comes back: WHAT IS THE ANGLE CONVENTION OF
+-- `CommentatorSetCamera`. It cannot be read from the binary (the disassembly
+-- only shows the argument being multiplied by DEG2RAD and stored), and this
+-- project has already paid TWICE for guessing a sign: the `pitch` up above and
+-- the two `SetPosition` calls on the portrait.
 --
--- Asi que no se adivina: se MIDE, con dos datos que ya estan en pantalla.
+-- So it is not guessed: it is MEASURED, with two figures already on screen.
 --
---   * `CommentatorGetCamera` da el yaw VIVO de la camara.
---   * el DLL publica su adelante en coordenadas del MUNDO (`RTS_CamFwdX/Y`),
---     que en angulo es `atan2(fy, fx)` -- la misma convencion que `RTS_PF`.
+--   * `CommentatorGetCamera` gives the LIVE yaw of the camera.
+--   * the DLL publishes its forward in WORLD coordinates (`RTS_CamFwdX/Y`),
+--     which as an angle is `atan2(fy, fx)` -- the same convention as `RTS_PF`.
 --
--- Con un solo par no basta: dice el desfase pero NO EL SIGNO -- un yaw que
--- creciera al reves encaja igual de bien en una sola muestra, y el error solo
--- se veria como una entrada espejada. Con dos pares a yaws distintos salen los
--- dos de golpe:
+-- One pair alone is not enough: it gives the offset but NOT THE SIGN -- a yaw
+-- that grew the other way fits a single sample just as well, and the error would
+-- only show as a mirrored entrance. With two pairs at different yaws both come
+-- out at once:
 --
---     mundo = signo * yaw + desfase
+--     world = sign * yaw + offset
 --
--- Y LAS MUESTRAS SE TOMAN CON LA CAMARA QUIETA. El adelante viene del DLL a 100
--- Hz y el yaw se lee en este mismo frame: mientras se gira son dos instantes
--- distintos, o sea que la medida saldria torcida justo cuando mas se mueve.
--- Parada, los dos son del mismo sitio y la resta es exacta.
+-- AND THE SAMPLES ARE TAKEN WITH THE CAMERA STILL. The forward comes from the
+-- DLL at 100 Hz and the yaw is read on this very frame: while turning they are
+-- two different instants, which means the measurement would come out crooked
+-- exactly when it moves most. At rest, both are from the same place and the
+-- subtraction is exact.
 --
--- NO HACE FALTA PEDIRLE NADA AL JUGADOR. La segunda muestra llega sola en
--- cuanto gire la camara, que es lo primero que hace cualquiera; hasta entonces
--- se usa el desfase de una sola con el signo supuesto, que es lo que habria
--- habido de todas formas.
+-- NOTHING HAS TO BE ASKED OF THE PLAYER. The second sample arrives on its own as
+-- soon as they turn the camera, which is the first thing anybody does; until
+-- then the offset from a single one is used with the assumed sign, which is what
+-- there would have been anyway.
 local look = { prev = nil, refY = nil, refW = nil, sign = nil, delta = nil }
 
 local function Wrap180(d)
@@ -763,8 +765,8 @@ local function CamWorldAngle()
 	if RTS_HasCam ~= 1 then return nil end
 	local fx, fy = RTS_CamFwdX, RTS_CamFwdY
 	if type(fx) ~= "number" or type(fy) ~= "number" then return nil end
-	-- Mirando a plomo la proyeccion es casi cero y el angulo deja de estar
-	-- definido; misma criba que `FlatForward` y por la misma razon.
+	-- Looking straight down the projection is almost zero and the angle stops
+	-- being defined; same sieve as `FlatForward` and for the same reason.
 	if (fx * fx + fy * fy) < 0.000001 then return nil end
 	return math.deg(math.atan2(fy, fx))
 end
@@ -773,7 +775,7 @@ local function CalibrateYaw()
 	local yaw, prev = st.yaw, look.prev
 	look.prev = yaw
 	if not yaw or not prev then return end
-	if math.abs(Wrap180(yaw - prev)) > 0.02 then return end   -- girando: no vale
+	if math.abs(Wrap180(yaw - prev)) > 0.02 then return end   -- turning: no good
 	local w = CamWorldAngle()
 	if not w then return end
 	if not look.refY then
@@ -782,29 +784,29 @@ local function CalibrateYaw()
 	end
 	local dy = Wrap180(yaw - look.refY)
 	local ady = math.abs(dy)
-	-- Por debajo de 20 grados la medida es todo ruido; por encima de 170 el
-	-- signo del envoltorio deja de estar claro (a 180 justos, +1 y -1 dan lo
-	-- mismo). Fuera de esa ventana no se concluye nada y se sigue esperando.
+	-- Below 20 degrees the measurement is all noise; above 170 the sign of the
+	-- wrap stops being clear (at exactly 180, +1 and -1 give the same thing).
+	-- Outside that window nothing is concluded and it goes on waiting.
 	if ady < 20 or ady > 170 then return end
 	local dw = Wrap180(w - look.refW)
-	-- LA COMPROBACION QUE CONVIERTE UNA SUPOSICION EN UNA MEDIDA: si el mundo no
-	-- ha girado LO MISMO que el yaw, la relacion no es `signo * yaw + desfase` y
-	-- no hay nada que deducir. Sin esto, un modelo equivocado saldria como un
-	-- signo con toda la confianza del mundo.
+	-- THE CHECK THAT TURNS AN ASSUMPTION INTO A MEASUREMENT: if the world has not
+	-- turned THE SAME as the yaw, the relation is not `sign * yaw + offset` and
+	-- there is nothing to deduce. Without this, a wrong model would come out as a
+	-- sign with all the confidence in the world.
 	if math.abs(math.abs(dw) - ady) > 5 then return end
 	look.sign = (dw * dy >= 0) and 1 or -1
 	look.delta = Wrap180(w - look.sign * yaw)
 	look.refY, look.refW = yaw, w
 end
 
--- Una direccion del MUNDO (radianes, la convencion de `RTS_PF`) en yaw.
+-- A WORLD direction (radians, the `RTS_PF` convention) in yaw.
 local function YawForWorld(rad)
 	local sign, delta = look.sign, look.delta
 	if not sign then
-		-- Sin las dos muestras todavia: el desfase de UNA, dando por hecho que
-		-- el yaw crece como el angulo del mundo. Si eso fuera falso, esta
-		-- entrada sale espejada y la siguiente ya no -- en cuanto el jugador
-		-- gire, la medida de verdad esta hecha.
+		-- Without both samples yet: the offset from ONE, taking it as given that
+		-- the yaw grows like the world angle. If that were false, this entrance
+		-- comes out mirrored and the next one does not -- as soon as the player
+		-- turns, the real measurement is done.
 		local w = CamWorldAngle()
 		if not w or not st.yaw then return nil end
 		sign, delta = 1, Wrap180(w - st.yaw)
@@ -814,51 +816,53 @@ end
 
 local function LookReport()
 	if look.sign then
-		return ("signo %+d, desfase %.1f |cff888888(medido con dos muestras)|r"):format(
+		return ("sign %+d, offset %.1f |cff888888(measured with two samples)|r"):format(
 			look.sign, look.delta)
 	end
 	local w = CamWorldAngle()
 	if w and st.yaw then
-		return ("desfase %.1f |cffff8800(una sola muestra: gira la camara para medir el signo)|r"):format(
+		return ("offset %.1f |cffff8800(a single sample: turn the camera to measure the sign)|r"):format(
 			Wrap180(w - st.yaw))
 	end
-	return "|cffff8800sin medir|r (¿camara publicada?)"
+	return "|cffff8800not measured|r (is the camera published?)"
 end
 
--- Los botones, del DLL. `IsMouseButtonDown` devuelve NO mientras el cliente
--- tiene el raton cogido, asi que para saber si estan los DOS pulsados no hay
--- otra fuente. Se queda solo para el gesto de avanzar; el giro ya no lo usa.
+-- The buttons, from the DLL. `IsMouseButtonDown` returns NO while the client has
+-- the mouse grabbed, so to know whether BOTH are held there is no other source.
+-- It stays only for the move-forward gesture; the turning no longer uses it.
 local function MouseButtons()
 	if RTS_MouseRaw ~= 1 then return false, false end
 	local b = tonumber(RTS_MouseB) or 0
 	return (b % 2) == 1, (math.floor(b / 2) % 2) == 1
 end
 
---- EL CANDADO -------------------------------------------------------------
+--- THE LOCK ---------------------------------------------------------------
 --
--- Un interruptor, y hace UNA cosa: mientras esta puesto, la camara se queda a
--- la misma distancia del heroe -- la que tuviera al encenderlo -- y viaja con
--- el. Para seguir al grupo por el camino sin conducir la camara a mano.
+-- A switch, and it does ONE thing: while it is on, the camera stays at the same
+-- distance from the hero -- whatever it was when it was switched on -- and
+-- travels with him. For following the party along the road without driving the
+-- camera by hand.
 --
--- LO QUE NO HACE, que es la mitad que se pidio por escrito: no toca el angulo,
--- no toca la altura, no recoloca nada. El encuadre lo pone el jugador -- con el
--- raton, con W/A/S/D, con ESPACIO y C -- y se queda tal cual hasta que lo
--- vuelva a tocar. Aqui no hay ni una decision de encuadre.
+-- WHAT IT DOES NOT DO, which is the half that was asked for in writing: it does
+-- not touch the angle, it does not touch the height, it repositions nothing. The
+-- framing is set by the player -- with the mouse, with W/A/S/D, with SPACE and C
+-- -- and it stays exactly as it is until they touch it again. There is not one
+-- framing decision here.
 --
--- POR ESO LAS TECLAS MUEVEN EL ENCUADRE Y NO LA CAMARA. Con el candado puesto,
--- la posicion de la camara es SIEMPRE `ancla + encuadre`, asi que escribir en
--- ella directamente -- como hace el modo libre -- seria escribir en un valor
--- que se recalcula entero el frame siguiente: las teclas pareceria que no
--- hacen nada. Sumando al encuadre, retocar el plano mientras se viaja funciona
--- igual que siempre y lo retocado PERSISTE, que es exactamente lo que se
--- pidio.
+-- THAT IS WHY THE KEYS MOVE THE FRAMING AND NOT THE CAMERA. With the lock on,
+-- the camera position is ALWAYS `anchor + framing`, so writing into it directly
+-- -- as the free mode does -- would be writing into a value that gets recomputed
+-- from scratch on the next frame: the keys would look as if they did nothing.
+-- Adding to the framing, adjusting the plane while travelling works just as it
+-- always did and what was adjusted PERSISTS, which is exactly what was asked
+-- for.
 --
--- Y AQUI NO HAY SUELO. Ni rayo, ni filtro de escalon, ni suelo duro, ni
--- presupuesto de empuje: la Z sale del heroe, que ya va por el suelo por su
--- cuenta. Meter la correccion de altura seria un segundo dueno de la Z
--- discutiendo con el candado cada frame -- la forma de pelea que este fichero
--- ya ha perdido dos veces -- y ademas romperia la promesa de la distancia fija
--- en cuanto el heroe pasara por debajo de un tejado.
+-- AND THERE IS NO GROUND HERE. No ray, no step filter, no hard floor, no push
+-- budget: Z comes from the hero, who already walks the ground on his own.
+-- Bringing the height correction in would be a second owner of Z arguing with
+-- the lock every frame -- the kind of fight this file has already lost twice --
+-- and it would also break the promise of the fixed distance the moment the hero
+-- walked under a roof.
 local function HeroPos()
 	if RTS_HasPos ~= 1 then return nil end
 	local x, y, z = RTS_PX, RTS_PY, RTS_PZ
@@ -870,18 +874,19 @@ end
 
 local function Follow(c, dt)
 	local hx, hy, hz = HeroPos()
-	-- Sin posicion del heroe este tick no se inventa una: la camara se queda
-	-- donde esta. Pasa al cambiar de zona y dura lo que tarda el DLL en volver
-	-- a publicar.
+	-- With no hero position this tick one is not invented: the camera stays
+	-- where it is. It happens when changing zone and lasts as long as the DLL
+	-- takes to publish again.
 	if not hx then return end
 
 	if not st.ax then
 		st.ax, st.ay, st.az = hx, hy, hz
 	else
-		-- UN CAMBIO DE MAPA NO ES UN PASO. Igual que `GROUND_SNAP` para el
-		-- suelo: por encima de esa distancia el heroe no se ha movido, lo han
-		-- movido -- teleport, portal, cambio de personaje -- y perseguirlo con
-		-- suavizado seria cruzar el continente a la vista. Ahi se salta.
+		-- A CHANGE OF MAP IS NOT A STEP. Same as `GROUND_SNAP` for the ground:
+		-- beyond that distance the hero has not moved, he HAS BEEN moved --
+		-- teleport, portal, change of character -- and chasing him with
+		-- smoothing would be crossing the continent in plain sight. There it
+		-- snaps.
 		local dx, dy, dz = hx - st.ax, hy - st.ay, hz - st.az
 		if (dx * dx + dy * dy + dz * dz) > (GROUND_SNAP * GROUND_SNAP) then
 			st.ax, st.ay, st.az = hx, hy, hz
@@ -894,46 +899,47 @@ local function Follow(c, dt)
 	end
 
 	if F.eyes then
-		-- LAS OCHO TECLAS VALEN AQUI TAMBIEN (2026-09-15). Lo que queda de
-		-- exclusivo de este modo no es una restriccion, es POR DONDE SE ENTRA:
-		-- encima del heroe, mirando a donde mira el, en un clic. Eso era lo
-		-- caro; prohibir moverse una vez dentro no compraba nada y se pidio
-		-- quitarlo.
+		-- THE EIGHT KEYS ARE GOOD HERE TOO (2026-09-15). What is left that is
+		-- exclusive to this mode is not a restriction, it is WHERE YOU COME IN:
+		-- above the hero, facing the way he faces, in one click. That was the
+		-- expensive part; forbidding movement once inside bought nothing and it
+		-- was asked to be taken out.
 		--
-		-- EL PLANO ES DEL RATO, LA ALTURA ES TUYA, y la asimetria es a
-		-- proposito. `ox`/`oy` se olvidan al salir y por eso volver a entrar
-		-- VUELVE A PONER LA CAMARA SOBRE EL HEROE -- que es para lo que se
-		-- pulsa el boton; si se guardaran, el segundo clic te dejaria donde ya
-		-- estabas y el boton no serviria de nada. La altura no es de este rato:
-		-- es a que distancia te gusta ir de tu personaje, la misma en la
-		-- siguiente partida.
+		-- THE PLANE BELONGS TO THIS SITTING, THE HEIGHT IS YOURS, and the
+		-- asymmetry is on purpose. `ox`/`oy` are forgotten on the way out and
+		-- that is why coming back in PUTS THE CAMERA OVER THE HERO AGAIN --
+		-- which is what the button is pressed for; if they were saved, the
+		-- second click would leave you where you already were and the button
+		-- would be no use at all. The height does not belong to this sitting:
+		-- it is how far away you like to be from your character, the same in
+		-- the next session.
 		st.ox = st.ox + st.vx * dt
 		st.oy = st.oy + st.vy * dt
 
-		-- POR ESO LA ALTURA ESCRIBE EN EL AJUSTE Y EL PLANO NO. Un solo numero,
-		-- dos bocas: `ESPACIO`/`C` y `/rts fc eyeH`.
+		-- THAT IS WHY THE HEIGHT WRITES INTO THE SETTING AND THE PLANE DOES NOT.
+		-- One single number, two mouths: `SPACE`/`C` and `/rts fc eyeH`.
 		local lift = 0
 		if input.up then lift = lift + 1 end
 		if input.down then lift = lift - 1 end
 		if lift ~= 0 then
 			local h = c.eyeH + lift * c.lift * dt
-			-- Acotado AQUI con las mismas dos constantes que usa `Cfg`, no con
-			-- numeros nuevos: ver el comentario de alla. Se recorta en vez de
-			-- rebotar, que es lo que hace que mantener la tecla contra el tope
-			-- se sienta como un tope y no como un fallo.
+			-- Clamped HERE with the same two constants `Cfg` uses, not with
+			-- new numbers: see the comment over there. It is clipped rather
+			-- than bounced, which is what makes holding the key against the
+			-- cap feel like a cap and not like a bug.
 			if h < EYE_MIN then h = EYE_MIN end
 			if h > EYE_MAX then h = EYE_MAX end
 			c.eyeH = h
 		end
-		-- La Z se reescribe entera cada frame en vez de ponerla una vez al
-		-- entrar, y eso es lo que hace que tanto las teclas como
-		-- `/rts fc eyeH 4` se vean AHORA -- un ajuste que solo entra al volver a
-		-- entrar en el modo se lee como un ajuste que no funciona.
+		-- Z is rewritten whole every frame instead of being set once on the way
+		-- in, and that is what makes both the keys and `/rts fc eyeH 4` show
+		-- NOW -- a setting that only takes effect on re-entering the mode reads
+		-- as a setting that does not work.
 		st.oz = c.eyeH
 	else
-		-- Las teclas RETOCAN EL ENCUADRE. Misma velocidad y mismo suavizado que
-		-- en el modo libre: `st.vx/vy` ya vienen calculadas del mismo solver de
-		-- arriba, asi que el plano se siente igual con el candado puesto.
+		-- The keys ADJUST THE FRAMING. Same speed and same smoothing as in the
+		-- free mode: `st.vx/vy` already come computed from the same solver up
+		-- above, so the plane feels the same with the lock on.
 		st.ox = st.ox + st.vx * dt
 		st.oy = st.oy + st.vy * dt
 		local lift = 0
@@ -946,70 +952,72 @@ local function Follow(c, dt)
 	st.y = st.ay + st.oy
 	st.z = st.az + st.oz
 
-	-- El suelo filtrado se olvida MIENTRAS dura el candado, no al soltarlo: asi
-	-- el primer tick libre se engancha a lo que haya debajo de donde la camara
-	-- haya acabado, en vez de venir arrastrando el suelo de otro continente.
+	-- The filtered ground is forgotten WHILE the lock lasts, not when it is
+	-- released: that way the first free tick latches onto whatever is under
+	-- wherever the camera ended up, instead of dragging in the ground of
+	-- another continent.
 	st.gz, st.gstep, st.buried = nil, 0, 0
 end
 
--- LA CASILLA DEL PANEL TIENE QUE ENTERARSE, y no puede enterarse sola: se
--- repinta en los cambios de SELECCION (`Panel:Refresh`, suscrito a
--- `ns.Selection`), y el candado no es uno. Sin este aviso, poner el candado
--- dejaria el boton apagado hasta el siguiente click en un companero -- o sea un
--- indicador que miente sobre lo que uno acaba de pulsar.
+-- THE PANEL SLOT HAS TO FIND OUT, and it cannot find out on its own: it
+-- repaints on SELECTION changes (`Panel:Refresh`, subscribed to
+-- `ns.Selection`), and the lock is not one. Without this notice, putting the
+-- lock on would leave the button dark until the next click on a party member --
+-- that is, an indicator that lies about what you have just pressed.
 --
--- Va en `SetLock` y no en la casilla porque el estado se cambia AQUI: quien
--- repinta tiene que colgar de quien decide, no de quien pulsa.
+-- It goes in `SetLock` and not in the slot because the state is changed HERE:
+-- whoever repaints has to hang off whoever decides, not off whoever presses.
 local function Repaint()
-	-- El candado se dibujaba en una casilla de la rejilla 4x4, que ya no existe;
-	-- desde el 2026-09-13 es un macro y no hay ningun boton que repintar.
+	-- The lock used to be drawn in a slot of the 4x4 grid, which no longer
+	-- exists; since 2026-09-13 it is a macro and there is no button to repaint.
 	if ns.Cast and ns.Cast.Refresh then ns.Cast:Refresh() end
 end
 
--- Encender y apagar. Devuelve si el candado ha quedado como se pedia.
+-- Switching on and off. Returns whether the lock ended up as asked.
 function F:SetLock(on)
 	if not self.active then
-		ns.Print("|cffff8800camara RTS:|r la camara libre no esta activa.")
+		ns.Print("|cffff8800RTS camera:|r the free camera is not active.")
 		return false
 	end
 
 	if not on then
 		if self.lock then
 			self.lock = false
-			-- SOLTAR EL CANDADO SUELTA TAMBIEN LA PRIMERA PERSONA, porque la
-			-- primera persona ES el candado: dejar `eyes` puesto con `lock`
-			-- quitado seria una bandera encendida que ya no manda sobre nada,
-			-- y la casilla diria "primera persona" con la camara suelta.
+			-- RELEASING THE LOCK RELEASES FIRST PERSON TOO, because first
+			-- person IS the lock: leaving `eyes` set with `lock` cleared would
+			-- be a flag switched on that no longer commands anything, and the
+			-- slot would say "first person" with the camera loose.
 			self.eyes = false
-			-- `offset` se recalcula solo en el primer tick libre (el bloque del
-			-- anclaje): con `gz` a nil, la altura que tenga la camara AHORA
-			-- pasa a medirse contra el suelo de donde este. Sin esto la camara
-			-- volveria de golpe a la altura con la que se encendio el candado.
+			-- `offset` recomputes itself on the first free tick (the anchoring
+			-- block): with `gz` at nil, whatever height the camera has NOW
+			-- starts being measured against the ground of wherever it is.
+			-- Without this the camera would jump straight back to the height it
+			-- had when the lock was switched on.
 			st.gz, st.gstep, st.buried = nil, 0, 0
 			Repaint()
-			ns.Print("|cff33ccffcamara RTS:|r candado |cffff8800SUELTO|r.")
+			ns.Print("|cff33ccffRTS camera:|r lock |cffff8800OFF|r.")
 		end
 		return true
 	end
 
 	local hx, hy, hz = HeroPos()
 	if not hx then
-		ns.Print("|cffff0000camara RTS:|r el DLL no publica la posicion de tu heroe.")
+		ns.Print("|cffff0000RTS camera:|r the DLL is not publishing your hero position.")
 		return false
 	end
 	if not st.x then
-		ns.Print("|cffff0000camara RTS:|r la camara no tiene sitio todavia.")
+		ns.Print("|cffff0000RTS camera:|r the camera has no place yet.")
 		return false
 	end
 
-	-- EL ENCUADRE SE CAPTURA, NO SE ELIGE. La distancia y la direccion son las
-	-- que haya en pantalla en este instante: encender el candado no debe mover
-	-- ni un pixel, solo dejar de soltar.
+	-- THE FRAMING IS CAPTURED, NOT CHOSEN. The distance and the direction are
+	-- whatever is on screen at this instant: switching the lock on must not move
+	-- a single pixel, only stop letting go.
 	st.ax, st.ay, st.az = hx, hy, hz
 	st.ox, st.oy, st.oz = st.x - hx, st.y - hy, st.z - hz
 	self.lock = true
 	Repaint()
-	ns.Print(("|cff33ccffcamara RTS:|r candado |cff00ff00PUESTO|r a %.1f yd del heroe."):format(
+	ns.Print(("|cff33ccffRTS camera:|r lock |cff00ff00ON|r at %.1f yd from the hero."):format(
 		math.sqrt(st.ox * st.ox + st.oy * st.oy + st.oz * st.oz)))
 	return true
 end
@@ -1018,20 +1026,20 @@ function F:ToggleLock()
 	return self:SetLock(not self.lock)
 end
 
---- LA PRIMERA PERSONA -----------------------------------------------------
+--- FIRST PERSON -----------------------------------------------------------
 --
--- La camara se mete en la cabeza del heroe y se queda ahi. Lo unico que hace
--- falta decidir aqui es POR DONDE SE ENTRA -- el sitio y hacia donde se mira --
--- porque a partir del frame siguiente lo lleva todo `Follow`.
+-- The camera goes into the hero head and stays there. The only thing that has
+-- to be decided here is WHERE YOU COME IN -- the spot and which way you look --
+-- because from the next frame onwards `Follow` carries the whole thing.
 --
--- ENTRAR TIENE QUE SER INSTANTANEO, no un viaje. Si esto se limitara a poner
--- las banderas, la camara viajaria desde donde estuviera hasta la cabeza
--- arrastrada por el suavizado del ancla -- cien yardas de vuelo desde la vista
--- de pajaro -- que se ve como que el modo tarda en arrancar. Se escribe la
--- posicion entera aqui mismo y se aplica en el acto.
+-- COMING IN HAS TO BE INSTANT, not a journey. If this did no more than set the
+-- flags, the camera would travel from wherever it was to the head dragged along
+-- by the anchor smoothing -- a hundred yards of flight from the bird eye view --
+-- which reads as the mode being slow to start. The whole position is written
+-- right here and applied on the spot.
 function F:SetEyes(on)
 	if not self.active then
-		ns.Print("|cffff8800camara RTS:|r la camara libre no esta activa.")
+		ns.Print("|cffff8800RTS camera:|r the free camera is not active.")
 		return false
 	end
 
@@ -1039,13 +1047,14 @@ function F:SetEyes(on)
 		if self.eyes then
 			self.eyes = false
 			self.lock = false
-			-- Con `gz` a nil el primer tick libre mide el suelo de DONDE ESTA la
-			-- camara (la cabeza del heroe) en vez de traerse el de antes de
-			-- entrar: si no, salir de primera persona seria un salto de altura.
+			-- With `gz` at nil the first free tick measures the ground of WHERE
+			-- THE CAMERA IS (the hero head) instead of bringing along the one
+			-- from before coming in: otherwise, leaving first person would be a
+			-- jump in height.
 			st.gz, st.gstep, st.buried = nil, 0, 0
 			Repaint()
-			ns.Print("|cff33ccffcamara RTS:|r primera persona |cffff8800FUERA|r " ..
-				"|cff888888(la camara se queda donde estaba la cabeza)|r.")
+			ns.Print("|cff33ccffRTS camera:|r first person |cffff8800OUT|r " ..
+				"|cff888888(the camera stays where the head was)|r.")
 		end
 		return true
 	end
@@ -1060,32 +1069,32 @@ function F:SetEyes(on)
 	st.ax, st.ay, st.az = hx, hy, hz
 	st.ox, st.oy, st.oz = 0, 0, c.eyeH
 	st.x, st.y, st.z = hx, hy, hz + c.eyeH
-	-- La velocidad del plano se tira a la basura: con las teclas desconectadas
-	-- no hay quien la frene, asi que un W a medio soltar al entrar se quedaria
-	-- guardado y saldria de golpe al salir.
+	-- The plane velocity is thrown away: with the keys disconnected there is
+	-- nobody to brake it, so a half-released W on the way in would be kept and
+	-- would come out all at once on the way back.
 	st.vx, st.vy = 0, 0
 	st.gz, st.gstep, st.buried = nil, 0, 0
 
-	-- HACIA DONDE MIRA EL HEROE, Y SOLO AL ENTRAR. Despues es del jugador: no
-	-- se vuelve a tocar el yaw ni un frame mas, que es la mitad de lo que se
-	-- pidio -- "que despues se pueda reorientar".
+	-- WHICH WAY THE HERO IS FACING, AND ONLY ON THE WAY IN. After that it is the
+	-- player's: the yaw is not touched again for a single frame more, which is
+	-- half of what was asked for -- "that afterwards you can reorient".
 	local yaw = (type(RTS_PF) == "number") and YawForWorld(RTS_PF) or nil
 	if yaw then st.yaw = yaw end
-	-- Al horizonte. Un heroe no entra mirandose los pies, y la inclinacion de
-	-- la camara RTS (45 grados hacia abajo de fabrica) ahi dentro es el suelo.
+	-- To the horizon. A hero does not come in looking at his feet, and the tilt
+	-- of the RTS camera (45 degrees down out of the box) in there is the floor.
 	st.pitch = 0
 
 	self.lock = true
 	self.eyes = true
 	Repaint()
 	ns.Camera:SpecPlace(st.x, st.y, st.z, st.yaw, st.pitch, nil)
-	ns.Print(("|cff33ccffcamara RTS:|r |cff00ff00vista del heroe|r, %.1f yd sobre sus pies."):format(c.eyeH))
+	ns.Print(("|cff33ccffRTS camera:|r |cff00ff00hero view|r, %.1f yd above his feet."):format(c.eyeH))
 	if not yaw then
-		ns.Print("  |cffff8800No se hacia donde mira|r: gira la camara un momento " ..
-			"y vuelve a entrar (|cffffff00/rts fc|r lo explica).")
+		ns.Print("  |cffff8800I do not know which way he faces|r: turn the camera " ..
+			"for a moment and come back in (|cffffff00/rts fc|r explains it).")
 	end
-	ns.Print("  |cff888888El raton y Q/E giran, W/A/S/D retocan el sitio y " ..
-		"ESPACIO/C la altura. Te lleva el heroe.|r")
+	ns.Print("  |cff888888The mouse and Q/E turn, W/A/S/D adjust the spot and " ..
+		"SPACE/C the height. The hero carries you.|r")
 	return true
 end
 
@@ -1095,36 +1104,38 @@ end
 
 function F:Step(dt)
 	if not self.active then return end
-	-- Un frame perdido (carga de zona, alt-tab) puede traer un dt enorme, y
-	-- con el la camara pega un salto. Se acota: mas vale ir un poco lento un
-	-- frame que teletransportarse.
+	-- A lost frame (zone load, alt-tab) can bring in a huge dt, and with it the
+	-- camera jumps. It is clamped: better to run a little slow for one frame
+	-- than to teleport.
 	if dt <= 0 then return end
 	if dt > 0.1 then dt = 0.1 end
 
 	local c = Cfg()
 
-	-- PRIMERO los angulos vivos, DESPUES nuestras teclas. Al reves, el giro de
-	-- Q/E de este frame se perderia: la adopcion sobreescribe el yaw entero.
+	-- FIRST the live angles, THEN our keys. The other way round, this frame Q/E
+	-- turning would be lost: the adoption overwrites the whole yaw.
 	AdoptLook()
-	-- JUSTO DESPUES DE ADOPTAR y antes de que Q/E toquen nada: aqui `st.yaw` es
-	-- todavia el yaw VIVO de la camara, que es el unico que se puede comparar
-	-- con el adelante que publica el DLL. Un frame mas tarde ya seria el yaw que
-	-- vamos a pedir, y la medida compararia dos instantes distintos.
+	-- RIGHT AFTER ADOPTING and before Q/E touch anything: here `st.yaw` is still
+	-- the LIVE yaw of the camera, which is the only one that can be compared with
+	-- the forward the DLL publishes. One frame later it would already be the yaw
+	-- we are about to ask for, and the measurement would be comparing two
+	-- different instants.
 	CalibrateYaw()
 	local mouseLeft, mouseRight = MouseButtons()
 
-	-- --- giro ---------------------------------------------------------
-	-- Q y E VAN AL REVES QUE ANTES, a peticion del jugador (2026-09-10).
+	-- --- turning ------------------------------------------------------
+	-- Q AND E GO THE OTHER WAY THAN BEFORE, at the player request (2026-09-10).
 	--
-	-- Se invierte AQUI y no cambiando el defecto de `yawSign`, que era lo obvio
-	-- y no habria hecho nada: ese ajuste ya esta guardado a 1 en las
-	-- SavedVariables, y lo guardado gana al defecto. Cambiar un valor por
-	-- defecto solo alcanza a quien todavia no lo tiene escrito -- la misma
-	-- trampa que dejo el `pitch` sin efecto cuando cambio de significado.
+	-- It is inverted HERE and not by changing the `yawSign` default, which was
+	-- the obvious thing and would have done nothing: that setting is already
+	-- saved as 1 in the SavedVariables, and what is saved beats the default.
+	-- Changing a default value only reaches whoever does not have it written
+	-- down yet -- the same trap that left `pitch` with no effect when it changed
+	-- meaning.
 	--
-	-- `yawSign` sigue significando lo mismo (**-1 si te sale al reves**), asi
-	-- que el mando no cambia de sentido bajo los pies de nadie: lo que cambia es
-	-- hacia donde gira el sentido "normal".
+	-- `yawSign` still means the same thing (**-1 if it comes out backwards**), so
+	-- the dial does not change direction under anybody feet: what changes is
+	-- which way the "normal" direction turns.
 	local turn = 0
 	if input.yawL then turn = turn + 1 end
 	if input.yawR then turn = turn - 1 end
@@ -1132,15 +1143,16 @@ function F:Step(dt)
 		st.yaw = (st.yaw + turn * c.yawSign * c.turn * dt) % 360
 	end
 
-	-- --- desplazamiento en el plano -----------------------------------
+	-- --- movement on the plane ----------------------------------------
 	local wantX, wantY = 0, 0
 	local mx, my = 0, 0
 	if input.fwd then my = my + 1 end
 	if input.back then my = my - 1 end
-	-- IZQUIERDO + DERECHO AVANZA, el gesto de siempre. Los botones vienen del
-	-- DLL y no de `IsMouseButtonDown`, que miente durante el arrastre. Va aqui
-	-- y no en un sitio aparte porque es una entrada mas del mismo solver: asi
-	-- avanzar con el raton y girar a la vez sale gratis, en el mismo frame.
+	-- LEFT + RIGHT MOVES FORWARD, the same old gesture. The buttons come from the
+	-- DLL and not from `IsMouseButtonDown`, which lies during the drag. It goes
+	-- here and not somewhere separate because it is one more input to the same
+	-- solver: that way moving with the mouse and turning at once comes free, on
+	-- the same frame.
 	if mouseLeft and mouseRight then my = my + 1 end
 	if input.right then mx = mx + 1 end
 	if input.left then mx = mx - 1 end
@@ -1630,7 +1642,7 @@ end
 -- velocidad del plano (`vx`,`vy`) o la camara sale disparada al llegar.
 function F:Home()
 	if not self.active then
-		ns.Print("|cffff8800camara RTS:|r la camara libre no esta activa.")
+		ns.Print("|cffff8800RTS camera:|r the free camera is not active.")
 		return false
 	end
 	if RTS_HasPos ~= 1 or not RTS_PX then

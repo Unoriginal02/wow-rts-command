@@ -30,12 +30,13 @@ struct Cached {
     uint32_t obj;
     uint32_t nextTry;    // GetTickCount() before which a miss is not retried
 };
-// SUBE DE 4 A 8. Con la cache llena un nombre nuevo sigue resolviendo -- se le
-// hace la busqueda cada vez -- asi que no era un fallo, pero si una busqueda por
-// tick a 67 Hz para el ultimo canal que entrara. Cuatro se quedo corto en cuanto
-// hubo `enablePVPNotifyAFK`, `rtsFov` y `rtsBody`. Se queda en 8 aunque el
-// corte seccional -- el cuarto canal que lo motivo -- se haya descartado: el
-// hueco no cuesta nada y volver a subirlo si costaria otro ciclo de cliente.
+// RAISED FROM 4 TO 8. With the cache full a new name still resolves -- it is
+// looked up every time -- so it was not a bug, but it was one lookup per tick at
+// 67 Hz for the last channel to arrive. Four fell short as soon as there were
+// `enablePVPNotifyAFK`, `rtsFov` and `rtsBody`. It stays at 8 even though the
+// section cut -- the fourth channel, the one that motivated it -- has been
+// dropped: the spare slot costs nothing and raising it again WOULD cost another
+// client cycle.
 constexpr int kMaxCached = 8;
 constexpr uint32_t kRetryMs = 1000;
 Cached g_cache[kMaxCached] = {};
@@ -67,8 +68,8 @@ uint32_t Find(const char* name) {
     }
 
     if (slot) {
-        if (slot->obj) return slot->obj;                 // resuelto: nada que hacer
-        if (now < slot->nextTry) return 0;               // fallo hace poco
+        if (slot->obj) return slot->obj;                 // resolved: nothing to do
+        if (now < slot->nextTry) return 0;               // missed recently
         slot->obj = LookupUncached(name);
         slot->nextTry = now + kRetryMs;
         if (slot->obj)

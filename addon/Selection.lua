@@ -17,22 +17,22 @@ ns.Selection = S
 S.selected = {}      -- array of names, ordered
 S.listeners = {}
 
--- EL PRIMARIO: DE QUIEN ES LA BARRA DE HABILIDADES, que NO es lo mismo que a
--- quien van las ordenes.
+-- THE PRIMARY: WHOSE SKILL BAR THIS IS, which is NOT the same thing as who the
+-- orders go to.
 --
--- Del video: *"if we hit tab, we get the command bar for the next person in the
--- group WITHOUT DESELECTING"*. Son dos conceptos y hasta ahora aqui solo habia
--- uno: la seleccion decidia las dos cosas, asi que ver las habilidades del mago
--- obligaba a dejar de mandar sobre el grupo.
+-- From the video: *"if we hit tab, we get the command bar for the next person in
+-- the group WITHOUT DESELECTING"*. Those are two concepts and until now there
+-- was only one here: the selection decided both, so looking at the mage's skills
+-- meant giving up commanding the group.
 --
--- Separarlos es lo que hace posible el gesto de RTS de verdad: el grupo entero
--- cogido y atacando, y tu hojeando las habilidades de cada uno con Tab para
--- lanzar UNA cosa concreta sin soltar a nadie.
+-- Separating them is what makes the real RTS gesture possible: the whole group
+-- held and attacking, and you leafing through each one's skills with Tab to cast
+-- ONE particular thing without letting go of anybody.
 --
--- La regla de coherencia, y es lo unico delicado: **seleccionar a UNO le hace
--- primario**. Si no, pinchar un bot ensenaria las habilidades de otro, que se
--- lee como que la barra esta rota. Seleccionar a VARIOS no toca el primario:
--- ahi el jugador no ha dicho nada sobre quien le interesa.
+-- The consistency rule, and it is the only delicate part: **selecting ONE makes
+-- them primary**. Otherwise clicking a bot would show somebody else's skills,
+-- which reads as the bar being broken. Selecting SEVERAL does not touch the
+-- primary: there the player has said nothing about who interests them.
 S.primary = nil
 
 --- Roster ------------------------------------------------------------------
@@ -56,10 +56,10 @@ function S:GetRoster()
 		for i = 1, GetNumPartyMembers() do
 			local unit = "party" .. i
 			if UnitExists(unit) then
-				-- SE APUNTA LA CLASE DE CADA COMPANERO AL PASAR. Es lo que
-				-- permite saber la TUYA despues de un cambio de personaje: el
-				-- que ahora eres estaba aqui hace un segundo, y para un
-				-- `partyN` el cliente si mira el objeto. Ver `ns.MyClass`.
+				-- EVERY PARTY MEMBER'S CLASS IS NOTED IN PASSING. It is what
+				-- makes YOURS knowable after a character swap: whoever you
+				-- are now was here a second ago, and for a `partyN` the
+				-- client does look at the object. See `ns.MyClass`.
 				local n = UnitName(unit)
 				ns.NoteClass(n, unit)
 				tinsert(roster, { name = n, unit = unit })
@@ -83,19 +83,19 @@ function S:GetRosterWithPlayer()
 	return roster
 end
 
--- LA MISMA LISTA CON EL HEROE EL PRIMERO, que es lo que pide §3/§6 del brief:
--- *"el heroe activo es siempre el primer item de la lista"*.
+-- THE SAME LIST WITH THE HERO FIRST, which is what §3/§6 of the brief asks for:
+-- *"the active hero is always the first item in the list"*.
 --
--- No sustituye a `GetRosterWithPlayer`, que deja al jugador el ULTIMO a
--- proposito -- ahi el orden lo fijan las teclas de control de grupo que los
--- dedos ya tienen aprendidas, y cambiarlo movería los bots un sitio. Esta es
--- para DIBUJAR, donde lo que manda es que el heroe se lea primero.
+-- It does not replace `GetRosterWithPlayer`, which leaves the player LAST on
+-- purpose -- there the order is fixed by the control-group keys your fingers
+-- have already learnt, and changing it would shift the bots along by one. This
+-- one is for DRAWING, where what matters is that the hero reads first.
 --
--- Y "el heroe" es quien seas AHORA, no con quien entraste: despues de un cambio
--- de personaje el primero de la lista es el nuevo. `ns.MyName()` es el unico
--- sitio que contesta eso bien -- `UnitName("player")` sale de un buffer que
--- solo rellena la pantalla de seleccion y se queda con el nombre de la sesion
--- para siempre.
+-- And "the hero" is whoever you are NOW, not who you logged in as: after a
+-- character swap the first in the list is the new one. `ns.MyName()` is the only
+-- place that answers that correctly -- `UnitName("player")` comes out of a
+-- buffer that only the character-selection screen fills in, and it keeps the
+-- session's name forever.
 function S:GetRosterHeroFirst()
 	local out = { { name = ns.MyName(), unit = "player", isPlayer = true } }
 	for _, m in ipairs(self:GetRoster()) do
@@ -107,16 +107,16 @@ end
 -- name -> unit token, or nil if they left the group.
 -- In RTS mode your own character is selectable, so the player matches too.
 --
--- EL GRUPO SE MIRA PRIMERO, Y EL ORDEN ES EL ARREGLO. Antes se comparaba con
--- `ns.MyName()` antes que nada, y eso convierte cualquier coincidencia de
--- nombre en "ese eres tu". Despues de un cambio de personaje hay un compañero
--- que se llama como te llamabas -- es literalmente el heroe que acabas de dejar,
--- que vuelve de bot -- asi que pinchar a ESE bot resolvia a `player`.
+-- THE GROUP IS LOOKED AT FIRST, AND THE ORDER IS THE FIX. It used to compare
+-- against `ns.MyName()` before anything else, and that turns any name collision
+-- into "that one is you". After a character swap there is a party member called
+-- what you used to be called -- it is literally the hero you have just left,
+-- back as a bot -- so clicking THAT bot resolved to `player`.
 --
--- El sintoma no se parecia a la causa: seleccionabas al bot y quedabais
--- seleccionados los dos, y el boton de Control decia "selecciona a un compañero
--- primero" sobre alguien que si lo era. Con el grupo delante, un nombre que este
--- en el grupo resuelve a su unidad del grupo, que es lo unico que puede ser.
+-- The symptom looked nothing like the cause: you selected the bot and ended up
+-- with both of you selected, and the Control button said "select a party member
+-- first" about someone who was one. With the group first, a name that is in the
+-- group resolves to its group unit, which is the only thing it can be.
 function S:UnitFor(name)
 	for _, m in ipairs(self:GetRoster()) do
 		if m.name == name then return m.unit end
@@ -160,32 +160,32 @@ function S:Set(names)
 	for _, n in ipairs(names or {}) do
 		tinsert(self.selected, n)
 	end
-	-- Uno solo: ese pasa a ser el primario. Varios o ninguno: el primario se
-	-- queda como estaba, salvo que ya no este en el grupo (`Prune` lo revisa).
+	-- Just one: that one becomes the primary. Several or none: the primary stays
+	-- as it was, unless it is no longer in the group (`Prune` checks that).
 	if #self.selected == 1 then
 		self.primary = self.selected[1]
 	end
 	self:Notify()
 end
 
---- El primario -------------------------------------------------------------
+--- The primary -------------------------------------------------------------
 
 function S:GetPrimary()
-	-- Sin primario elegido, el tuyo. Es lo que hace que la fila de habilidades
-	-- nunca este vacia nada mas entrar.
+	-- With no primary chosen, yours. It is what keeps the skill row from ever
+	-- being empty the moment you walk in.
 	if self.primary then return self.primary end
 	return ns.MyName()
 end
 
--- SIN LLAMANTE DESDE LA 0.77.0, y dicho aqui para que no se busque uno.
+-- NO CALLER SINCE 0.77.0, and said here so nobody goes looking for one.
 --
--- El unico gesto que lo usaba era el click derecho sobre una fila del grupo, y
--- `PRUEBAS-23` A5 lo mando quitar. El primario se pone solo, en `Set`, cuando
--- hay exactamente uno seleccionado.
+-- The only gesture that used it was the right-click on a group row, and
+-- `PRUEBAS-23` A5 ordered that removed. The primary sets itself, in `Set`, when
+-- there is exactly one unit selected.
 --
--- Se queda porque es inerte: un `set` que nadie llama no puede armarse a si
--- mismo, que es la diferencia con la retencion de altura de camara -- aquella
--- tenia su interruptor GUARDADO en las SavedVariables y se encendia sola.
+-- It stays because it is inert: a `set` nobody calls cannot arm itself, which is
+-- the difference with the camera height hold -- that one had its switch SAVED in
+-- the SavedVariables and turned itself back on.
 function S:SetPrimary(name)
 	if not name or self.primary == name then return end
 	self.primary = name
@@ -218,21 +218,21 @@ function S:Toggle(name)
 	if self:IsSelected(name) then self:Remove(name) else self:Add(name) end
 end
 
---- El gesto de seleccionar, en un solo sitio ------------------------------
+--- The select gesture, in one place -----------------------------------------
 --
--- Click = solo esa, shift o ctrl = sumar, DOBLE CLICK = todas. Lo usan las
--- filas del grupo, el retrato del heroe y sus barras, o sea todos los sitios de
--- la consola donde se puede pinchar una unidad.
+-- Click = that one only, shift or ctrl = add, DOUBLE CLICK = all of them. Used
+-- by the group rows, the hero portrait and its bars, which is to say every
+-- place in the console where a unit can be clicked.
 --
--- ESTA AQUI Y NO EN CADA PANEL porque si no la ventana del doble click seria de
--- cada panel por separado: pinchar un bot en su fila y luego el retrato del
--- heroe contaria como doble click en dos sitios distintos a la vez. Con un solo
--- reloj y un solo nombre, dos clicks solo son un doble click si son sobre LA
--- MISMA unidad, que es lo que espera cualquiera.
+-- IT IS HERE AND NOT IN EACH PANEL because otherwise the double-click window
+-- would belong to each panel separately: clicking a bot in its row and then the
+-- hero portrait would count as a double click in two different places at once.
+-- With a single clock and a single name, two clicks are only a double click if
+-- they are on THE SAME unit, which is what anybody expects.
 --
--- WoW no da evento de doble click en estos frames, asi que se mide a mano. La
--- ventana es la misma que usa el mundo en RTSMode.lua, algo por debajo del
--- medio segundo de Windows para que dos ordenes seguidas no se confundan.
+-- WoW gives no double-click event on these frames, so it is measured by hand.
+-- The window is the same one the world uses in RTSMode.lua, a little under
+-- Windows' half second so two orders in a row are not confused for one.
 local DOUBLE_CLICK = 0.40
 local lastName, lastAt
 
@@ -248,7 +248,7 @@ function S:Click(name)
 	local now = GetTime()
 	if lastName == name and lastAt and (now - lastAt) < DOUBLE_CLICK then
 		self:SelectAll()
-		lastName, lastAt = nil, nil     -- que un triple click no reabra la cuenta
+		lastName, lastAt = nil, nil     -- so a triple click does not reopen it
 		return
 	end
 
@@ -272,30 +272,31 @@ function S:SelectAll()
 end
 
 -- Drop anyone who has left the group. Called on roster events.
--- ERES OTRO. Se llama al entrar en el mundo, que con el cambio de personaje ya
--- no significa solo "acabo de conectarme".
+-- YOU ARE SOMEBODY ELSE. Called on entering the world, which with character
+-- swapping no longer only means "I have just logged in".
 --
--- `Prune` no sirve para esto y por eso hace falta esta: `Prune` quita lo que ya
--- no esta en el grupo, y despues de un cambio **lo seleccionado si esta** -- es
--- justo el compañero al que acabas de saltar, que ahora eres tu. La seleccion
--- sobrevivia entera y el sintoma no se parecia a la causa:
+-- `Prune` is no use for this and that is why this one is needed: `Prune` drops
+-- whatever is no longer in the group, and after a swap **what is selected IS
+-- there** -- it is precisely the party member you just jumped into, who is now
+-- you. The selection survived intact and the symptom looked nothing like the
+-- cause:
 --
---   * seleccionabas a Avy para saltar a el; al llegar, `selected` seguia siendo
---     {Avy}, o sea TU MISMO. Pinchar entonces a Neferite dejaba dos
---     seleccionados -- "nos selecciona a ambos" -- sin que nada lo explicara.
---   * y con dos seleccionados el boton de Control usa el PRIMARIO, que era Avy,
---     que ahora eres tu: "selecciona a un compañero primero". O sea que
---     **saltar a un personaje impedia volver a el**, que se lee como que ese
---     personaje esta prohibido y no como una seleccion vieja.
+--   * you selected Avy to jump into him; on arrival, `selected` was still
+--     {Avy}, that is to say YOURSELF. Clicking Neferite then left two selected
+--     -- "it selects us both" -- with nothing to explain it.
+--   * and with two selected the Control button uses the PRIMARY, which was Avy,
+--     who is now you: "select a party member first". Which is to say that
+--     **jumping into a character stopped you coming back to him**, which reads
+--     as that character being forbidden and not as a stale selection.
 --
--- Un nombre no basta para identificar nada aqui: la unica pregunta segura es si
--- el personaje que la sesion tiene ahora es el mismo de antes.
+-- A name is not enough to identify anything here: the only safe question is
+-- whether the character the session has now is the same one as before.
 function S:IdentityChanged()
-	-- POR GUID Y NO POR NOMBRE. El nombre es lo primero que hay que dejar de
-	-- creerse aqui: es lo que puede estar contando la version vieja de la
-	-- historia, y ademas puede repetirse con un compañero. El guid sale del
-	-- gestor de objetos del cliente, que es el mismo campo que escribe el
-	-- `UPDATEFLAG_SELF` -- o sea la definicion de a quien estas jugando.
+	-- BY GUID AND NOT BY NAME. The name is the first thing to stop believing
+	-- here: it is what may be telling the old version of the story, and on top
+	-- of that it can be shared with a party member. The guid comes out of the
+	-- client's object manager, which is the same field `UPDATEFLAG_SELF` writes
+	-- -- that is to say, the definition of who you are playing.
 	local me = UnitGUID("player")
 	if not me or self.owner == me then return end
 
@@ -314,9 +315,9 @@ function S:Prune()
 		if present[n] then tinsert(keep, n) else changed = true end
 	end
 
-	-- El primario tambien se va si se fue del grupo. Sin esto, la fila de
-	-- habilidades se quedaria ensenando las de un bot que ya no esta, y sus
-	-- botones mandarian ordenes que el servidor rechaza en silencio.
+	-- The primary goes too if it left the group. Without this, the skill row
+	-- would go on showing those of a bot that is no longer there, and its
+	-- buttons would send orders the server rejects in silence.
 	if self.primary and not present[self.primary] then
 		self.primary = nil
 		changed = true

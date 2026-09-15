@@ -1,30 +1,30 @@
--- Body.lua -- LA SONDA DEL CUERPO. Instrumento, no funcion.
+-- Body.lua -- THE BODY PROBE. An instrument, not a feature.
 --
--- El heroe se vuelve invisible en cuanto su jugador lleva PLAYER_FLAGS_UBER,
--- que es uno de los dos flags que abren la camara de comentarista. La cadena
--- esta desensamblada de ESTE Wow.exe y escrita en `rts-client-mod/src/
--- Offsets.h`; el resumen es que un "emite esta unidad" por unidad
--- (0x0073A890) le pregunta a 0x006DE980 con ESE jugador y se salta la emision
--- si contesta que si. Los bots no llevan los flags: por eso desaparece el tuyo
--- y ellos no, y por eso forzar el predicado el 2026-09-08 escondio a todos.
+-- The hero goes invisible the moment his player carries PLAYER_FLAGS_UBER,
+-- which is one of the two flags that open the commentator camera. The chain is
+-- disassembled from THIS Wow.exe and written up in `rts-client-mod/src/
+-- Offsets.h`; the summary is that a per-unit "emit this unit" (0x0073A890)
+-- asks 0x006DE980 about THAT player and skips the emission if it says yes. The
+-- bots do not carry the flags: that is why yours disappears and they do not,
+-- and why forcing the predicate on 2026-09-08 hid everybody.
 --
--- Este fichero no arregla nada. Contesta dos preguntas, cada una con su
--- interruptor, para poder decidir la forma de la cura ANTES de construirla:
+-- This file fixes nothing. It answers two questions, each with its own switch,
+-- so the shape of the cure can be decided BEFORE building it:
 --
---   /rts body flags on    ¿bastan los flags, sin servidor ni camara de por
---                         medio, para que el heroe desaparezca?
---   /rts body skip on     con los flags puestos, ¿reaparece anulando ESE
---                         salto -- dos bytes, un solo sitio de llamada?
+--   /rts body flags on    are the flags enough, with no server and no camera
+--                         in between, to make the hero disappear?
+--   /rts body skip on     with the flags set, does he come back by cancelling
+--                         THAT jump -- two bytes, a single call site?
 --
--- Las dos combinaciones que importan:
---   1  -> flags puestos, sin parche   => se espera heroe INVISIBLE
---   5  -> flags puestos, con parche   => si el heroe se VE, la cura son 2 bytes
---   2  -> flags borrados cada tick    => el deshacer, y la prueba de la otra
---                                        cura posible (la ventana de flags)
+-- The two combinations that matter:
+--   1  -> flags set, no patch      => hero expected to be INVISIBLE
+--   5  -> flags set, with patch    => if the hero SHOWS, the cure is 2 bytes
+--   2  -> flags cleared every tick => the undo, and the test of the other
+--                                     possible cure (the flags window)
 --
--- Va apagado de fabrica y no se guarda en disco A PROPOSITO. Una sonda con su
--- interruptor guardado es el `camHold` del 2026-08-23: la funcion se escondio,
--- el ajuste sobrevivio, y se rearmaba sola en cada sesion.
+-- It ships off and it is NOT saved to disk ON PURPOSE. A probe with its switch
+-- saved is the `camHold` of 2026-08-23: the feature went into hiding, the
+-- setting survived, and it re-armed itself every session.
 
 local ADDON, ns = ...
 
@@ -38,23 +38,23 @@ local FLAGS_OFF = 2
 local SKIP      = 4
 local REPORT    = 8
 local INVERT    = 16
-local UBER_ONLY = 32    -- solo el bit 19, sin el 22
-local COMM_ONLY = 64    -- solo el bit 22, sin el 19
-local NO_FIX    = 8192  -- desarmar el arreglo automatico (para volver a ver el fallo)
-local BLINK_OFF = 16384 -- apagar el parpadeo. CANDIDATO, no cura
-local ACT_FIX   = 32768 -- devolver "puedo atacar" (el bit 19 lo veta)
+local UBER_ONLY = 32    -- just bit 19, without 22
+local COMM_ONLY = 64    -- just bit 22, without 19
+local NO_FIX    = 8192  -- disarm the automatic fix (to see the bug again)
+local BLINK_OFF = 16384 -- turn off the blink. CANDIDATE, not a cure
+local ACT_FIX   = 32768 -- give back "I can attack" (bit 19 vetoes it)
 
--- Se crea si no esta. `SetCVar` sobre un nombre que no existe NO DA ERROR: no
--- hace nada. Es como el canal del FOV llevaba tres etapas fallando en silencio,
--- asi que aqui se comprueba y se canta.
+-- Created if it is not there. `SetCVar` on a name that does not exist IS NOT AN
+-- ERROR: it does nothing. It is how the FOV channel spent three stages failing
+-- in silence, so here it is checked and called out.
 local function Ensure()
 	if GetCVar(CVAR) ~= nil then return true end
 	if type(RegisterCVar) == "function" then
 		RegisterCVar(CVAR, "0")
 	end
 	if GetCVar(CVAR) ~= nil then return true end
-	ns.Print("|cffff0000body:|r no puedo crear el CVar |cffffff00" .. CVAR ..
-	         "|r; la sonda no puede hablar con el DLL.")
+	ns.Print("|cffff0000body:|r cannot create the CVar |cffffff00" .. CVAR ..
+	         "|r; the probe cannot talk to the DLL.")
 	return false
 end
 
@@ -83,10 +83,10 @@ local function Has(v, mask)
 	return v % (mask * 2) >= mask
 end
 
--- El codigo de sitio viaja en los bits 7+ del CVar. Estas viven aqui arriba
--- porque `B:Report` las usa y `B:Sites` esta doscientas lineas mas abajo: la
--- version anterior las declaraba junto a `B:Sites` y `check_addon.py` la paro
--- en seco -- una era una llamada a nil y la otra una global muda.
+-- The site code travels in bits 7+ of the CVar. These live up here because
+-- `B:Report` uses them and `B:Sites` is two hundred lines further down: the
+-- previous version declared them next to `B:Sites` and `check_addon.py` stopped
+-- it dead -- one was a call to nil and the other a mute global.
 local SITE_SHIFT = 128    -- 2^7
 local SITES_ALL  = 63
 
@@ -102,58 +102,58 @@ end
 
 function B:Report()
 	if GetCVar(CVAR) == nil then
-		ns.Print("|cffff0000body:|r el CVar |cffffff00" .. CVAR ..
-		         "|r no existe todavia.")
+		ns.Print("|cffff0000body:|r the CVar |cffffff00" .. CVAR ..
+		         "|r does not exist yet.")
 		return
 	end
 	local v = Get()
 	local dll = (RTS_Ready == 1)
-	ns.Print(("body: modo |cffffff00%d|r  flags=%s  parche=%s  informe=%s  DLL=%s"):format(
+	ns.Print(("body: mode |cffffff00%d|r  flags=%s  patch=%s  report=%s  DLL=%s"):format(
 		v,
-		Has(v, FLAGS_OFF) and "|cffff8000BORRAR|r"
-			or (Has(v, UBER_ONLY) and "|cff00ff00SOLO UBER|r"
-			or (Has(v, COMM_ONLY) and "|cff00ff00SOLO COMM|r"
-			or (Has(v, FLAGS_ON) and "|cff00ff00PONER|r" or "no tocar"))),
-		Has(v, SKIP) and "|cff00ff00si|r" or "no",
-		Has(v, REPORT) and "si" or "no",
-		dll and "|cff00ff00inyectado|r" or "|cffff0000AUSENTE|r"))
+		Has(v, FLAGS_OFF) and "|cffff8000CLEAR|r"
+			or (Has(v, UBER_ONLY) and "|cff00ff00UBER ONLY|r"
+			or (Has(v, COMM_ONLY) and "|cff00ff00COMM ONLY|r"
+			or (Has(v, FLAGS_ON) and "|cff00ff00SET|r" or "leave alone"))),
+		Has(v, SKIP) and "|cff00ff00yes|r" or "no",
+		Has(v, REPORT) and "yes" or "no",
+		dll and "|cff00ff00injected|r" or "|cffff0000MISSING|r"))
 	local code = SiteCode(v)
 	if code == SITES_ALL then
-		ns.Print("  sitios del predicado: |cffff8000LOS DIECIOCHO apagados|r")
+		ns.Print("  predicate call sites: |cffff8000ALL EIGHTEEN off|r")
 	elseif code > 0 then
-		ns.Print(("  sitios del predicado: |cffff8000apagado el %d|r"):format(code - 1))
+		ns.Print(("  predicate call sites: |cffff8000number %d off|r"):format(code - 1))
 	end
 	if Has(v, ACT_FIX) then
-		ns.Print("  espada: |cff00ff00veredicto del bit 19 anulado|r (puedes atacar)")
+		ns.Print("  sword: |cff00ff00bit 19 verdict overridden|r (you can attack)")
 	end
 	if not dll then
-		ns.Print("  |cffff0000Sin el DLL la sonda no hace absolutamente nada.|r " ..
-		         "Se abre con 2-Jugar.bat.")
+		ns.Print("  |cffff0000Without the DLL the probe does absolutely nothing.|r " ..
+		         "It opens with 2-Jugar.bat.")
 	end
 end
 
--- ESTAS DOS VIVEN AQUI ARRIBA Y NO JUNTO A `Park`, QUE ES DONDE ESTABAN.
--- `B:Flags` las escribe y el `OnUpdate` las lee; declaradas mas abajo, lo que
--- Flags escribia era una GLOBAL con el mismo nombre y el bucle leia la local,
--- que valia 0 para siempre. O sea: `flags on` NO APARCABA NUNCA la camara y la
--- prueba seguia siendo imposible de mirar -- sin un error, sin una linea en
--- ningun log. Es el fallo de la funcion local usada antes de declararse, pero
--- en variable, que es la version muda: una funcion que aun no existe al menos
--- revienta. `check_addon.py` ahora lo caza (2026-09-09).
+-- THESE TWO LIVE UP HERE AND NOT NEXT TO `Park`, WHICH IS WHERE THEY WERE.
+-- `B:Flags` writes them and the `OnUpdate` reads them; declared further down,
+-- what Flags wrote was a GLOBAL with the same name and the loop read the local,
+-- which was 0 for ever. Which means: `flags on` NEVER PARKED the camera and the
+-- test stayed impossible to look at -- with no error, and no line in any log.
+-- It is the local-used-before-it-is-declared bug, but in a variable, which is
+-- the mute version: a function that does not exist yet at least blows up.
+-- `check_addon.py` now catches it (2026-09-09).
 local parkTries = 0
 local parkNext  = 0
 
--- La comprobacion honesta del aparcado: lo que se PIDIO, para compararlo un
--- tick despues con lo que el DLL lee de la camara de verdad.
+-- The honest check on the parking: what was ASKED FOR, to compare it a tick
+-- later against what the DLL reads off the real camera.
 local checkAt
 local checkX, checkY, checkZ
 
 function B:Flags(on)
 	local v = Get()
-	-- Los modos de un bit son EXCLUYENTES con este: si no se limpiaran, un
-	-- `flags on` detras de un `flags uber` dejaria pedidas las dos cosas y el
-	-- DLL tendria que desempatar. Un interruptor que depende del orden en que
-	-- se tecleo es un interruptor que miente.
+	-- The single-bit modes are MUTUALLY EXCLUSIVE with this one: if they were
+	-- not cleared, a `flags on` after a `flags uber` would leave both things
+	-- asked for and the DLL would have to break the tie. A switch that depends
+	-- on the order you typed it in is a switch that lies.
 	v = Bit(v, UBER_ONLY, false)
 	v = Bit(v, COMM_ONLY, false)
 	if on then
@@ -165,9 +165,9 @@ function B:Flags(on)
 	end
 	Set(v)
 
-	-- La puerta la abre el DLL en su siguiente tick (33 Hz), no aqui, asi que
-	-- aparcar en esta misma linea llegaria antes que el permiso. Se reintenta
-	-- durante dos segundos y se calla hasta que uno cuela.
+	-- The gate is opened by the DLL on its next tick (33 Hz), not here, so
+	-- parking on this very line would arrive before the permission does. It
+	-- retries for two seconds and keeps quiet until one gets through.
 	if on then
 		parkTries = 8
 		parkNext = 0
@@ -176,18 +176,18 @@ function B:Flags(on)
 	end
 end
 
--- UN BIT SOLO, QUE ES LO QUE FALTABA MEDIR.
+-- ONE BIT ON ITS OWN, WHICH IS WHAT WAS MISSING FROM THE MEASUREMENT.
 --
--- `flags on` pone los DOS a la vez, asi que A1 -- "los flags son la causa" --
--- no dice cual de los dos. Y esa diferencia manda: el bit 19 ya tiene un
--- segundo consumidor conocido (`0x00729740`, el predicado de 28 llamantes que
--- mata el mouseover), mientras que el 22 solo lo mira la banda del
--- comentarista. Son dos busquedas distintas.
+-- `flags on` sets BOTH at once, so A1 -- "the flags are the cause" -- does not
+-- say which of the two. And that difference matters: bit 19 already has a
+-- second known consumer (`0x00729740`, the 28-caller predicate that kills the
+-- mouseover), while bit 22 is only looked at by the commentator band. They are
+-- two different searches.
 --
--- LO BUENO DE ESTA PRUEBA ES QUE NO NECESITA LA CAMARA. Un bit solo no abre la
--- puerta del comentarista, asi que la camara se queda donde esta y te miras en
--- tercera persona como siempre. Ni aparcar, ni puerta, ni reintentos: se ve o
--- no se ve.
+-- THE GOOD THING ABOUT THIS TEST IS THAT IT DOES NOT NEED THE CAMERA. One bit
+-- on its own does not open the commentator gate, so the camera stays where it
+-- is and you look at yourself in third person as always. No parking, no gate,
+-- no retries: either you can see yourself or you cannot.
 function B:OneBit(which)
 	local v = Get()
 	v = Bit(v, FLAGS_ON, false)
@@ -195,131 +195,134 @@ function B:OneBit(which)
 	v = Bit(v, UBER_ONLY, which == "uber")
 	v = Bit(v, COMM_ONLY, which == "comm")
 	Set(v)
-	ns.Print(("|cffff8000body:|r solo |cffffff00%s|r. Mirate en tercera persona: " ..
-	          "¿desapareces?"):format(
+	ns.Print(("|cffff8000body:|r just |cffffff00%s|r. Look at yourself in third person: " ..
+	          "do you disappear?"):format(
 		which == "uber" and "PLAYER_FLAGS_UBER (bit 19)"
 		                or "PLAYER_FLAGS_COMMENTATOR2 (bit 22)"))
-	ns.Print("  |cffffff00/rts body flags off|r para volver.")
+	ns.Print("  |cffffff00/rts body flags off|r to come back.")
 end
 
--- APAGAR LOS SITIOS DE LLAMADA DEL PREDICADO, DE UNO EN UNO.
+-- TURNING OFF THE PREDICATE CALL SITES, ONE AT A TIME.
 --
--- `0x006DE980` contesta "este jugador es espectador" y tiene DIECIOCHO sitios
--- de llamada. Forzar el predicado entero ya se probo el 2026-09-08 y dejo la
--- pantalla sin nadie: le decia al cliente que todo jugador era espectador.
--- Apagar UN sitio son cinco bytes, es local, y los otros diecisiete siguen
--- contestando la verdad.
+-- `0x006DE980` answers "this player is a spectator" and has EIGHTEEN call
+-- sites. Forcing the whole predicate was already tried on 2026-09-08 and left
+-- the screen with nobody on it: it was telling the client that every player was
+-- a spectator. Turning off ONE site is five bytes, it is local, and the other
+-- seventeen go on telling the truth.
 --
--- Con los dos flags puestos el heroe SI desaparece -- medido, no supuesto -- o
--- sea que el mecanismo esta vivo delante de nosotros y se puede acorralar:
+-- With both flags set the hero DOES disappear -- measured, not assumed -- which
+-- means the mechanism is alive in front of us and can be cornered:
 --
---   sites all  -> ¿vuelves?  no -> el predicado NO es el mecanismo y se busca
---                            un test de los dos bits escrito a mano en otro
---                            sitio. si -> esta entre los dieciocho, y se parte
---                            por la mitad.
---   site <n>   -> el que te devuelva es EL llamante.
+--   sites all  -> do you come back?  no -> the predicate is NOT the mechanism
+--                            and we go looking for a test of the two bits
+--                            written by hand somewhere else. yes -> it is among
+--                            the eighteen, and we halve it.
+--   site <n>   -> the one that gives you back is THE caller.
 --
--- El codigo viaja en los bits 7+ del mismo CVar. Un solo canal: con dos, una
--- prueba puede quedarse a medias con uno puesto y el otro no, y nada lo dice.
+-- The code travels in bits 7+ of the same CVar. A single channel: with two, a
+-- test can end up half done with one set and the other not, and nothing says so.
 function B:Sites(code)
 	local v = SetSite(Get(), code)
 	Set(v)
 
-	-- SIN LOS FLAGS PUESTOS ESTA PRUEBA NO MIDE NADA, Y LO PEOR ES QUE SALE
-	-- BIEN. El predicado contesta `false` en todas partes cuando no estan los
-	-- dos bits, asi que eres visible igual y CUALQUIER sitio parece devolverte
-	-- el modelo: dieciocho falsos positivos seguidos, todos convincentes.
+	-- WITHOUT THE FLAGS SET THIS TEST MEASURES NOTHING, AND THE WORST OF IT IS
+	-- THAT IT COMES OUT FINE. The predicate answers `false` everywhere when the
+	-- two bits are not there, so you are visible anyway and ANY site looks like
+	-- it gave you your model back: eighteen false positives in a row, every one
+	-- of them convincing.
 	--
-	-- Paso el 2026-09-09: un `reset` entre medias dejo los flags neutros y la
-	-- vuelta entera de sitios 11..18 se corrio sobre un heroe que nunca estuvo
-	-- escondido. El comando obedecia y no medía nada, que es la peor forma de
-	-- fallar. Ahora lo dice.
+	-- It happened on 2026-09-09: a `reset` in between left the flags neutral and
+	-- the whole round of sites 11..18 was run on a hero who had never been
+	-- hidden. The command obeyed and measured nothing, which is the worst way of
+	-- failing. Now it says so.
 	if code ~= 0 and not Has(v, FLAGS_ON) then
-		ns.Print("|cffff0000body: LOS FLAGS NO ESTAN PUESTOS.|r Sin ellos eres " ..
-		         "visible de todas formas y esto no mide nada.")
-		ns.Print("  |cffffff00/rts body flags on|r primero, y luego los sitios: " ..
-		         "el codigo de sitio no toca los flags, asi que se ponen UNA vez.")
+		ns.Print("|cffff0000body: THE FLAGS ARE NOT SET.|r Without them you are " ..
+		         "visible anyway and this measures nothing.")
+		ns.Print("  |cffffff00/rts body flags on|r first, and then the sites: " ..
+		         "the site code does not touch the flags, so they are set ONCE.")
 		return
 	end
 	if code == 0 then
-		ns.Print("body: los dieciocho sitios de llamada devueltos.")
+		ns.Print("body: all eighteen call sites given back.")
 	elseif code == SITES_ALL then
-		ns.Print("|cffff8000body:|r los DIECIOCHO apagados. Con los flags puestos, " ..
-		         "¿vuelve tu modelo?")
-		ns.Print("  |cff00ff00si|r -> el escondite esta entre ellos y lo partimos por la mitad.")
-		ns.Print("  |cffff0000no|r -> el predicado no es el mecanismo. Otra cosa lee los dos bits.")
+		ns.Print("|cffff8000body:|r all EIGHTEEN off. With the flags set, " ..
+		         "does your model come back?")
+		ns.Print("  |cff00ff00yes|r -> the hiding place is among them and we halve it.")
+		ns.Print("  |cffff0000no|r -> the predicate is not the mechanism. Something else reads the two bits.")
 	else
-		ns.Print(("|cffff8000body:|r apagado SOLO el sitio |cffffff00%d|r de 18. " ..
-		          "¿vuelve tu modelo?"):format(code - 1))
+		ns.Print(("|cffff8000body:|r turned off ONLY site |cffffff00%d|r of 18. " ..
+		          "does your model come back?"):format(code - 1))
 	end
-	ns.Print("  el log dice la direccion exacta que se toco.")
+	ns.Print("  the log says the exact address that was touched.")
 end
 
--- EL ARREGLO SE ARMA SOLO, ASI QUE ESTO ES PARA DESARMARLO.
+-- THE FIX ARMS ITSELF, SO THIS IS FOR DISARMING IT.
 --
--- El DLL apaga 0x006E085C en cuanto el jugador LLEVA los dos flags, los haya
--- puesto la sonda o el servidor. Este interruptor existe para poder volver a
--- ver el fallo: una cura sin forma de apagarla no se puede volver a medir el
--- dia que el sintoma cambie de sitio, y entonces lo unico que queda es
--- recompilar a ciegas.
+-- The DLL turns off 0x006E085C as soon as the player CARRIES both flags,
+-- whether the probe or the server set them. This switch exists so the bug can
+-- be seen again: a cure with no way to turn it off cannot be measured again the
+-- day the symptom moves, and then all that is left is recompiling blind.
 function B:NoFix(on)
 	Set(Bit(Get(), NO_FIX, on and true or false))
-	ns.Print(on and "|cffff8000body:|r arreglo DESARMADO -- vuelves a ser invisible con los flags."
-	             or "|cff00ff00body:|r arreglo armado (es lo normal).")
+	ns.Print(on and "|cffff8000body:|r fix DISARMED -- you go back to being invisible with the flags."
+	             or "|cff00ff00body:|r fix armed (this is the normal state).")
 end
 
--- EL PARPADEO, Y ARRANCA APAGADO PORQUE ES UN CANDIDATO.
+-- THE BLINK, AND IT STARTS OFF BECAUSE IT IS A CANDIDATE.
 --
--- Con los flags puestos, el resalte del raton y el circulo de destino parpadean
--- a la vez, y el circulo alterna entre dos posiciones. 0x0073DAB0 tiene esa
--- forma exacta: un conmutador de 500 ms detras del OTRO predicado
--- (0x00729740), con su `sete` y su `sub edx, 0x1f4`.
+-- With the flags set, the mouse highlight and the destination circle blink at
+-- the same time, and the circle alternates between two positions. 0x0073DAB0
+-- has exactly that shape: a 500 ms toggle behind the OTHER predicate
+-- (0x00729740), with its `sete` and its `sub edx, 0x1f4`.
 --
--- El ritmo cuadra y el mecanismo cuadra, y eso no es lo mismo que ser la causa.
--- Por eso es un interruptor y no un arreglo: se apaga, se mira, y el juego
--- contesta. Si no era, se descarta en diez segundos en vez de en una ronda.
+-- The rhythm fits and the mechanism fits, and that is not the same as being the
+-- cause. That is why it is a switch and not a fix: turn it off, look, and the
+-- game answers. If it was not it, it is ruled out in ten seconds instead of in
+-- a whole round.
 function B:Blink(on)
 	Set(Bit(Get(), BLINK_OFF, on and true or false))
 	if on then
-		ns.Print("|cffff8000body:|r parpadeo apagado (0x0073DB42). " ..
-		         "¿Sigue vibrando el circulo de destino?")
-		ns.Print("  |cff00ff00no|r -> era eso. |cffff0000si|r -> es otro sitio y se busca igual.")
+		ns.Print("|cffff8000body:|r blink off (0x0073DB42). " ..
+		         "Is the destination circle still shaking?")
+		ns.Print("  |cff00ff00no|r -> that was it. |cffff0000yes|r -> it is somewhere else and we keep looking.")
 	else
-		ns.Print("body: parpadeo devuelto a como estaba.")
+		ns.Print("body: blink put back the way it was.")
 	end
 end
 
--- LA ESPADA: DEVOLVER "PUEDO ATACAR".
+-- THE SWORD: GIVING BACK "I CAN ATTACK".
 --
--- `PLAYER_FLAGS_UBER` -- el bit 19, el que la camara libre NO puede no poner --
--- corta en seco el predicado 0x00729740, que es el de `UnitCanAttack`. Con la
--- camara puesta `UnitCanAttack("player", loquesea)` es falso, asi que el
--- cliente no dibuja la espada al pasar por encima de un bicho y el boton
--- derecho no ataca. El icono de mision y la bolsa de botin salen porque van por
--- otro predicado, y esa asimetria es justo la firma del bit 19.
+-- `PLAYER_FLAGS_UBER` -- bit 19, the one the free camera CANNOT leave unset --
+-- cuts the predicate 0x00729740 dead, which is the one behind `UnitCanAttack`.
+-- With the camera on, `UnitCanAttack("player", whatever)` is false, so the
+-- client does not draw the sword when you pass over a mob and right-click does
+-- not attack. The quest icon and the loot bag do show up because they go
+-- through another predicate, and that asymmetry is exactly the signature of
+-- bit 19.
 --
--- El arreglo es un byte en el veredicto (`je` -> `jmp`), y esta descrito entero
--- en `rts-client-mod/src/Offsets.h`. Aqui solo esta el interruptor.
+-- The fix is one byte in the verdict (`je` -> `jmp`), and it is described in
+-- full in `rts-client-mod/src/Offsets.h`. Only the switch is here.
 --
--- ARRANCA APAGADO. Es un parche de bytes sobre el cliente y todavia no se ha
--- visto funcionar en juego: esa es la regla, y las dos veces que se incumplio
--- el primer contacto del jugador con la ronda fue un fallo nuevo puesto encima
--- de lo que venia a arreglar.
+-- IT STARTS OFF. It is a byte patch on the client and it has not been seen
+-- working in game yet: that is the rule, and both times it was broken the
+-- player's first contact with the round was a new bug laid on top of the one it
+-- came to fix.
 function B:Attack(on)
 	Set(Bit(Get(), ACT_FIX, on and true or false))
 	if on then
-		ns.Print("|cff00ff00body:|r veredicto del bit 19 anulado (0x00729762).")
-		ns.Print("  Pasa el raton por encima de un bicho: |cffffff00¿sale la espada?|r")
-		ns.Print("  |cff00ff00si|r -> era eso y el arreglo pasa a armarse solo.")
-		ns.Print("  |cffff0000no|r -> no es el unico sitio; el predicado tiene 37 llamantes.")
+		ns.Print("|cff00ff00body:|r bit 19 verdict overridden (0x00729762).")
+		ns.Print("  Move the mouse over a mob: |cffffff00does the sword appear?|r")
+		ns.Print("  |cff00ff00yes|r -> that was it, and the fix moves to arming itself.")
+		ns.Print("  |cffff0000no|r -> it is not the only site; the predicate has 37 callers.")
 	else
-		ns.Print("body: veredicto del bit 19 devuelto (sin espada, como hasta hoy).")
+		ns.Print("body: bit 19 verdict given back (no sword, the way it has been until today).")
 	end
 end
 
 function B:FlagsAuto()
-	-- Ni poner ni borrar: dejar los flags como esten. Es el estado neutro, y
-	-- hace falta para probar la cura de la ventana sin que la sonda pelee.
+	-- Neither set nor clear: leave the flags as they are. It is the neutral
+	-- state, and it is needed to test the window cure without the probe
+	-- fighting it.
 	local v = Get()
 	v = Bit(v, FLAGS_ON, false)
 	v = Bit(v, FLAGS_OFF, false)
@@ -336,88 +339,89 @@ function B:Log(on)
 	Set(Bit(Get(), REPORT, on and true or false))
 end
 
--- El diagnostico de "que se lo trague todo". Fuerza el salto para TODAS las
--- unidades, y lo que se mira son LOS BOTS, no el heroe:
+-- The "let it swallow everything" diagnostic. It forces the jump for EVERY
+-- unit, and what you watch is THE BOTS, not the hero:
 --
---   desaparecen  -> 0x0073A890 es la emision del modelo y el salto es su
---                   puerta. Entonces al heroe lo esconde algo MAS, ademas.
---   no pasa nada -> esa funcion no dibuja el modelo y la lectura estatica
---                   entera esta mal. Se empieza en otro sitio.
+--   they vanish  -> 0x0073A890 is the model emission and the jump is its gate.
+--                   Then something MORE is hiding the hero, as well.
+--   nothing      -> that function does not draw the model and the whole static
+--                   reading is wrong. We start somewhere else.
 --
--- Anular el salto no basta para ver al heroe (probado en juego), y desde el
--- heroe esas dos explicaciones se ven igual. Esto las separa.
+-- Cancelling the jump is not enough to see the hero (tried in game), and from
+-- the hero those two explanations look the same. This tells them apart.
 function B:Invert(on)
 	Set(Bit(Get(), INVERT, on and true or false))
 	if on then
-		ns.Print("|cffff8000body:|r mira a los BOTS, no a ti. ¿Desaparecen sus modelos?")
+		ns.Print("|cffff8000body:|r watch the BOTS, not yourself. Do their models disappear?")
 	end
 end
 
--- APAGAR NO ES DEJAR DE PEDIR, Y ESE FUE EL FALLO DE LA PRIMERA VERSION.
--- El modo 0 significa "no toques los flags", asi que `reset` los dejaba
--- PUESTOS: el cliente seguia creyendose espectador -- camara despegada
--- incluida -- y el unico deshacer real era `flags off` o relogear. Y encima el
--- paso 3 de la ayuda decia que reset lo dejaba todo como estaba.
+-- TURNING IT OFF IS NOT THE SAME AS STOPPING ASKING, AND THAT WAS THE BUG IN
+-- THE FIRST VERSION. Mode 0 means "do not touch the flags", so `reset` left
+-- them SET: the client went on believing it was a spectator -- detached camera
+-- included -- and the only real undo was `flags off` or relogging. And on top
+-- of that, step 3 of the help said reset left everything as it was.
 --
--- Ahora reset PIDE BORRAR y solo despues se queda neutro, dandole al DLL
--- tiempo de sobra para su tick (33 Hz). Es la misma forma que la regla dura de
--- capturar y devolver: el deshacer tiene que deshacer, no dejar de insistir.
+-- Now reset ASKS TO CLEAR and only afterwards goes neutral, giving the DLL
+-- plenty of time for its tick (33 Hz). It is the same shape as the hard rule
+-- about capturing and giving back: the undo has to undo, not stop insisting.
 local clearUntil
 
--- APARCAR LA CAMARA SOBRE TU CUERPO, Y ESTO NO ES UNA COMODIDAD: SIN ESTO LA
--- SONDA NO SE PUEDE CONTESTAR.
+-- PARKING THE CAMERA OVER YOUR BODY, AND THIS IS NOT A CONVENIENCE: WITHOUT IT
+-- THE PROBE CANNOT ANSWER ITSELF.
 --
--- Con los flags puestos el cliente se cree espectador y la camara se va a la
--- posicion del estado de comentarista, que nadie ha escrito nunca -- o sea
--- ~(0,0,0). Medido en juego: camara en (35, -15, 32) con el heroe en
--- (10326, 830, 1326), 10.300 yardas. Volar hasta alli no es una opcion, asi
--- que la pregunta "¿ha desaparecido mi modelo?" era literalmente imposible de
--- mirar. La sonda podia decir que si y que no sin que nadie lo viera.
+-- With the flags set the client believes it is a spectator and the camera goes
+-- off to the commentator state's position, which nobody has ever written --
+-- that is, ~(0,0,0). Measured in game: camera at (35, -15, 32) with the hero at
+-- (10326, 830, 1326), 10,300 yards. Flying out there is not an option, so the
+-- question "has my model disappeared?" was literally impossible to look at. The
+-- probe could say yes and say no without anybody seeing it.
 --
--- Los flags que la sonda pone son justamente los que ABREN la puerta de
--- `CommentatorSetCamera`, asi que colocarla es Lua corriente: ni recompilar el
--- DLL ni reinyectar.
+-- The flags the probe sets are precisely the ones that OPEN the
+-- `CommentatorSetCamera` gate, so placing it is ordinary Lua: no recompiling
+-- the DLL and no reinjecting.
 --
--- Se pone ENCIMA mirando hacia abajo a proposito. El yaw de esa funcion tiene
--- una convencion que no se puede leer del binario (`docs/CAMARA-LIBRE.md` §6),
--- asi que se conserva el que haya y no se depende de el: desde arriba tu
--- cuerpo sale en medio de la pantalla apunte el yaw donde apunte. `pitch`
--- POSITIVO mira hacia abajo -- con negativo apunta al cielo.
+-- It goes ABOVE, looking down, on purpose. The yaw of that function has a
+-- convention that cannot be read off the binary (`docs/CAMARA-LIBRE.md` §6), so
+-- whatever is there is kept and not relied on: from above, your body comes out
+-- in the middle of the screen wherever the yaw happens to point. A POSITIVE
+-- `pitch` looks down -- with a negative one it points at the sky.
 local HEIGHT = 12.0
 local PITCH  = 70.0
-local FOV    = 70.0     -- el rango legal es 1..120; un 0 se recorta a ~1 y
-                        -- deja la pantalla morada
+local FOV    = 70.0     -- the legal range is 1..120; a 0 clamps to ~1 and
+                        -- leaves the screen purple
 
 local function Park(quiet)
 	if type(CommentatorSetCamera) ~= "function" then
-		ns.Print("|cffff0000body:|r este cliente no tiene CommentatorSetCamera.")
+		ns.Print("|cffff0000body:|r this client has no CommentatorSetCamera.")
 		return false
 	end
 	if RTS_HasPos ~= 1 or not RTS_PX then
 		if not quiet then
-			ns.Print("|cffff0000body:|r el DLL no publica tu posicion todavia.")
+			ns.Print("|cffff0000body:|r the DLL is not publishing your position yet.")
 		end
 		return false
 	end
 
-	-- LA PUERTA SE COMPRUEBA, NO SE SUPONE, Y ESTE ERA EL FALLO.
+	-- THE GATE IS CHECKED, NOT ASSUMED, AND THIS WAS THE BUG.
 	--
-	-- `pcall(CommentatorSetCamera, ...)` devuelve true TAMBIEN CON LA PUERTA
-	-- CERRADA: la funcion existe, se la llama, mira los flags, no hace nada y
-	-- vuelve sin error. O sea que el primer intento -- el del frame siguiente a
-	-- escribir el CVar, cuando el DLL todavia no ha puesto los flags en su tick
-	-- de 33 Hz -- decia "aparcada" y APAGABA LOS REINTENTOS. La camara se
-	-- quedaba donde el cliente la deja al creerse espectador y la sonda seguia
-	-- sin poder mirarse. Otro lector que miente en la direccion tranquilizadora.
+	-- `pcall(CommentatorSetCamera, ...)` returns true WITH THE GATE CLOSED TOO:
+	-- the function exists, it gets called, it looks at the flags, does nothing
+	-- and comes back without an error. Which means the first attempt -- the one
+	-- on the frame after writing the CVar, when the DLL has not yet set the
+	-- flags on its 33 Hz tick -- said "parked" and TURNED OFF THE RETRIES. The
+	-- camera stayed where the client leaves it when it believes it is a
+	-- spectator and the probe still could not look at itself. Another reader
+	-- that lies in the reassuring direction.
 	--
-	-- El test bueno lo da `CommentatorGetCamera`: devuelve los seis numeros con
-	-- la puerta abierta y NADA con la puerta cerrada. Y de paso trae el yaw
-	-- vivo, que es el que se conserva.
+	-- The good test is given by `CommentatorGetCamera`: it returns the six
+	-- numbers with the gate open and NOTHING with the gate closed. And on the
+	-- way it brings the live yaw, which is the one that gets kept.
 	local ok, cx, _, _, y = pcall(CommentatorGetCamera)
 	if not ok or type(cx) ~= "number" or type(y) ~= "number" then
 		if not quiet then
-			ns.Print("|cffff0000body:|r la puerta sigue cerrada " ..
-			         "(CommentatorGetCamera no contesta). ¿Estan puestos los flags?")
+			ns.Print("|cffff0000body:|r the gate is still closed " ..
+			         "(CommentatorGetCamera does not answer). Are the flags set?")
 		end
 		return false
 	end
@@ -426,27 +430,27 @@ local function Park(quiet)
 	local ok2 = pcall(CommentatorSetCamera, tx, ty, tz, y, PITCH, FOV)
 	if not ok2 then
 		if not quiet then
-			ns.Print("|cffff0000body:|r CommentatorSetCamera fallo.")
+			ns.Print("|cffff0000body:|r CommentatorSetCamera failed.")
 		end
 		return false
 	end
 
-	-- Y LA PRUEBA DE QUE SE MOVIO NO ES LO QUE DEVUELVE GetCamera -- eso lee los
-	-- globales del estado de comentarista, o sea LO QUE LE ACABAS DE PEDIR
-	-- (`CAMARA-LIBRE.md` §11). El testigo honesto es `RTS_Cam*`, que el DLL saca
-	-- de la camara activa por su cuenta y llega un tick mas tarde. Se comprueba
-	-- sola y CANTA LA DISTANCIA, que es lo que convierte "aparezco en otro
-	-- sitio" en un numero.
+	-- AND THE PROOF THAT IT MOVED IS NOT WHAT GetCamera RETURNS -- that reads
+	-- the commentator state globals, that is, WHAT YOU JUST ASKED FOR
+	-- (`CAMARA-LIBRE.md` §11). The honest witness is `RTS_Cam*`, which the DLL
+	-- takes off the active camera by itself and which arrives a tick later. It
+	-- checks itself and IT CALLS OUT THE DISTANCE, which is what turns "I show
+	-- up somewhere else" into a number.
 	checkAt = GetTime() + 0.4
 	checkX, checkY, checkZ = tx, ty, tz
 
-	ns.Print(("body: pedida camara en (%.0f, %.0f, %.0f). Comprobando..."):format(tx, ty, tz))
+	ns.Print(("body: camera asked for at (%.0f, %.0f, %.0f). Checking..."):format(tx, ty, tz))
 	return true
 end
 
 function B:Look()
-	-- Reintenta igual que `flags on`: si la puerta esta cerrada porque acabas de
-	-- escribir el CVar, un solo intento se pierde por 30 ms.
+	-- Retries just like `flags on`: if the gate is closed because you have only
+	-- just written the CVar, a single attempt is lost by 30 ms.
 	parkTries = 0
 	if Park(false) then return end
 	parkTries = 8
@@ -457,48 +461,48 @@ function B:Off()
 	if not Ensure() then return end
 	SetCVar(CVAR, tostring(FLAGS_OFF))
 	clearUntil = GetTime() + 1.5
-	ns.Print("body: borrando los flags... (neutro en 1,5 s)")
+	ns.Print("body: clearing the flags... (neutral in 1.5 s)")
 end
 
 function B:Help()
-	ns.Print("|cffffff00Sonda del cuerpo|r -- por que el heroe desaparece con la camara libre.")
-	ns.Print("  |cff00ff00/rts body|r                 estado")
-	ns.Print("  |cff00ff00/rts body flags on|off|r    escribe o borra los dos flags cada tick")
-	ns.Print("  |cff00ff00/rts body flags auto|r      no los toca (estado neutro)")
-	ns.Print("  |cff00ff00/rts body flags uber|r      SOLO el bit 19, sin camara")
-	ns.Print("  |cff00ff00/rts body flags comm|r      SOLO el bit 22, sin camara")
-	ns.Print("  |cff00ff00/rts body skip on|off|r     anula el salto que se salta tu modelo")
-	ns.Print("  |cff00ff00/rts body look|r           aparca la camara sobre tu cuerpo")
-	ns.Print("  |cff00ff00/rts body log on|off|r      una linea por segundo a rts_core.log")
-	ns.Print("  |cff00ff00/rts body blink on|off|r    apaga el parpadeo (candidato)")
-	ns.Print("  |cff00ff00/rts body attack on|off|r   devuelve la espada y el click derecho")
-	ns.Print("  |cff00ff00/rts body nofix on|off|r    desarma el arreglo, para ver el fallo")
-	ns.Print("  |cff00ff00/rts body sites all|off|r   apaga los 18 llamantes del predicado")
-	ns.Print("  |cff00ff00/rts body site 0..17|r     apaga SOLO ese llamante")
-	ns.Print("  |cff00ff00/rts body reset|r           todo apagado")
+	ns.Print("|cffffff00Body probe|r -- why the hero disappears with the free camera.")
+	ns.Print("  |cff00ff00/rts body|r                 status")
+	ns.Print("  |cff00ff00/rts body flags on|off|r    writes or clears the two flags every tick")
+	ns.Print("  |cff00ff00/rts body flags auto|r      does not touch them (neutral state)")
+	ns.Print("  |cff00ff00/rts body flags uber|r      JUST bit 19, no camera")
+	ns.Print("  |cff00ff00/rts body flags comm|r      JUST bit 22, no camera")
+	ns.Print("  |cff00ff00/rts body skip on|off|r     cancels the jump that skips your model")
+	ns.Print("  |cff00ff00/rts body look|r           parks the camera over your body")
+	ns.Print("  |cff00ff00/rts body log on|off|r      one line per second to rts_core.log")
+	ns.Print("  |cff00ff00/rts body blink on|off|r    turns off the blink (candidate)")
+	ns.Print("  |cff00ff00/rts body attack on|off|r   gives back the sword and right-click")
+	ns.Print("  |cff00ff00/rts body nofix on|off|r    disarms the fix, to see the bug")
+	ns.Print("  |cff00ff00/rts body sites all|off|r   turns off the 18 predicate callers")
+	ns.Print("  |cff00ff00/rts body site 0..17|r     turns off JUST that caller")
+	ns.Print("  |cff00ff00/rts body reset|r           everything off")
 	ns.Print(" ")
-	ns.Print("Secuencia de la prueba, en este orden:")
-	ns.Print("  1. |cffffff00/rts body log on|r  y luego |cffffff00flags on|r")
-	ns.Print("     -> se espera que TU MODELO DESAPAREZCA. Si no, los flags no")
-	ns.Print("        son la causa y todo lo demas de esta sonda sobra.")
-	ns.Print("  2. |cffffff00/rts body skip on|r  (con los flags todavia puestos)")
-	ns.Print("     -> si REAPARECES, la cura son dos bytes y esta encontrada.")
-	ns.Print("  3. |cffffff00/rts body reset|r  para dejarlo todo como estaba.")
+	ns.Print("The test sequence, in this order:")
+	ns.Print("  1. |cffffff00/rts body log on|r  and then |cffffff00flags on|r")
+	ns.Print("     -> YOUR MODEL IS EXPECTED TO DISAPPEAR. If it does not, the")
+	ns.Print("        flags are not the cause and the rest of this probe is spare.")
+	ns.Print("  2. |cffffff00/rts body skip on|r  (with the flags still set)")
+	ns.Print("     -> if you COME BACK, the cure is two bytes and it is found.")
+	ns.Print("  3. |cffffff00/rts body reset|r  to leave everything as it was.")
 	ns.Print(" ")
-	ns.Print("|cffff8000Con los flags puestos la CAMARA SE DESPEGA|r y se puede mover:")
-	ns.Print("  el cliente entero se cree espectador, no solo el trozo que dibuja")
-	ns.Print("  tu modelo. Es esperado. |cffffff00reset|r lo devuelve, y un relogueo")
-	ns.Print("  tambien -- los flags viven solo en la memoria del cliente.")
+	ns.Print("|cffff8000With the flags set the CAMERA COMES LOOSE|r and can be moved:")
+	ns.Print("  the whole client believes it is a spectator, not just the piece that")
+	ns.Print("  draws your model. It is expected. |cffffff00reset|r gives it back, and")
+	ns.Print("  so does a relog -- the flags live only in the client's memory.")
 end
 
--- UN `/reload` NO LIMPIA LA MEMORIA DEL CLIENTE, asi que los flags sobreviven
--- a la recarga de la interfaz -- solo un logout los devuelve, porque entonces
--- el campo lo vuelve a mandar el servidor. Por eso al cargar se PIDE BORRAR y
--- no se pone neutro: neutro sobre unos flags pegados de la sesion anterior es
--- exactamente el `camHold` del 2026-08-23, un instrumento que se rearma solo.
+-- A `/reload` DOES NOT CLEAR THE CLIENT'S MEMORY, so the flags survive an
+-- interface reload -- only a logout gives them back, because then the field is
+-- sent again by the server. That is why on load it ASKS TO CLEAR instead of
+-- going neutral: neutral on top of flags stuck there from the previous session
+-- is exactly the `camHold` of 2026-08-23, an instrument that re-arms itself.
 --
--- Que la sonda arranque apagada sigue siendo la regla; lo que cambia es que
--- "apagada" ahora significa borrando, no callada.
+-- That the probe starts off is still the rule; what changes is that "off" now
+-- means clearing, not keeping quiet.
 local f = CreateFrame("Frame")
 f:RegisterEvent("PLAYER_ENTERING_WORLD")
 f:SetScript("OnEvent", function()
@@ -522,22 +526,22 @@ f:SetScript("OnUpdate", function()
 	if checkAt and GetTime() >= checkAt then
 		checkAt = nil
 		if RTS_HasCam ~= 1 or not RTS_CamX then
-			ns.Print("|cffff0000body:|r el DLL no lee la camara, " ..
-			         "no puedo comprobar donde acabo. Mira rts_core.log.")
+			ns.Print("|cffff0000body:|r the DLL is not reading the camera, " ..
+			         "I cannot check where it ended up. Look at rts_core.log.")
 		else
 			local dx = RTS_CamX - checkX
 			local dy = RTS_CamY - checkY
 			local dz = RTS_CamZ - checkZ
 			local d = math.sqrt(dx * dx + dy * dy + dz * dz)
 			if d < 5 then
-				ns.Print(("|cff00ff00body: camara aparcada sobre tu cuerpo|r " ..
-				          "(%.1f yardas de lo pedido)."):format(d))
+				ns.Print(("|cff00ff00body: camera parked over your body|r " ..
+				          "(%.1f yards off what was asked)."):format(d))
 			else
-				ns.Print(("|cffff0000body: LA CAMARA NO ESTA DONDE SE PIDIO|r -- " ..
-				          "%.0f yardas de diferencia."):format(d))
-				ns.Print(("  pedida (%.0f, %.0f, %.0f)  real (%.0f, %.0f, %.0f)"):format(
+				ns.Print(("|cffff0000body: THE CAMERA IS NOT WHERE IT WAS ASKED FOR|r -- " ..
+				          "%.0f yards out."):format(d))
+				ns.Print(("  asked (%.0f, %.0f, %.0f)  real (%.0f, %.0f, %.0f)"):format(
 					checkX, checkY, checkZ, RTS_CamX, RTS_CamY, RTS_CamZ))
-				ns.Print("  |cffffff00/rts body look|r vuelve a intentarlo.")
+				ns.Print("  |cffffff00/rts body look|r tries again.")
 			end
 		end
 	end

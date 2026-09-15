@@ -1,88 +1,89 @@
 --[[
-	Dock.lua -- el reparto de la parte de abajo.
+	Dock.lua -- the layout of the bottom of the screen.
 
-	Sustituye a `Bar.lua` (el arte de la consola) y a `Hall.lua` (el reparto de
-	su sala), los dos borrados el 2026-09-13. La consola de una pieza con el
-	minimapa dentro se descarta entera: el minimapa vuelve a su sitio de
-	siempre, los marcos de jugador, objetivo y grupo son los del juego, y lo
-	unico que el addon dibuja abajo son BARRAS DE ACCION.
+	It replaces `Bar.lua` (the console art) and `Hall.lua` (the layout of its
+	hall), both deleted on 2026-09-13. The one-piece console with the minimap
+	inside it is discarded whole: the minimap goes back where it has always
+	been, the player, target and party frames are the game's own, and the only
+	thing the addon draws down here are ACTION BARS.
 
 	  +---------------------------------------------------------------+
 	  |                                                               |
 	  |              Bob  (dps)                                       |
 	  |        [1][2][3][4][5][6][7][8][9][0]    [M][M][M][M]         |
 	  |                                          [M][M][M][M]         |
-	  |                                          [bolsas]             |
-	  |                                          [ficha][talentos]... |
+	  |                                          [bags]               |
+	  |                                          [char][talents]...   |
 	  +---------------------------------------------------------------+
 
-	EN MEDIO: LA UNIDAD, o las unidades. A LA DERECHA: LO TUYO -- los macros de
-	mando, las bolsas y los botones del juego. La division no es estetica: lo
-	del centro CAMBIA con cada click de seleccion y lo de la derecha no se mueve
-	nunca. Mezclarlos obligaria al ojo a comprobar cada vez si el boton que
-	busca sigue donde estaba.
+	IN THE MIDDLE: THE UNIT, or the units. ON THE RIGHT: WHAT IS YOURS -- the
+	command macros, the bags and the game buttons. The division is not
+	aesthetic: what is in the centre CHANGES with every selection click and what
+	is on the right never moves. Mixing them would force the eye to check every
+	time whether the button it is after is still where it was.
 
-	Y por eso el que se centra es el del centro: lo que cambia de ancho se
-	recoloca solo alrededor del mismo eje, y lo que no cambia se queda clavado a
-	su esquina.
+	And that is why the one that gets centred is the one in the centre: what
+	changes width lays itself out again around the same axis, and what does not
+	change stays nailed to its corner.
 
-	=== DOS ESTADOS, Y LOS DECIDE LA SELECCION ==============================
+	=== TWO STATES, AND THE SELECTION DECIDES THEM ==========================
 
-	  A  ninguno o uno    el nombre y DIEZ huecos
-	  B  dos o mas        una columna por cabeza: nombre y 2x2 de CUATRO
+	  A  none or one      the name and TEN slots
+	  B  two or more      one column per head: name and a 2x2 of FOUR
 
-	Y SOLO EL NOMBRE. Hubo un rotulo de POSTURA al lado, que ensenaba el rol de
-	playerbots (tank/dps/heal) y dejaba cambiarlo. Se borro entero el mismo dia
-	que nacio, por dos razones que van juntas:
+	AND ONLY THE NAME. There was a STANCE label next to it, which showed the
+	playerbots role (tank/dps/heal) and let you change it. It was deleted whole
+	the same day it was born, for two reasons that go together:
 
-	  - No era lo que se pidio. "La postura de combate" de un guerrero es armas,
-	    defensiva o berserker; el rol de playerbots es otra cosa y ponerlo ahi
-	    con ese nombre era contestar otra pregunta.
-	  - Y lo que se pedia NO NECESITA INTERFAZ. Una postura es un HECHIZO: la
-	    tuya cabe en un macro (`/cast Postura defensiva`) que se arrastra a la
-	    bandeja, y la de un bot sale en su lista de hechizos, asi que se pone en
-	    uno de sus diez huecos con click derecho. Un boton propio para eso seria
-	    una tercera forma de hacer lo que ya hacen dos.
+	  - It was not what was asked for. A warrior's "combat stance" is battle,
+	    defensive or berserker; the playerbots role is another thing and putting
+	    it there under that name was answering a different question.
+	  - And what was being asked for NEEDS NO INTERFACE. A stance is a SPELL:
+	    yours fits in a macro (`/cast Defensive Stance`) that gets dragged onto
+	    the tray, and a bot's shows up in its spell list, so it goes into one of
+	    its ten slots with a right-click. A button of its own for that would be
+	    a third way of doing what two already do.
 
-	El rol de los bots lo decide playerbots, que es de quien es.
+	The bots' role is decided by playerbots, whose it is.
 
-	SIN NADA SELECCIONADO SALES TU, y esto es lo contrario de lo que hacia la
-	sala. Alli el centro se vaciaba al soltar la seleccion, porque dibujar los
-	huecos de alguien sin tenerlo cogido se leia como que seguia cogido. Aqui no
-	hay esa ambiguedad: sin seleccion el dueno eres TU, con tu nombre escrito
-	encima, que es exactamente lo que ensena una barra de accion normal cuando
-	no estas mandando a nadie.
+	WITH NOTHING SELECTED IT IS YOU WHO SHOWS UP, and this is the opposite of
+	what the hall did. There the centre emptied when the selection was let go,
+	because drawing somebody's slots without having them picked read as if they
+	were still picked. Here there is no such ambiguity: with no selection the
+	owner is YOU, with your name written above it, which is exactly what an
+	ordinary action bar shows when you are not commanding anyone.
 
-	=== LOS CUATRO DEL ESTADO B NO SON LOS CUATRO PRIMEROS DE LOS DIEZ =======
+	=== THE FOUR OF STATE B ARE NOT THE FIRST FOUR OF THE TEN ===============
 
-	Y este SI es un cambio deliberado respecto a la sala, pedido el 2026-09-13.
-	Antes el 2x2 ensenaba los huecos 1..4 de la misma fila, con el argumento de
-	que dos listas son dos sitios donde configurar lo mismo. El argumento en
-	contra es mas fuerte: con cuatro cogidos no quieres los cuatro primeros
-	hechizos de cada uno, quieres LO QUE SE MANDA EN GRUPO -- el aturdimiento,
-	la curacion de emergencia, el escudo -- que casi nunca son los mismos que
-	usas cuando llevas a uno solo.
+	And this one IS a deliberate change from the hall, asked for on 2026-09-13.
+	Before, the 2x2 showed slots 1..4 of the same row, with the argument that
+	two lists are two places to configure the same thing. The argument against
+	is stronger: with four picked you do not want each one's first four spells,
+	you want WHAT GETS SENT AS A GROUP -- the stun, the emergency heal, the
+	shield -- which are almost never the same ones you use when you are running
+	just one.
 
-	Son dos juegos guardados por personaje (`Skills`: `main` y `group`) y el
-	tamano de cada uno es fijo: diez y cuatro. Se configuran igual, con click
-	derecho, asi que no hay dos gestos que aprender.
+	They are two sets saved per character (`Skills`: `main` and `group`) and the
+	size of each is fixed: ten and four. They are configured the same way, with
+	a right-click, so there are not two gestures to learn.
 
-	=== TODO EN PIXELES FISICOS =============================================
+	=== EVERYTHING IN PHYSICAL PIXELS =======================================
 
-	El Dock cuelga de `ns.Pixels:Host()`, que lleva la escala 768/altoFisico: de
-	sus hijos para dentro, una unidad es un pixel. Se queda esa convencion --
-	que es la que ya usan `Widgets` y las ventanas propias -- aunque hoy no haya
-	arte que lo justifique, porque el dia que lo haya se justifica solo y
-	mientras tanto el LADO DEL HUECO SALE MEDIDO del propio cliente
-	(`Pixels:ActionButtonPixels`): un hueco de esta barra mide exactamente lo
-	que un boton de la barra de acciones del juego.
+	The Dock hangs off `ns.Pixels:Host()`, which carries the 768/physicalHeight
+	scale: from its children inwards, one unit is one pixel. That convention
+	stays -- it is the one `Widgets` and our own windows already use -- even
+	though today there is no art to justify it, because the day there is it
+	justifies itself, and in the meantime the SIDE OF THE SLOT COMES MEASURED
+	out of the client itself (`Pixels:ActionButtonPixels`): a slot on this bar
+	measures exactly what a button on the game's action bar measures.
 
-	=== QUIEN DIBUJA NO ES ESTE FICHERO =====================================
+	=== WHO DRAWS IS NOT THIS FILE ==========================================
 
-	Mismo contrato que tenian `Bar` y `Hall`, que es lo mejor que tiene el
-	addon: aqui estan las AREAS y el ESTADO, y el contenido lo ponen `Cast`
-	(los huecos) y `Tray` (los macros y los botones del juego), que se apuntan
-	solos con `Dock:Register(m)` y piden su marco con `Dock:Host(key)`.
+	The same contract `Bar` and `Hall` had, which is the best thing the addon
+	has: here are the AREAS and the STATE, and the content is put in by `Cast`
+	(the slots) and `Tray` (the macros and the game buttons), which sign
+	themselves up with `Dock:Register(m)` and ask for their frame with
+	`Dock:Host(key)`.
 ]]
 
 local ADDON, ns = ...
@@ -92,56 +93,57 @@ ns.Dock = D
 
 D.active = false
 
---- Las medidas, en pixeles fisicos ----------------------------------------
+--- The measurements, in physical pixels -----------------------------------
 
--- El margen contra el borde de la pantalla. El mismo a los dos lados y abajo:
--- dos bloques que arrancan a distinta altura se leen como descuadrados.
+-- The margin against the edge of the screen. The same on both sides and at the
+-- bottom: two blocks that start at different heights read as out of square.
 local MARGIN = 30
 
--- Y EL SUELO COMUN DE LOS DOS BLOQUES. La derecha acaba en la fila de botones
--- del juego, que cuelga por debajo del bloque de macros, y `Tray` reserva ese
--- hueco dejando este mismo respiro por debajo. El centro tiene que arrancar a
--- la MISMA altura o queda ocho pixeles mas abajo que todo lo demas -- que es
--- exactamente lo que se veia.
+-- AND THE COMMON FLOOR OF THE TWO BLOCKS. The right side ends in the row of
+-- game buttons, which hangs below the macro block, and `Tray` reserves that
+-- gap leaving this same breathing space underneath. The centre has to start at
+-- the SAME height or it ends up eight pixels lower than everything else --
+-- which is exactly what could be seen.
 --
--- Es un solo numero y lo usan los dos: el centro para subirse y `Tray` para
--- reservar. Dos numeros iguales escritos en dos sitios se separan el dia que
--- alguien toca uno.
+-- It is a single number and both of them use it: the centre to lift itself and
+-- `Tray` to reserve. Two equal numbers written in two places come apart the
+-- day somebody touches one.
 local FOOT_PAD = 8
 
--- El lado del hueco SALE MEDIDO, con techo y suelo por si la medida no se
--- puede hacer (sin barra de acciones cargada devuelve el 36 de fabrica).
+-- The side of the slot COMES MEASURED, with a ceiling and a floor in case the
+-- measurement cannot be taken (with no action bar loaded it returns the
+-- factory 36).
 local SLOT_MIN, SLOT_MAX = 38, 84
 local GAP = 7
 
-local MAIN_N = 10       -- los huecos del estado A
-local B_SLOTS = 4       -- el 2x2 del estado B
+local MAIN_N = 10       -- the slots of state A
+local B_SLOTS = 4       -- the 2x2 of state B
 local B_COLS, B_ROWS = 2, 2
 
-local HEAD_H   = 32     -- la cabecera del estado A: el nombre
+local HEAD_H   = 32     -- the header of state A: the name
 local HEAD_GAP = 8
 local B_HEAD_H = 26
 local B_HEAD_GAP = 6
-local COL_GAP  = 30     -- entre columnas del estado B
+local COL_GAP  = 30     -- between columns of state B
 
--- CINCO POR DOS, DIEZ CASILLAS. Empezo en cuatro por dos y se quedo corta en
--- cuanto se uso: ocho ordenes no cubren el mando basico (seguir, quieto, atacar,
--- tirar, huir), el asistir y el mantenimiento. La rejilla es ancha, no alta,
--- porque lo que la limita por arriba es el bloque de macros -- crecer a lo alto
--- empuja las bolsas y el menu fuera de la pantalla.
+-- FIVE BY TWO, TEN SQUARES. It started at four by two and fell short as soon
+-- as it was used: eight orders do not cover the basic command set (follow,
+-- hold, attack, pull, flee), assisting and upkeep. The grid is wide, not tall,
+-- because what limits it from above is the macro block -- growing upwards
+-- pushes the bags and the menu off the screen.
 local MACRO_COLS, MACRO_ROWS = 5, 2
 
 D.MAIN_N  = MAIN_N
 D.B_SLOTS = B_SLOTS
 D.MACRO_N = MACRO_COLS * MACRO_ROWS
 
---- Estado interno ---------------------------------------------------------
+--- Internal state ---------------------------------------------------------
 
-local host                -- el contenedor de escala de pixel
-local left, right         -- los dos marcos raiz (`left` es el centrado)
-local rightFoot = 0       -- lo que `Tray` reserva debajo para los botones del juego
+local host                -- the pixel-scale container
+local left, right         -- the two root frames (`left` is the centred one)
+local rightFoot = 0       -- what `Tray` reserves below for the game buttons
 local frames = {}         -- key -> Frame
-local rects  = {}         -- key -> { x, y, w, h } dentro de SU raiz
+local rects  = {}         -- key -> { x, y, w, h } inside ITS root
 local panels = {}
 local listeners = {}
 
@@ -152,11 +154,11 @@ local function Slot()
 	return px
 end
 
---- Registro ---------------------------------------------------------------
+--- Registration -----------------------------------------------------------
 
--- `m` necesita `Enter`/`Leave`, los dos opcionales. Con la guarda de doble
--- registro de siempre: dos `Enter` son botones duplicados encima de los suyos,
--- y un `/reload` no deberia poder provocarlo.
+-- `m` needs `Enter`/`Leave`, both of them optional. With the usual guard
+-- against double registration: two `Enter`s are duplicated buttons on top of
+-- their own, and a `/reload` should not be able to cause that.
 function D:Register(m)
 	if not m then return end
 	for _, other in ipairs(panels) do
@@ -173,28 +175,28 @@ end
 
 local function Announce()
 	for _, fn in ipairs(listeners) do
-		-- Un modulo que falle no puede dejar la barra a medio colocar ni
-		-- llevarse por delante a los demas.
+		-- A module that fails cannot leave the bar half laid out nor take the
+		-- others down with it.
 		local ok, err = pcall(fn)
 		if not ok then ns.Print("|cffff0000dock:|r " .. tostring(err)) end
 	end
 end
 
---- El estado --------------------------------------------------------------
+--- The state --------------------------------------------------------------
 
 function D:State()
 	return (ns.Selection:Count() >= 2) and "B" or "A"
 end
 
--- De quien es la fila de huecos en el estado A. El unico seleccionado, y si no
--- hay ninguno, TU: ver la cabecera.
+-- Whose the row of slots is in state A. The only one selected, and if there is
+-- none, YOU: see the header.
 function D:Subject()
 	return ns.Selection:Single() or ns.MyName()
 end
 
--- Los personajes cuyas columnas se dibujan en el estado B, en el orden del
--- grupo con el heroe primero -- que es el orden que el jugador tiene delante en
--- los marcos del juego.
+-- The characters whose columns get drawn in state B, in party order with the
+-- hero first -- which is the order the player has in front of them in the
+-- game's frames.
 function D:Columns()
 	local out = {}
 	for _, m in ipairs(ns.Selection:GetRosterHeroFirst()) do
@@ -205,7 +207,7 @@ function D:Columns()
 	return out
 end
 
---- El reparto -------------------------------------------------------------
+--- The layout -------------------------------------------------------------
 
 local function Rect(key, x, y, w, h)
 	rects[key] = { x = x, y = y, w = w, h = h }
@@ -216,7 +218,7 @@ local function Recompute()
 	local s = Slot()
 	D.slot = s
 
-	--- IZQUIERDA ---------------------------------------------------------
+	--- LEFT --------------------------------------------------------------
 	if D:State() == "A" then
 		local w = MAIN_N * s + GAP * (MAIN_N - 1)
 		D.leftW = w
@@ -237,18 +239,19 @@ local function Recompute()
 		end
 	end
 
-	--- DERECHA -----------------------------------------------------------
+	--- RIGHT -------------------------------------------------------------
 	--
-	-- El bloque de macros manda el ancho; la fila de botones del juego cuelga
-	-- por debajo y la mide `Tray`, que es quien sabe lo que ocupan los
-	-- micro-botones del cliente (son suyos y tienen su propio tamano).
+	-- The macro block sets the width; the row of game buttons hangs below it
+	-- and it is `Tray` that measures it, being the one that knows how much
+	-- room the client's micro-buttons take (they are its own and have their
+	-- own size).
 	local mw = MACRO_COLS * s + GAP * (MACRO_COLS - 1)
 	local mh = MACRO_ROWS * s + GAP * (MACRO_ROWS - 1)
 	D.rightW, D.rightH = mw, mh
 	Rect("macros", 0, 0, mw, mh)
 end
 
---- Lo que usan los modulos de contenido -----------------------------------
+--- What the content modules use -------------------------------------------
 
 function D:Get(key) return rects[key] end
 
@@ -272,14 +275,15 @@ local function Place(key, f)
 	end
 end
 
--- El marco de un area. Se crean bajo demanda y no se destruyen -- pasar del
--- estado B al A esconde las columnas en vez de borrarlas.
+-- The frame of an area. They are created on demand and never destroyed --
+-- going from state B to A hides the columns instead of deleting them.
 --
--- SE COLOCA AL CREARLO, y eso no es un detalle: `Layout` reparte sobre los
--- marcos QUE YA EXISTEN y avisa DESPUES, pero los de columna solo los pide el
--- contenido, que corre dentro de ese aviso. Sin colocarlos aqui, la primera vez
--- que se cogen varios nacen de 0x0 y sin anclar y no sale ni una columna. Es un
--- fallo que ya se pago una vez en `Hall.lua`.
+-- IT IS PLACED AS IT IS CREATED, and that is not a detail: `Layout` lays out
+-- over the frames THAT ALREADY EXIST and announces AFTERWARDS, but the column
+-- ones are only asked for by the content, which runs inside that announcement.
+-- Without placing them here, the first time several are picked they are born
+-- 0x0 and unanchored and not one column comes out. It is a bug that was
+-- already paid for once in `Hall.lua`.
 function D:Host(key)
 	local root = RootFor(key)
 	if not root then return nil end
@@ -294,7 +298,7 @@ function D:Host(key)
 	return f
 end
 
---- Las celdas, en coordenadas de SU marco ---------------------------------
+--- The cells, in coordinates of THEIR frame -------------------------------
 
 function D:SpellCells()
 	local out = {}
@@ -337,11 +341,11 @@ function D:ColWidth()    return self.colW or 0 end
 function D:Margin()      return MARGIN end
 function D:FootPad()     return FOOT_PAD end
 
--- LO QUE `Tray` RESERVA DEBAJO para la fila de botones del juego, en pixeles.
--- No lo decide este fichero porque no puede: los micro-botones son del cliente
--- y miden lo que ellos midan. Se pide aqui en vez de anclar la fila al suelo y
--- los macros encima, porque asi el bloque de macros no se mueve cada vez que el
--- cliente ensena u oculta uno de sus botones.
+-- WHAT `Tray` RESERVES BELOW for the row of game buttons, in pixels. This file
+-- does not decide it because it cannot: the micro-buttons belong to the client
+-- and measure whatever they measure. It is asked for here instead of anchoring
+-- the row to the floor with the macros above it, because that way the macro
+-- block does not move every time the client shows or hides one of its buttons.
 function D:SetRightFoot(px)
 	rightFoot = px or 0
 	if not (right and host) then return end
@@ -349,7 +353,7 @@ function D:SetRightFoot(px)
 	right:SetPoint("BOTTOMRIGHT", host, "BOTTOMRIGHT", -MARGIN, MARGIN + rightFoot)
 end
 
---- Distribuir -------------------------------------------------------------
+--- Laying out -------------------------------------------------------------
 
 function D:Layout()
 	if not left then return end
@@ -360,8 +364,8 @@ function D:Layout()
 	right:SetWidth(math.max(self.rightW or 1, 1))
 	right:SetHeight(math.max(self.rightH or 1, 1))
 
-	-- Un area que este reparto no produjo se ESCONDE en vez de quedarse donde
-	-- estaba: pasar de B a A dejaria cinco columnas dibujadas sobre la fila.
+	-- An area this layout did not produce is HIDDEN instead of staying where it
+	-- was: going from B to A would leave five columns drawn over the row.
 	for key, f in pairs(frames) do
 		Place(key, f)
 	end
@@ -369,27 +373,27 @@ function D:Layout()
 	Announce()
 end
 
---- Entrar y salir ---------------------------------------------------------
+--- Entering and leaving ---------------------------------------------------
 
 function D:Enter()
 	if not left then
 		host = ns.Pixels:Host()
 		if not host then return end
 
-		-- CENTRADA, y por eso se ancla por el BOTTOM y no por una esquina: el
-		-- bloque cambia de ancho con cada seleccion -- diez huecos con uno
-		-- cogido, cinco columnas con cinco -- y anclado por el centro se
-		-- recoloca solo sin una sola cuenta. Con una esquina habria que
-		-- recalcular la x en cada cambio de estado, que es la clase de numero
-		-- que se olvida en el tercer sitio.
+		-- CENTRED, and that is why it is anchored by the BOTTOM and not by a
+		-- corner: the block changes width with every selection -- ten slots
+		-- with one picked, five columns with five -- and anchored by the
+		-- centre it lays itself out again without a single sum. With a corner
+		-- the x would have to be recalculated on every change of state, which
+		-- is the kind of number that gets forgotten in the third place.
 		left = CreateFrame("Frame", "RTSDockLeft", host)
 		left:SetPoint("BOTTOM", host, "BOTTOM", 0, MARGIN + FOOT_PAD)
 		left:EnableMouse(false)
 
-		-- LA DERECHA SE ANCLA POR ABAJO IGUAL QUE LA IZQUIERDA, y encima suyo
-		-- se pone `Tray` su fila de botones del juego. Al reves -- la fila
-		-- anclada al suelo y los macros encima -- el bloque entero se movia
-		-- cada vez que el cliente ensena u oculta un micro-boton.
+		-- THE RIGHT IS ANCHORED BY THE BOTTOM JUST LIKE THE LEFT, and on top
+		-- of it `Tray` puts its row of game buttons. The other way round --
+		-- the row anchored to the floor and the macros above -- the whole
+		-- block moved every time the client shows or hides a micro-button.
 		right = CreateFrame("Frame", "RTSDockRight", host)
 		right:SetPoint("BOTTOMRIGHT", host, "BOTTOMRIGHT", -MARGIN, MARGIN + rightFoot)
 		right:EnableMouse(false)
@@ -408,9 +412,10 @@ function D:Enter()
 	if not self.wired then
 		self.wired = true
 
-		-- EL CAMBIO DE SELECCION REDISTRIBUYE, no solo repinta. Pasar de uno a
-		-- dos cambia el NUMERO de areas. Solo cuando cambia la FORMA -- si no,
-		-- cada click movería veinte botones para dejarlos donde estaban.
+		-- A CHANGE OF SELECTION LAYS OUT AGAIN, it does not just repaint.
+		-- Going from one to two changes the NUMBER of areas. Only when the
+		-- SHAPE changes -- otherwise every click would move twenty buttons to
+		-- leave them where they already were.
 		ns.Selection:Subscribe(function()
 			if not D.active then return end
 			local st = D:State()
@@ -420,7 +425,7 @@ function D:Enter()
 				D.lastState, D.lastCols, D.lastSubject = st, n, subj
 				D:Layout()
 			elseif subj ~= D.lastSubject then
-				-- Mismo reparto, otro dueno: basta con avisar.
+				-- Same layout, another owner: announcing is enough.
 				D.lastSubject = subj
 				Announce()
 			end
@@ -439,15 +444,15 @@ end
 
 function D:Report()
 	if not self.active then
-		ns.Print("|cff888888dock:|r no esta puesto. Se pone al entrar en modo RTS.")
+		ns.Print("|cff888888dock:|r not up. It goes up on entering RTS mode.")
 		return
 	end
-	ns.Print(("|cffffff00dock|r estado |cff33ccff%s|r, hueco de %d px (un boton de accion)"):format(
+	ns.Print(("|cffffff00dock|r state |cff33ccff%s|r, %d px slot (one action button)"):format(
 		self:State(), self.slot or 0))
 	if self:State() == "A" then
-		ns.Print(("  %s: %d huecos"):format(tostring(self:Subject()), MAIN_N))
+		ns.Print(("  %s: %d slots"):format(tostring(self:Subject()), MAIN_N))
 	else
-		ns.Print(("  %d columnas de %d huecos"):format(self.cols or 0, B_SLOTS))
+		ns.Print(("  %d columns of %d slots"):format(self.cols or 0, B_SLOTS))
 	end
 	ns.Print(("  macros: %dx%d"):format(MACRO_COLS, MACRO_ROWS))
 end

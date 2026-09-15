@@ -85,26 +85,27 @@ function B:HasWorldCoords()
 	return self:GetPlayerWorldPosition() ~= nil
 end
 
---- Como te llamas -----------------------------------------------------------
+--- What you are called ------------------------------------------------------
 --
--- `UnitName("player")` NO ES DE FIAR desde que se puede cambiar de personaje sin
--- pasar por la pantalla de seleccion. Visto en juego el 2026-09-03: despues del
--- cambio el cliente sigue ensenando el nombre del personaje anterior, en su
--- marco y en esa llamada. La identidad SI cambia -- el guid es el nuevo y el
--- grupo es el nuevo -- pero el texto va por detras.
+-- `UnitName("player")` IS NOT TO BE TRUSTED now that you can change character
+-- without going through the selection screen. Seen in game on 2026-09-03: after
+-- the swap the client still shows the previous character's name, both in its
+-- own frame and in that call. The identity DOES change -- the guid is the new
+-- one and the party is the new one -- but the text lags behind.
 --
--- Y no es cosmetico, porque el heroe que dejas vuelve de bot Y SE LLAMA COMO TE
--- LLAMABAS: media docena de sitios del addon comparan nombres para decidir "¿es
--- este mi personaje?", y con el nombre viejo pegado todos contestan que si sobre
--- el bot equivocado. Ademas el canal con el servidor se susurra a uno mismo POR
--- NOMBRE, asi que un nombre rancio lo deja mudo entero.
+-- And it is not cosmetic, because the hero you leave behind comes back as a bot
+-- AND IS CALLED WHAT YOU USED TO BE CALLED: half a dozen places in the addon
+-- compare names to decide "is this my character?", and with the old name stuck
+-- on, every one of them answers yes about the wrong bot. On top of that the
+-- channel to the server whispers to yourself BY NAME, so a stale name strikes
+-- the whole thing dumb.
 --
--- El servidor lo dice al terminar el cambio (`SWAPPED`) y ahi se guarda, JUNTO
--- CON EL GUID AL QUE SE REFIERE: sin eso, un cambio seguido de una reconexion
--- dejaria el nombre de otro pegado para siempre. El guid es la unica identidad
--- que no miente -- sale del gestor de objetos del cliente, que es el campo que
--- escribe el `UPDATEFLAG_SELF` -- asi que la anulacion solo vale mientras siga
--- siendo el mismo.
+-- The server says it when the swap finishes (`SWAPPED`) and that is where it is
+-- stored, TOGETHER WITH THE GUID IT REFERS TO: without that, a swap followed by
+-- a reconnect would leave someone else's name stuck on forever. The guid is the
+-- only identity that does not lie -- it comes out of the client's object
+-- manager, which is the field `UPDATEFLAG_SELF` writes -- so the override only
+-- holds while it is still the same one.
 function ns.MyName()
 	if ns.serverName and ns.serverNameGuid
 	   and ns.serverNameGuid == UnitGUID("player") then
@@ -113,46 +114,49 @@ function ns.MyName()
 	return UnitName("player")
 end
 
--- Y LA CLASE TIENE EXACTAMENTE EL MISMO DEFECTO, descubierto el 2026-09-05
--- viendo a un mago con el color del guerrero despues de un cambio.
+-- AND THE CLASS HAS EXACTLY THE SAME DEFECT, found on 2026-09-05 looking at a
+-- mage wearing the warrior's colour after a swap.
 --
--- No era una sospecha: esta desensamblado. `UnitClass` (`0x0060FEC0`) compara su
--- argumento con la cadena "player" igual que `UnitName`, y si acierta NO mira el
--- objeto -- llama a `0x006B1080`, que son dos instrucciones:
+-- It was not a suspicion: it is disassembled. `UnitClass` (`0x0060FEC0`)
+-- compares its argument against the string "player" just like `UnitName`, and
+-- if it matches it does NOT look at the object -- it calls `0x006B1080`, which
+-- is two instructions:
 --
 --     006B1080  mov al, byte ptr [0xC79E89]
 --     006B1085  ret
 --
--- Un byte estatico. Y esta pegado al del nombre (`0x00C79D18`, via `0x006B1060`)
--- y al de la raza (`0x00C79E8A`, via `0x006B1090`), o sea que son el MISMO
--- bloque: la ficha de "quien soy" que rellena la pantalla de seleccion de
--- personaje -- justo el paso que el cambio se salta.
+-- A static byte. And it sits right next to the name's (`0x00C79D18`, via
+-- `0x006B1060`) and the race's (`0x00C79E8A`, via `0x006B1090`), which means
+-- they are the SAME block: the "who am I" record that the character selection
+-- screen fills in -- precisely the step the swap skips.
 --
--- ASI QUE LA REGLA ES MAS AMPLIA DE LO QUE DECIA LA 0.62.0: no es que el NOMBRE
--- de "player" mienta tras un cambio, es que **nombre, clase y raza de "player"
--- mienten los tres**, y son los tres campos que el cliente guarda aparte en vez
--- de leer del objeto. Todo lo demas (vida, poder, retrato, hechizos) sale del
--- objeto y es correcto -- que es justo lo que hacia el sintoma tan raro: el
--- retrato era Bob y el nombre Neferite.
+-- SO THE RULE IS WIDER THAN 0.62.0 SAID: it is not that "player"'s NAME lies
+-- after a swap, it is that **"player"'s name, class and race all three lie**,
+-- and those are the three fields the client keeps to one side instead of
+-- reading from the object. Everything else (health, power, portrait, spells)
+-- comes from the object and is correct -- which is exactly what made the
+-- symptom so odd: the portrait was Bob and the name was Neferite.
 --
--- LA CLASE SE APRENDE DEL GRUPO, no del servidor, y por dos razones. Una: el
--- personaje al que saltas ERA un companero tuyo un segundo antes, asi que su
--- `UnitClass("partyN")` -- que si pasa por el objeto -- ya se leyo y es correcto.
--- Dos: asi no hace falta ningun verbo nuevo, ni una tabla de ids de clase
--- escrita a mano, que es la clase de constante que este proyecto paga cara.
+-- THE CLASS IS LEARNED FROM THE PARTY, not from the server, and for two
+-- reasons. One: the character you jump into WAS a party member of yours a second
+-- earlier, so its `UnitClass("partyN")` -- which does go through the object --
+-- has already been read and is correct. Two: that way no new verb is needed,
+-- nor a hand-written table of class ids, which is the kind of constant this
+-- project pays dearly for.
 --
--- Sin entrada aprendida se cae a `UnitClass("player")`, que es correcto mientras
--- no haya habido un cambio -- o sea siempre, en una sesion normal.
--- SE GUARDA EN DISCO, y hace falta: lo aprendido vive en memoria, asi que un
--- `/reload` despues de un cambio lo perderia -- y entonces el color volveria a
--- estar mal, porque tu propio personaje NO aparece en tu grupo y no hay de
--- donde reaprenderlo. Un `/reload` es ademas lo primero que se hace cuando algo
--- se ve raro, o sea justo el gesto que reintroduciria el fallo.
+-- With no learned entry it falls back to `UnitClass("player")`, which is correct
+-- as long as there has been no swap -- that is, always, in a normal session.
+-- IT IS SAVED TO DISK, and it has to be: what is learned lives in memory, so a
+-- `/reload` after a swap would lose it -- and then the colour would be wrong
+-- again, because your own character does NOT appear in your party and there is
+-- nowhere to relearn it from. A `/reload` is also the first thing anyone does
+-- when something looks odd, which is to say exactly the gesture that would
+-- reintroduce the bug.
 --
--- La clave es el nombre y el valor un token de clase. Se puede guardar sin
--- pensarlo dos veces porque **la clase de un personaje no cambia nunca**: una
--- entrada vieja no puede quedarse obsoleta, solo sobrar. Es lo contrario del
--- `grow = 688` y del `camHold`, que eran ajustes cuyo significado cambio.
+-- The key is the name and the value a class token. It can be saved without
+-- thinking twice because **a character's class never changes**: an old entry
+-- cannot go stale, only go spare. It is the opposite of `grow = 688` and of
+-- `camHold`, which were settings whose meaning changed.
 local classOf
 
 local function Learned()
@@ -178,17 +182,17 @@ function ns.MyClass()
 	return select(2, UnitClass("player"))
 end
 
--- ¿ESTE TOKEN SOY YO? Por guid, nunca por nombre -- la regla de la 0.60.0. Hace
--- falta porque despues de un cambio hay un companero que se llama como te
--- llamabas.
+-- IS THIS TOKEN ME? By guid, never by name -- the 0.60.0 rule. It is needed
+-- because after a swap there is a party member called what you used to be
+-- called.
 function ns.IsMe(unit)
 	if not unit then return false end
 	if unit == "player" then return true end
 	return UnitIsUnit(unit, "player") and true or false
 end
 
--- El nombre que hay que ENSENAR de un token. Para cualquiera menos tu es el del
--- cliente; para ti es el unico que no miente.
+-- The name to SHOW for a token. For anyone but you it is the client's; for you
+-- it is the only one that does not lie.
 function ns.UnitLabel(unit)
 	if ns.IsMe(unit) then return ns.MyName() end
 	return UnitName(unit)

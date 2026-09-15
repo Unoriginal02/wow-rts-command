@@ -1,33 +1,33 @@
-// SelfShow.h -- LA SONDA DEL CUERPO. Es un instrumento, no una funcion.
+// SelfShow.h -- THE BODY PROBE. It is an instrument, not a feature.
 //
-// El heroe se vuelve invisible en cuanto su jugador lleva PLAYER_FLAGS_UBER, y
-// la cadena esta desensamblada en Offsets.h: un "emite esta unidad" por unidad
-// (0x0073A890) pregunta 0x006DE980 con ESE jugador y se salta la emision si
-// contesta que si. Los bots no llevan los flags, asi que solo desaparece el
-// tuyo -- que es el sintoma exacto -- y forzar el predicado a true escondio a
-// todo el mundo, que es la otra mitad de la prueba.
+// The hero turns invisible the moment his player carries PLAYER_FLAGS_UBER, and
+// the chain is disassembled in Offsets.h: a per-unit "submit this unit"
+// (0x0073A890) asks 0x006DE980 about THAT player and skips the submit if the
+// answer is yes. The bots do not carry the flags, so only yours disappears --
+// which is the exact symptom -- and forcing the predicate to true hid everyone,
+// which is the other half of the proof.
 //
-// Esto NO arregla nada por su cuenta y NO se enciende solo. Contesta dos
-// preguntas con dos interruptores independientes, en una sola sesion:
+// This FIXES nothing by itself and does NOT switch itself on. It answers two
+// questions with two independent switches, in a single session:
 //
-//   1. ¿Bastan los flags, sin modo comentarista ni servidor de por medio?
-//      Se escriben en la copia del CLIENTE. Si el heroe desaparece, si.
-//   2. Con los flags puestos, ¿reaparece anulando ESE salto y solo ese?
-//      Si reaparece, la cura son dos bytes y no hay que tocar los 18 llamantes.
+//   1. Are the flags enough, with no commentator mode and no server involved?
+//      They are written into the CLIENT's copy. If the hero disappears, yes.
+//   2. With the flags set, does he come back by nulling THAT jump and only it?
+//      If he does, the cure is two bytes and the 18 callers need no touching.
 //
-// Va apagado de fabrica y detras de un comando, que es la regla que costo la
-// tarde del 2026-09-06 (el aro dibujado dos veces salio de serie) y la del
-// 2026-09-08 (el parche de 0x006DE980 salio de serie y escondio a todos).
+// It ships off and behind a command, which is the rule that cost the afternoon
+// of 2026-09-06 (the ring drawn twice shipped armed) and the one of 2026-09-08
+// (the 0x006DE980 patch shipped armed and hid everybody).
 
 #pragma once
 #include <cstdint>
 
 namespace selfshow {
 
-// Se llama una vez por tick desde Publisher, en el hilo principal.
+// Called once per tick from Publisher, on the main thread.
 void Tick();
 
-// Deshace el parche de bytes si esta puesto. Se llama al descargar el DLL.
+// Undoes the byte patch if it is in place. Called when the DLL is unloaded.
 void Shutdown();
 
 }  // namespace selfshow

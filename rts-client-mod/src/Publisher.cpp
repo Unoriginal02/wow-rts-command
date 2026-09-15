@@ -18,15 +18,16 @@
 
 namespace {
 
-// 0.24.0 = sin corte seccional. La version SUBE al quitarlo, no baja: un
-// numero que retrocede haria que un addon que pregunta "¿tienes al menos
-// 0.23?" creyera que habla con un DLL viejo, cuando lo que pasa es que la
-// funcion ya no existe. Hacia atras no se vuelve, se avanza quitando.
+// 0.24.0 = no section cut. The version goes UP when something is removed, not
+// down: a number that goes backwards would make an addon asking "do you have
+// at least 0.23?" believe it is talking to an old DLL, when what has happened
+// is that the function no longer exists. You do not go back, you go forward by
+// removing.
 //
-// 0.28.0 = el bit 19 lo escribe el DLL: el servidor no puede llevarlo puesto.
-// 0.27.0 = "puedo atacar" vuelve armado con los flags: una de las dos puertas.
-// 0.26.0 = el interruptor que devuelve "puedo atacar" (el veto del bit 19).
-// 0.25.0 = el suelo bajo la camara se publica DOS VECES, con y sin edificios.
+// 0.28.0 = the DLL writes bit 19: the server cannot carry it set.
+// 0.27.0 = "I can attack" comes back armed with the flags: one of the two gates.
+// 0.26.0 = the switch that gives "I can attack" back (the bit 19 veto).
+// 0.25.0 = the camera's ground is published TWICE, with and without buildings.
 constexpr const char* kVersion = "0.29.0";
 constexpr int kProtocol = 3;
 
@@ -62,36 +63,36 @@ constexpr const char* kSelectionCVar = "enablePVPNotifyAFK";
 // an integer, which is all this needs. Value is FOV in TENTHS OF A DEGREE
 // (600 = 60.0 deg) so it stays a whole number; 0 means "leave the client's".
 constexpr const char* kFovCVar = "rtsFov";
-// EL SUELO BAJA A 5, Y HABIA DOS. El addon ya acotaba a 20 y este acotaba otra
-// vez a 20 por su cuenta, asi que bajar solo el del addon habria dejado un
-// `/rts cam fov 15` convertido en 20 **sin decir nada** -- que es exactamente el
-// modo de fallo que ese cambio venia a quitar. Dos topes para el mismo numero es
-// un tope que se olvida.
+// THE FLOOR DROPS TO 5, AND THERE WERE TWO. The addon already clamped to 20 and
+// this one clamped to 20 again on its own, so lowering only the addon's would
+// have turned a `/rts cam fov 15` into 20 **without saying a word** -- which is
+// exactly the failure mode that change came to remove. Two limits on the same
+// number is a limit that gets forgotten.
 constexpr float kFovMinDeg = 5.0f;
 constexpr float kFovMaxDeg = 140.0f;
 
-// EL CORTE SECCIONAL ESTUVO AQUI Y SE FUE ENTERO EL 2026-09-10.
+// THE SECTION CUT WAS HERE AND LEFT WHOLE ON 2026-09-10.
 //
-// Movia el plano cercano (el global `0x00ADEED4`) para que la camara se comiera
-// techos y tejados. FUNCIONABA -- recorto en juego -- y aun asi se descarta: lo
-// que un plano cercano hace es cortar TODA la escena a una distancia, y el tajo
-// resultante se lleva por delante medio mundo (mira la captura del 09-10: la
-// mitad de abajo de la pantalla es el vacio). No es un corte de arquitecto, es
-// un frustum mas corto.
+// It moved the near plane (the global `0x00ADEED4`) so the camera would eat
+// ceilings and roofs. IT WORKED -- it clipped in game -- and it is dropped all
+// the same: what a near plane does is cut THE WHOLE SCENE at a distance, and
+// the resulting slice takes half the world with it (look at the 09-10 capture:
+// the bottom half of the screen is the void). It is not an architect's section,
+// it is a shorter frustum.
 //
-// Y DEJO UNA DEUDA QUE ES LA LECCION DE VERDAD: `0 = no tocar` NO ES APAGAR.
-// Con el CVar a 0 el DLL simplemente dejaba de escribir, asi que las 15 yardas
-// se quedaban puestas en el global y NADIE las devolvia -- el addon decia
-// "corte apagado" mientras el cliente seguia cortando. Un valor que dice "no
-// toques" tiene que venir con quien devuelva lo que ya se toco, y aqui la regla
-// de capturar y devolver no se aplico al global porque no parecia un CVar.
-// Mismo modo de fallo que los PLAYER_FLAGS_UBER: el codigo se revierte y el
-// estado se queda puesto.
+// AND IT LEFT A DEBT THAT IS THE REAL LESSON: `0 = do not touch` IS NOT OFF.
+// With the CVar at 0 the DLL simply stopped writing, so the 15 yards stayed put
+// in the global and NOBODY gave them back -- the addon said "cut off" while the
+// client went on cutting. A value that says "do not touch" has to come with
+// somebody who gives back what was already touched, and here the capture-and-
+// restore rule was not applied to the global because it did not look like a
+// CVar. Same failure mode as the PLAYER_FLAGS_UBER: the code gets reverted and
+// the state stays put.
 //
-// Si algun dia vuelve la idea, lo que hace falta NO es esto: es esconder objeto
-// por objeto en el recorrido de render, o un plano de recorte propio -- y el
-// cliente no usa ninguno (cero llamadas a SetClipPlane en todo el .text,
-// comprobado por bytes).
+// If the idea ever comes back, what is needed is NOT this: it is hiding object
+// by object in the render walk, or a clip plane of our own -- and the client
+// uses neither (zero calls to SetClipPlane in the whole .text, checked by
+// bytes).
 
 void ApplyFovOverride() {
     int32_t tenths = 0;
@@ -285,38 +286,39 @@ void PublishCameraOnly() {
         return;
     }
 
-    // EL SUELO BAJO LA CAMARA, y va en el tick de CAMARA a proposito.
+    // THE GROUND UNDER THE CAMERA, and it goes in the CAMERA tick on purpose.
     //
-    // El unico suelo que se publicaba (`RTS_GroundZ`) esta bajo el PERSONAJE, y
-    // en una camara RTS la camara pasa la mayor parte del tiempo donde el
-    // personaje no esta -- que es justo cuando hace falta. El controlador lo
-    // consume por frame: la altura se corrige contra el suelo de DONDE ESTA la
-    // camara ahora, no de donde estaba hace 30 ms.
+    // The only ground that was being published (`RTS_GroundZ`) is the one under
+    // the CHARACTER, and in an RTS camera the camera spends most of its time
+    // where the character is not -- which is exactly when it is needed. The
+    // controller consumes it per frame: the height is corrected against the
+    // ground of WHERE THE CAMERA IS now, not of where it was 30 ms ago.
     //
-    // Empieza 5 yd ARRIBA porque la camara puede estar por debajo del terreno un
-    // instante mientras el suavizado la sube, y un rayo que arranca dentro del
-    // suelo no lo encuentra. Y baja 1000 porque el techo de altura lo pone el
-    // jugador: un rayo corto deja de contestar justo al subir, lo que se ve como
-    // que la correccion de altura "se apaga sola a cierta altura".
+    // It starts 5 yd UP because the camera can be below the terrain for an
+    // instant while the smoothing lifts it, and a ray that starts inside the
+    // ground does not find it. And it goes 1000 down because the height ceiling
+    // is set by the player: a short ray stops answering the moment you climb,
+    // which reads as the height correction "switching itself off up high".
     //
-    // Todavia no lo lee nadie: es el paso 2 de `docs/CAMARA-LIBRE.md` §10 y lo
-    // gasta FreeCam, que viene detras. Va ahora para no pagar otro ciclo de
-    // cerrar el cliente, y se dice aqui para que no parezca codigo huerfano.
-    // EL RAYO ARRANCA EN LA CAMARA (2026-09-12), y antes arrancaba cinco yardas
-    // mas arriba. Ese adelanto se puso para que un rayo que empieza DENTRO del
-    // suelo siguiera encontrandolo, y costaba mucho mas de lo que valia: durante
-    // las cinco yardas siguientes a cruzar una superficie hacia abajo, el rayo
-    // seguia devolviendo LA DE ARRIBA. Una franja ciega, y justo la franja por
-    // la que hay que pasar para meterse en una cueva desde el tejado: la camara
-    // veia el tejado del tubo desde dentro y el addon la subia otra vez encima.
+    // Nobody reads it yet: it is step 2 of `docs/CAMARA-LIBRE.md` §10 and what
+    // spends it is FreeCam, which comes next. It goes in now so as not to pay
+    // another close-the-client cycle, and it is said here so it does not look
+    // like orphan code.
+    // THE RAY STARTS AT THE CAMERA (2026-09-12), and before it started five
+    // yards higher up. That head start was put in so that a ray beginning INSIDE
+    // the ground would still find it, and it cost far more than it was worth:
+    // for the five yards after crossing a surface downwards, the ray went on
+    // returning THE ONE ABOVE. A blind strip, and precisely the strip you have
+    // to go through to get into a cave from the roof: the camera saw the roof of
+    // the tube from inside and the addon lifted it back on top of it.
     //
-    // Peor todavia, con el suelo duro del addon eso era una escalera que se
-    // construye sola -- sube a `ground + clear`, el rayo del frame siguiente
-    // arranca cinco yardas mas alto, vuelve a encontrar roca encima -- y echaba
-    // la camara fuera de la montana en una fraccion de segundo.
+    // Worse still, with the addon's hard floor that was a staircase that builds
+    // itself -- it climbs to `ground + clear`, the next frame's ray starts five
+    // yards higher, finds rock overhead again -- and it threw the camera out of
+    // the mountain in a fraction of a second.
     //
-    // Arrancando en la camara, lo que se publica es lo que significa su nombre:
-    // el suelo que hay DEBAJO. Nunca una superficie por encima.
+    // Starting at the camera, what gets published is what its name means: the
+    // ground that is UNDERNEATH. Never a surface above it.
     constexpr float kCamGroundUp   = 5.0f;
     constexpr float kCamGroundDown = 1000.0f;
     world::Vec3 const gs = {cam.pos[0], cam.pos[1], cam.pos[2]};
@@ -324,18 +326,20 @@ void PublishCameraOnly() {
     world::Vec3 ghit = {0, 0, 0};
     bool const camGroundHit = world::Raycast(gs, ge, &ghit, nullptr);
 
-    // Y EL MISMO RAYO OTRA VEZ, SIN LOS EDIFICIOS.
+    // AND THE SAME RAY AGAIN, WITHOUT THE BUILDINGS.
     //
-    // "Lo primero que hay debajo" deja de ser "el suelo" en cuanto hay algo
-    // construido: acercando la camara a una casa el primer choque es el
-    // TEJADO, asi que la altura se corregia contra el tejado y la camara subia
-    // sola -- imposible entrar. Un cartel de madera hacia lo mismo en pequeno.
+    // "The first thing underneath" stops being "the ground" as soon as there is
+    // something built: bringing the camera up to a house, the first hit is the
+    // ROOF, so the height was corrected against the roof and the camera rose by
+    // itself -- impossible to get in. A wooden sign did the same on a small
+    // scale.
     //
-    // Se publican LAS DOS y elige el addon (`/rts fc floor`), en vez de
-    // cambiar la que ya habia: la de siempre sigue siendo la buena para
-    // sobrevolar sin meterse en nada, y sustituirla en silencio habria movido
-    // el tacto de la camara sin que nadie lo pidiera. Cuesta un rayo mas por
-    // frame de camara, que es la mitad barata del tick.
+    // BOTH are published and the addon chooses (`/rts fc floor`), instead of
+    // changing the one that was already there: the old one is still the right
+    // one for flying over without going into anything, and replacing it in
+    // silence would have moved the camera's feel without anyone asking for it.
+    // It costs one more ray per camera frame, which is the cheap half of the
+    // tick.
     world::Vec3 lhit = {0, 0, 0};
     bool const camLandHit = world::RaycastTerrain(gs, ge, &lhit, nullptr);
 

@@ -1,66 +1,67 @@
 --[[
-	Macros.lua -- las ordenes a los bots, como macros del juego.
+	Macros.lua -- the orders to the bots, as game macros.
 
-	EL CATALOGO ESTA EN `Actions.lua` Y ESTE FICHERO LO COPIA A MACROS DEL
-	JUEGO. Desde que la bandeja sabe lanzar las ordenes por su cuenta -- con
-	icono propio y sin gastar macros -- esto ya no es el camino normal para
-	usarlas: es el camino para SACARLAS DEL ADDON. Un macro de verdad se puede
-	poner en una barra del juego, se le puede asignar una tecla y se puede
-	arrastrar a donde sea; una orden nuestra vive solo en la bandeja.
+	THE CATALOGUE LIVES IN `Actions.lua` AND THIS FILE COPIES IT INTO GAME
+	MACROS. Ever since the tray learned to fire the orders by itself -- with an
+	icon of its own and spending no macros -- this is no longer the normal way to
+	use them: it is the way to GET THEM OUT OF THE ADDON. A real macro can be put
+	on a game bar, it can be given a key and it can be dragged anywhere; an order
+	of ours lives only in the tray.
 
-	`/rts macros` crea (o actualiza) los macros del catalogo.
-	ARRASTRARLOS A LA BANDEJA ES COSA DEL JUGADOR, una vez. No se colocan solos:
-	eso seria `PickupMacro` + `PlaceAction`, `PlaceAction` es de la familia
-	protegida y no se ha comprobado en este cliente -- y aqui no se construye
-	sobre una lectura sin probar. Si algun dia se comprueba que deja, es una
-	linea.
+	`/rts macros` creates (or updates) the catalogue's macros.
+	DRAGGING THEM TO THE TRAY IS THE PLAYER'S JOB, once. They do not place
+	themselves: that would be `PickupMacro` + `PlaceAction`, `PlaceAction` is of
+	the protected family and has not been checked on this client -- and nothing
+	is built here on an unchecked reading. If one day it is checked and it does
+	let us, it is one line.
 
-	=== POR DONDE SALE LA ORDEN ===========================================
+	=== WHERE THE ORDER GOES OUT ==========================================
 
-	Cada macro es una o varias lineas `/rtscmd <comando de playerbots>`.
+	Each macro is one or more `/rtscmd <playerbots command>` lines.
 
-	`/rtscmd` va A LOS SELECCIONADOS, y si no hay nadie seleccionado va a todo
-	el grupo DICIENDOLO. `/rtsall` va siempre a todo el grupo. Las dos pasan por
-	`Orders`, o sea que heredan la cola de envio -- cuatro susurros en el mismo
-	frame se los come el limite de ritmo del chat del cliente sin un solo error,
-	que es el fallo que esa cola existe para no repetir.
+	`/rtscmd` goes TO THE SELECTED, and if nobody is selected it goes to the
+	whole party AND SAYS SO. `/rtsall` always goes to the whole party. Both go
+	through `Orders`, which means they inherit the send queue -- four whispers in
+	the same frame are eaten by the client's chat rate limit without a single
+	error, which is the bug that queue exists so as not to repeat.
 
-	Un macro que hablara por `/p` a pelo tambien funcionaria, y por eso conviene
-	saber que NO es lo mismo: iria siempre a los cinco.
+	A macro that talked straight down `/p` would work too, and that is why it is
+	worth knowing it is NOT the same thing: it would always go to all five.
 
-	=== LO QUE ESTE CLIENTE PIDE, COMPROBADO CONTRA EL =====================
+	=== WHAT THIS CLIENT ASKS FOR, CHECKED AGAINST IT =====================
 
-	Leido de `Blizzard_MacroUI.lua` y `.xml` de ESTE cliente (sacados del
-	`patch-esES.MPQ`), no de memoria:
+	Read out of `Blizzard_MacroUI.lua` and `.xml` of THIS client (pulled from
+	`patch-esES.MPQ`), not from memory:
 
-	  CreateMacro(nombre, ICONO, cuerpo, porPersonaje)
-	  EditMacro(indice, nombre, ICONO, cuerpo)
+	  CreateMacro(name, ICON, body, perCharacter)
+	  EditMacro(index, name, ICON, body)
 
-	**ICONO ES UN INDICE, NO UNA RUTA.** Es la posicion dentro de la lista de
-	iconos de macro del cliente, la que `GetMacroIconInfo(i)` traduce a textura.
-	Pasar "Interface\\Icons\\Loquesea" no da error: da un icono vacio, que es el
-	modo de fallo silencioso de siempre. Asi que aqui se recorre esa lista UNA
-	vez, se guarda nombre -> indice, y lo que no aparezca se queda con la
-	interrogacion Y SE DICE por pantalla.
+	**THE ICON IS AN INDEX, NOT A PATH.** It is the position inside the client's
+	macro icon list, the one `GetMacroIconInfo(i)` translates into a texture.
+	Passing "Interface\\Icons\\Whatever" is not an error: it gives an empty icon,
+	which is the same old silent failure mode. So here that list is walked ONCE,
+	name -> index is saved, and whatever does not turn up keeps the question mark
+	AND IS CALLED OUT on screen.
 
-	  MAX_ACCOUNT_MACROS = 36      los de la cuenta (indices 1..36)
-	  MAX_CHARACTER_MACROS = 18    los del personaje (indices 37..54)
-	  nombre: 16 letras            (`letters="16"` del MacroPopupEditBox)
-	  cuerpo: 255 letras           (`letters="255"` del MacroFrameText)
+	  MAX_ACCOUNT_MACROS = 36      the account ones (indices 1..36)
+	  MAX_CHARACTER_MACROS = 18    the character ones (indices 37..54)
+	  name: 16 letters             (`letters="16"` of MacroPopupEditBox)
+	  body: 255 letters            (`letters="255"` of MacroFrameText)
 
-	Se crean en los de la CUENTA: una orden a un bot no depende de que
-	personaje lleves.
+	They are created among the ACCOUNT ones: an order to a bot does not depend on
+	which character you are playing.
 
-	=== POR QUE SE ACTUALIZA EN VEZ DE BORRAR Y CREAR ======================
+	=== WHY IT UPDATES INSTEAD OF DELETING AND CREATING ===================
 
-	Una barra de accion guarda el INDICE del macro, no su nombre. Borrar y
-	volver a crear recoloca los indices, asi que el boton que el jugador habia
-	puesto acabaria apuntando a otro macro -- o a ninguno. Volver a ejecutar
-	`/rts macros` tiene que ser gratis, asi que si ya existe uno nuestro con ese
-	nombre se le hace `EditMacro` encima y el sitio en la barra se respeta.
+	An action bar saves the macro's INDEX, not its name. Deleting and creating
+	again shuffles the indices, so the button the player had placed would end up
+	pointing at another macro -- or at none. Running `/rts macros` again has to
+	be free, so if one of ours with that name already exists it gets an
+	`EditMacro` on top and its place on the bar is respected.
 
-	"Uno nuestro" se reconoce porque su cuerpo lleva `/rtscmd`. Un macro del
-	jugador que se llame igual NO se toca: se avisa y se salta.
+	"One of ours" is recognised because its body carries `/rtscmd`. A macro of
+	the player's that happens to be called the same is NOT touched: it is flagged
+	and skipped.
 ]]
 
 local ADDON, ns = ...
@@ -68,40 +69,41 @@ local ADDON, ns = ...
 local M = {}
 ns.Macros = M
 
--- Lo que marca un macro como nuestro, y a la vez el canal por el que sale la
--- orden. Las dos cosas son la misma cadena a proposito: no hay forma de tener
--- una sin la otra y que se desincronicen.
+-- What marks a macro as ours, and at the same time the channel the order goes
+-- out through. The two things are the same string on purpose: there is no way
+-- to have one without the other and let them drift apart.
 local MARK = "/rtscmd"
 
--- De `Blizzard_MacroUI.lua`. Se leen del cliente si estan (son globales suyas),
--- y si no, de aqui: un numero equivocado aqui se traduce en macros que se
--- crean fuera de rango y no aparecen.
+-- From `Blizzard_MacroUI.lua`. They are read off the client if they are there
+-- (they are globals of its own), and if not, from here: a wrong number here
+-- turns into macros created out of range that never show up.
 local ACCOUNT_MAX = 36
 local CHAR_MAX = 18
 local NAME_MAX = 16
 local BODY_MAX = 255
 
---- El catalogo, que ya no vive aqui --------------------------------------
+--- The catalogue, which no longer lives here ------------------------------
 --
--- ESTE FICHERO DEJA DE SER EL DUENO DE LAS ORDENES. La lista se ha mudado
--- entera a `Actions.lua`, que es quien la ensena en el desplegable de la
--- bandeja y quien la lanza. Aqui se sigue leyendo para lo unico que un macro
--- de verdad hace y una orden nuestra no: existir FUERA del addon -- en una
--- barra del juego, con su tecla, o para arrastrarlo a donde sea.
+-- THIS FILE STOPS BEING THE OWNER OF THE ORDERS. The list has moved wholesale
+-- to `Actions.lua`, which is what shows it in the tray dropdown and what fires
+-- it. It is still read here for the one thing a real macro does and an order of
+-- ours does not: existing OUTSIDE the addon -- on a game bar, with its key, or
+-- to be dragged wherever.
 --
--- Se pide por FUNCION y no se copia a una local al cargar: asi da igual el
--- orden de los ficheros en el `.toc`, que es la clase de dependencia que no
--- avisa cuando se rompe -- simplemente sale un catalogo vacio.
+-- It is asked for BY FUNCTION and not copied into a local on load: that way the
+-- order of the files in the `.toc` does not matter, which is the class of
+-- dependency that gives no warning when it breaks -- an empty catalogue simply
+-- comes out.
 
 local function Catalogue()
 	return (ns.Actions and ns.Actions.LIST) or {}
 end
 
---- Los iconos: del nombre al indice ---------------------------------------
+--- The icons: from the name to the index ----------------------------------
 --
--- Se recorre la lista entera UNA vez y se guarda por nombre de fichero, sin
--- ruta y en mayusculas. Son un par de miles de entradas: un parpadeo, y solo
--- ocurre cuando se crean los macros.
+-- The whole list is walked ONCE and saved by file name, with no path and in
+-- upper case. It is a couple of thousand entries: a blink, and it only happens
+-- when the macros are created.
 
 local iconIndex
 
@@ -109,8 +111,8 @@ local function IconIndex()
 	if iconIndex then return iconIndex end
 	local map = {}
 
-	-- La lista de iconos es del cliente, no del addon de macros, pero cargarlo
-	-- no cuesta nada y quita la duda de si estaba disponible todavia.
+	-- The icon list belongs to the client, not to the macro addon, but loading
+	-- it costs nothing and takes away the doubt of whether it was available yet.
 	if not IsAddOnLoaded("Blizzard_MacroUI") then
 		pcall(LoadAddOn, "Blizzard_MacroUI")
 	end
@@ -121,17 +123,18 @@ local function IconIndex()
 		if type(tex) == "string" then
 			local base = tex:match("[^\\/]+$") or tex
 			base = base:upper()
-			-- El primero gana: si el mismo nombre sale dos veces da igual cual,
-			-- son la misma textura.
+			-- First one wins: if the same name comes up twice it makes no
+			-- difference which, they are the same texture.
 			if not map[base] then map[base] = i end
 		end
 	end
 
-	-- NO SE GUARDA UNA LISTA VACIA. Si todavia no esta (la interfaz acaba de
-	-- cargar), cachear el fallo la deja fallando para siempre y los macros
-	-- saldrian todos con interrogacion sin que nada lo explicara. Es el mismo
-	-- error que cachear un CVar que aun no existe -- el FOV estuvo TRES etapas
-	-- muerto por eso. Se vuelve a intentar a la siguiente.
+	-- AN EMPTY LIST IS NOT SAVED. If it is not there yet (the interface has only
+	-- just loaded), caching the failure leaves it failing for ever and the
+	-- macros would all come out with a question mark and nothing to explain it.
+	-- It is the same mistake as caching a CVar that does not exist yet -- the
+	-- FOV was dead for THREE stages because of that. It gets tried again next
+	-- time.
 	if n == 0 then return map end
 	iconIndex = map
 	return iconIndex
@@ -141,7 +144,7 @@ local function IconFor(name)
 	return IconIndex()[(name or ""):upper()]
 end
 
---- Los macros que ya hay --------------------------------------------------
+--- The macros already there -----------------------------------------------
 
 local function Limits()
 	local a = _G.MAX_ACCOUNT_MACROS or ACCOUNT_MAX
@@ -149,9 +152,9 @@ local function Limits()
 	return a, c
 end
 
--- Recorre los indices REALES de los macros existentes. Los de la cuenta son
--- 1..n; los del personaje empiezan en MAX_ACCOUNT_MACROS+1 siempre, este la
--- cuenta llena o no.
+-- Walks the REAL indices of the existing macros. The account ones are 1..n; the
+-- character ones always start at MAX_ACCOUNT_MACROS+1, whether the account is
+-- full or not.
 local function EachMacro(fn)
 	local amax = Limits()
 	local na, nc = GetNumMacros()
@@ -164,17 +167,17 @@ local function EachMacro(fn)
 	end
 end
 
--- "Nuestro" es cualquier macro cuyo cuerpo hable por uno de nuestros comandos.
--- `/rtscmd` marca los de orden a bots y `/rts` los del propio addon (candado,
--- ventanas, salir) -- los dos tienen que contar, o `/rts macros` se negaria a
--- actualizar la mitad de su propio catalogo diciendo que es del jugador.
+-- "Ours" is any macro whose body talks through one of our commands. `/rtscmd`
+-- marks the bot-order ones and `/rts` the addon's own (lock, windows, exit) --
+-- both have to count, or `/rts macros` would refuse to update half of its own
+-- catalogue saying it belongs to the player.
 local function IsOurs(body)
 	if type(body) ~= "string" then return false end
 	return body:find(MARK, 1, true) ~= nil or body:find("/rts", 1, true) ~= nil
 end
 
--- Devuelve indice, esNuestro. Compara por NOMBRE porque es lo unico que sobrevive
--- a que el jugador lo mueva de sitio.
+-- Returns index, isOurs. Compares by NAME because that is the only thing that
+-- survives the player moving it somewhere else.
 local function FindByName(name)
 	local found, mine
 	EachMacro(function(i)
@@ -187,57 +190,59 @@ local function FindByName(name)
 	return found, mine
 end
 
--- El cuerpo del macro es EL MISMO TEXTO que lanza la orden desde la bandeja, y
--- por eso lo escribe `Actions.lua` y no este fichero: dos sitios componiendo
--- las mismas lineas se separan el dia que una cambia.
+-- The macro's body is THE SAME TEXT that fires the order from the tray, and
+-- that is why `Actions.lua` writes it and not this file: two places composing
+-- the same lines come apart the day one of them changes.
 local function BodyOf(entry)
 	return ns.Actions:Body(entry)
 end
 
---- Crear y actualizar -----------------------------------------------------
+--- Creating and updating --------------------------------------------------
 
--- SI EL CLIENTE SE NIEGA, QUE SE LEA UNA VEZ Y NO VEINTICUATRO.
+-- IF THE CLIENT REFUSES, LET IT BE READ ONCE AND NOT TWENTY-FOUR TIMES.
 --
--- `CreateMacro` y `EditMacro` no estan en la lista de funciones protegidas que
--- este proyecto ha comprobado, pero tampoco se ha comprobado lo contrario -- y
--- entre suponer que si y enterarse con veinticuatro errores rojos iguales,
--- mejor pararse en el primero y decir cual fue.
+-- `CreateMacro` and `EditMacro` are not on the list of protected functions this
+-- project has checked, but neither has the opposite been checked -- and between
+-- assuming they are fine and finding out through twenty-four identical red
+-- errors, better to stop at the first one and say which it was.
 local function Blocked(name, err)
-	ns.Print(("|cffff0000macros:|r el cliente no ha dejado tocar '%s': %s")
+	ns.Print(("|cffff0000macros:|r the client would not let '%s' be touched: %s")
 		:format(name, tostring(err)))
-	ns.Print("Si dice 'blocked', es que la funcion esta protegida en este " ..
-		"cliente y los macros hay que crearlos a mano desde |cffffff00/macro|r.")
+	ns.Print("If it says 'blocked', the function is protected on this client " ..
+		"and the macros have to be made by hand from |cffffff00/macro|r.")
 end
 
---- NO HAY PODA AUTOMATICA, Y ESTA ES LA CICATRIZ --------------------------
+--- THERE IS NO AUTOMATIC PRUNING, AND THIS IS THE SCAR --------------------
 --
--- El 2026-09-14 `Build` borraba, antes de crear, todo macro "mio" que ya no
--- estuviera en el catalogo. La idea era buena -- el catalogo como unica verdad,
--- sin huerfanos -- y la REGLA era mala: "mio" se decidia con `IsOurs`, o sea
--- *cualquier macro cuyo cuerpo lleve `/rts` o `/rtscmd` dentro*.
+-- On 2026-09-14 `Build` deleted, before creating, every "mine" macro that was
+-- no longer in the catalogue. The idea was good -- the catalogue as the single
+-- truth, with no orphans -- and the RULE was bad: "mine" was decided with
+-- `IsOurs`, that is, *any macro whose body has `/rts` or `/rtscmd` inside it*.
 --
--- Eso no distingue lo que este addon creo de lo que el JUGADOR se escribio con
--- nuestros comandos. Y el jugador tenia cuatro suyos -- `/rts command`,
--- `/rts mode`, `Playerbots add` (que empieza por `/rts` y sigue con comandos de
--- GM) y `Traerlos` (`/rtscmd summon`) -- que entraban en esa red y se fueron con
--- los veintidos del recorte, sin haberlos creado nosotros nunca.
+-- That does not tell apart what this addon created from what the PLAYER wrote
+-- for himself using our commands. And the player had four of his own --
+-- `/rts command`, `/rts mode`, `Playerbots add` (which starts with `/rts` and
+-- goes on with GM commands) and `Traerlos` (`/rtscmd summon`) -- that fell into
+-- that net and went out with the twenty-two of the cull, having never been
+-- created by us.
 --
--- LA LECCION, escrita donde se cometio: un addon puede crear y puede
--- ACTUALIZAR lo que creo, pero **borrar lo que no ha creado no es suyo**, y
--- "parece mio" no es "es mio". Para poder borrar con derecho haria falta
--- guardar que macros creamos nosotros, nombre a nombre, y aun asi un nombre
--- repetido lo volveria ambiguo.
+-- THE LESSON, written where it was made: an addon can create and can UPDATE
+-- what it created, but **deleting what it did not create is not its to do**,
+-- and "looks like mine" is not "is mine". To be able to delete by right it
+-- would have to save which macros we created, name by name, and even then a
+-- repeated name would make it ambiguous.
 --
--- Asi que no se borra nada. Quitar una entrada del catalogo deja de crearla y
--- ya esta; el macro que sobre lo borra el jugador desde `/macro`, que es de
--- donde no se puede equivocar nadie.
+-- So nothing is deleted. Taking an entry out of the catalogue stops it being
+-- created and that is all; the leftover macro is deleted by the player from
+-- `/macro`, which is where nobody can get it wrong.
 --
--- (`M:Clear()` sigue existiendo y sigue borrando por `IsOurs` -- pero eso lo
--- pide el jugador a proposito, escribiendolo, y dice cuantos se lleva.)
+-- (`M:Clear()` still exists and still deletes by `IsOurs` -- but that is the
+-- player asking for it on purpose, by typing it, and it says how many it takes
+-- with it.)
 
 function M:Build()
 	if InCombatLockdown() then
-		ns.Print("|cffff8800macros:|r en combate no. Sal de la pelea y repite.")
+		ns.Print("|cffff8800macros:|r not in combat. Leave the fight and try again.")
 		return
 	end
 
@@ -253,23 +258,23 @@ function M:Build()
 			icon = IconFor("INV_Misc_QuestionMark") or 1
 		end
 
-		-- Nombre y cuerpo pasan por el mismo recorte que el cliente aplicaria
-		-- en silencio. Que se vea aqui en vez de descubrirlo en la ventana.
+		-- Name and body go through the same trim the client would apply in
+		-- silence. Better seen here than discovered in the window.
 		local name = e.name
 		if name:len() > NAME_MAX then
-			ns.Print(("|cffff8800macros:|r '%s' pasa de %d letras, se recorta.")
+			ns.Print(("|cffff8800macros:|r '%s' goes over %d letters, it gets trimmed.")
 				:format(name, NAME_MAX))
 			name = name:sub(1, NAME_MAX)
 		end
 		if body:len() > BODY_MAX then
-			ns.Print(("|cffff8800macros:|r el cuerpo de '%s' pasa de %d letras y NO se crea.")
+			ns.Print(("|cffff8800macros:|r the body of '%s' goes over %d letters and is NOT created.")
 				:format(name, BODY_MAX))
 			skipped = skipped + 1
 		else
 			local idx, mine = FindByName(name)
 			if idx and not mine then
-				ns.Print(("|cffff8800macros:|r ya tienes un macro llamado '%s' " ..
-					"que no es mio. No lo toco."):format(name))
+				ns.Print(("|cffff8800macros:|r you already have a macro called '%s' " ..
+					"that is not mine. I am not touching it."):format(name))
 				skipped = skipped + 1
 			elseif idx then
 				local ok, err = pcall(EditMacro, idx, name, icon, body)
@@ -288,48 +293,49 @@ function M:Build()
 		end
 	end
 
-	ns.Print(("macros: |cff00ff00%d nuevos|r, %d actualizados%s%s."):format(
+	ns.Print(("macros: |cff00ff00%d new|r, %d updated%s%s."):format(
 		made, upd,
-		skipped > 0 and (", |cffff8800" .. skipped .. " saltados|r") or "",
-		full > 0 and (", |cffff0000" .. full .. " sin hueco|r") or ""))
+		skipped > 0 and (", |cffff8800" .. skipped .. " skipped|r") or "",
+		full > 0 and (", |cffff0000" .. full .. " with no room|r") or ""))
 
 	if #noIcon > 0 then
-		-- UN ICONO QUE NO ESTA EN LA LISTA NO DA ERROR: da un hueco vacio. Que
-		-- lo diga aqui es la diferencia entre arreglarlo en un minuto y mirar
-		-- una barra con agujeros preguntandose que se rompio.
-		ns.Print("|cffff8800macros:|r sin icono (no estan en la lista del cliente): " ..
+		-- AN ICON THAT IS NOT ON THE LIST IS NOT AN ERROR: it gives an empty
+		-- hole. Saying so here is the difference between fixing it in a minute
+		-- and staring at a bar full of gaps wondering what broke.
+		ns.Print("|cffff8800macros:|r no icon (they are not on the client's list): " ..
 			table.concat(noIcon, ", "))
 	end
 	if full > 0 then
-		ns.Print(("Los macros de cuenta son %d y estan llenos. Borra alguno " ..
-			"o usa |cffffff00/rts macros clear|r y vuelve a intentarlo."):format(amax))
+		ns.Print(("The account macros are %d and they are full. Delete one " ..
+			"or use |cffffff00/rts macros clear|r and try again."):format(amax))
 	end
 
-	-- DONDE PONERLOS CAMBIO EL 2026-09-13. Antes era "las dos barras verticales
-	-- de la derecha", porque el modo RTS las dejaba a la vista a proposito para
-	-- esto. Ahora las esconde con el resto de barras de accion y el sitio es la
-	-- BANDEJA: diez casillas propias, que es adonde fue a parar la rejilla 4x4.
-	ns.Print("Abre |cffffff00/macro|r y arrastralos a las |cffffff00diez casillas|r " ..
-		"de abajo a la derecha, en modo RTS.")
+	-- WHERE TO PUT THEM CHANGED ON 2026-09-13. It used to be "the two vertical
+	-- bars on the right", because RTS mode left them in view on purpose for
+	-- this. Now it hides them with the rest of the action bars and the place is
+	-- the TRAY: ten slots of its own, which is where the 4x4 grid ended up.
+	ns.Print("Open |cffffff00/macro|r and drag them to the |cffffff00ten slots|r " ..
+		"at the bottom right, in RTS mode.")
 
-	-- Y SE DICE CUANTOS SON, porque el catalogo ya roza el limite de la cuenta:
-	-- 35 de 36. Con dos macros propios del jugador, los ultimos del catalogo no
-	-- caben -- y eso sale por `full`, pero solo DESPUES de intentarlo. Decirlo
-	-- antes es la diferencia entre entenderlo y pensar que el comando falla.
+	-- AND IT SAYS HOW MANY THERE ARE, because the catalogue is already up
+	-- against the account limit: 35 out of 36. With two macros of the player's
+	-- own, the last of the catalogue do not fit -- and that comes out through
+	-- `full`, but only AFTER trying. Saying it beforehand is the difference
+	-- between understanding it and thinking the command is broken.
 	local amax2 = Limits()
-	ns.Print(("|cff888888El catalogo son %d macros y la cuenta admite %d.|r")
+	ns.Print(("|cff888888The catalogue is %d macros and the account takes %d.|r")
 		:format(#Catalogue(), amax2))
 end
 
---- Borrar los nuestros ----------------------------------------------------
+--- Deleting ours ----------------------------------------------------------
 
 function M:Clear()
 	if InCombatLockdown() then
-		ns.Print("|cffff8800macros:|r en combate no.")
+		ns.Print("|cffff8800macros:|r not in combat.")
 		return
 	end
 
-	-- De mayor a menor: borrar recoloca los indices de todo lo que va detras.
+	-- Highest to lowest: deleting shuffles the indices of everything behind it.
 	local mine = {}
 	EachMacro(function(i)
 		local _, _, body = GetMacroInfo(i)
@@ -338,21 +344,21 @@ function M:Clear()
 	table.sort(mine, function(a, b) return a > b end)
 
 	for _, i in ipairs(mine) do DeleteMacro(i) end
-	ns.Print(("macros: borrados %d mios. Los tuyos no se tocan."):format(#mine))
+	ns.Print(("macros: deleted %d of mine. Yours are not touched."):format(#mine))
 	if #mine > 0 then
-		ns.Print("|cffff8800Ojo:|r borrar recoloca los indices, asi que revisa " ..
-			"los botones de la barra.")
+		ns.Print("|cffff8800Careful:|r deleting shuffles the indices, so check " ..
+			"the buttons on the bar.")
 	end
 end
 
---- Que hay y que haria ----------------------------------------------------
+--- What is there and what it would do -------------------------------------
 
 function M:List()
-	ns.Print(("catalogo: %d macros. |cffffff00/rts macros|r los crea."):format(#Catalogue()))
+	ns.Print(("catalogue: %d macros. |cffffff00/rts macros|r creates them."):format(#Catalogue()))
 	for _, e in ipairs(Catalogue()) do
 		local idx, mine = FindByName(e.name)
-		local mark = (idx and mine) and "|cff00ff00[puesto]|r"
-			or (idx and "|cffff8800[ocupado]|r" or "|cff888888[no]|r")
+		local mark = (idx and mine) and "|cff00ff00[placed]|r"
+			or (idx and "|cffff8800[taken]|r" or "|cff888888[no]|r")
 		ns.Print(("  %s |cffffff00%-13s|r %s  |cff888888%s|r"):format(
 			mark, e.name, table.concat(e.cmd, " + "), e.d or ""))
 	end
@@ -366,39 +372,40 @@ function M:Status()
 		local _, _, body = GetMacroInfo(i)
 		if IsOurs(body) then n = n + 1 end
 	end)
-	ns.Print(("macros: %d/%d de cuenta, %d/%d de personaje; %d son mios.")
+	ns.Print(("macros: %d/%d account, %d/%d character; %d are mine.")
 		:format(na or 0, amax, nc or 0, cmax, n))
-	ns.Print(("iconos del cliente: %d en la lista."):format(
+	ns.Print(("client icons: %d on the list."):format(
 		GetNumMacroIcons and GetNumMacroIcons() or 0))
-	ns.Print("|cffffff00/rts macros|r crea o actualiza  " ..
-		"|cffffff00list|r que hay  |cffffff00clear|r borra los mios")
-	ns.Print("Cada uno manda |cffffff00/rtscmd <comando>|r: a los SELECCIONADOS, " ..
-		"o a todo el grupo si no hay nadie.")
+	ns.Print("|cffffff00/rts macros|r creates or updates  " ..
+		"|cffffff00list|r what is there  |cffffff00clear|r deletes mine")
+	ns.Print("Each one sends |cffffff00/rtscmd <cmd>|r: to the SELECTED, " ..
+		"or to the whole party if there is nobody.")
 end
 
---- Los dos comandos que usan los macros -----------------------------------
+--- The two commands the macros use ----------------------------------------
 --
--- Se registran aqui y no en `Core.lua` porque son el reverso de este fichero:
--- un macro del catalogo no significa nada sin ellos, y separarlos es como se
--- acaba con un verbo que no escucha nadie.
+-- They are registered here and not in `Core.lua` because they are the flip side
+-- of this file: a catalogue macro means nothing without them, and separating
+-- them is how you end up with a verb nobody listens to.
 
 local function Route(text, forceAll)
 	text = strtrim(text or "")
 	if text == "" then
-		ns.Print("|cffffff00/rtscmd <comando>|r - a los seleccionados " ..
-			"(o a todo el grupo si no hay nadie).")
-		ns.Print("|cffffff00/rtsall <comando>|r - siempre a todo el grupo.")
+		ns.Print("|cffffff00/rtscmd <cmd>|r - to the selected " ..
+			"(or to the whole party if there is nobody).")
+		ns.Print("|cffffff00/rtsall <cmd>|r - always to the whole party.")
 		return
 	end
 
 	local sel = ns.Selection:Get()
 	if forceAll or #sel == 0 then
-		-- DECIRLO. Una orden que sale a los cinco cuando creias haber ordenado
-		-- a uno es justo el sintoma que este catalogo viene a poder tocar.
+		-- SAY IT. An order going out to all five when you thought you had
+		-- ordered one is exactly the symptom this catalogue comes to make
+		-- reachable.
 		if not forceAll then
-			ns.Print("|cffffff00sin seleccion|r -> a todo el grupo:")
+			ns.Print("|cffffff00no selection|r -> to the whole party:")
 		end
-		ns.Orders:Broadcast(text, "> " .. text .. " (todo el grupo)")
+		ns.Orders:Broadcast(text, "> " .. text .. " (whole party)")
 	else
 		ns.Orders:Send(text, "> " .. text)
 	end

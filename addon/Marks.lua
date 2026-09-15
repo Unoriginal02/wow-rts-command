@@ -1,42 +1,41 @@
 --[[
-	Marks.lua -- los marcadores de ruta que dibuja EL CLIENTE, no nosotros.
+	Marks.lua -- the route markers THE CLIENT draws, not us.
 
-	Todo lo que este addon ha puesto "en el mundo" hasta ahora era una textura
-	de interfaz aparcada en el pixel donde cae la proyeccion: sin profundidad,
-	dibujada encima de la colina que deberia taparla, y nadando de lado cada vez
-	que gira la camara. Los efectos de verdad que tiene el cliente -- el circulo
-	de seleccion, el brillo del modelo, las placas de vida -- son todos POR
-	UNIDAD y necesitan un GUID del que colgar. Un punto de ruta es suelo pelado.
+	Everything this addon has put "in the world" so far was an interface
+	texture parked on the pixel where the projection lands: no depth, drawn on
+	top of the hill that ought to hide it, and swimming sideways every time the
+	camera turns. The real effects the client has -- the selection circle, the
+	model glow, the nameplates -- are all PER UNIT and need a GUID to hang off.
+	A route point is bare ground.
 
-	La excepcion es el `DynamicObject`: vive en una posicion cualquiera del
-	mundo y el cliente le pinta encima el visual persistente de su hechizo, en
-	su propio bucle de dibujo y con profundidad correcta. Es lo que son las
-	manchas de Consagracion o de Muerte y Descomposicion. Asi que el marcador no
-	lo dibujamos: colocamos un objeto y lo dibuja el cliente -- el mismo trato
-	que hizo funcionar las placas de vida en la etapa 5e.
+	The exception is the `DynamicObject`: it lives at any position in the world
+	and the client paints the persistent visual of its spell on top of it, in
+	its own drawing loop and with correct depth. It is what the patches of
+	Consecration or Death and Decay are. So we do not draw the marker: we place
+	an object and the client draws it -- the same deal that made the nameplates
+	work back in stage 5e.
 
-	QUE HECHIZO es una pregunta para el OJO, no para el codigo: cada visual
-	tiene su tamano, su color y su animacion, y una lista de ids escrita de
-	memoria es justo la clase de constante que en este proyecto no dibuja nada
-	sin dar error. Por eso:
+	WHICH SPELL is a question for the EYE, not for the code: every visual has
+	its own size, its own colour and its own animation, and a list of ids
+	written from memory is exactly the kind of constant that in this project
+	draws nothing without raising an error. Hence:
 
-	  * la lista de candidatos la construye el SERVIDOR a partir del almacen de
-	    hechizos ya cargado -- todos los que tienen efecto de aura de area
-	    persistente, que son exactamente aquellos para los que el cliente tiene
-	    un visual de suelo;
-	  * y aqui vive la herramienta para recorrerla en vivo, `/rts mark`, con los
-	    marcadores de la ruta ya puesta cambiando debajo mientras se pasa de uno
-	    a otro.
+	  * the candidate list is built by the SERVER out of the already loaded
+	    spell store -- all the ones with a persistent area aura effect, which
+	    are exactly those the client has a ground visual for;
+	  * and here lives the tool to walk it live, `/rts mark`, with the markers
+	    of the route already laid down changing underneath while you step from
+	    one to the next.
 
-	Cuando haya un ganador, se fija con `/rts mark <id>` y `/rts mark size <n>`,
-	que es lo que queda guardado; hardcodearlo es cambiar los valores por
-	defecto de `M.cfg`.
+	When there is a winner, it is fixed with `/rts mark <id>` and
+	`/rts mark size <n>`, which is what stays saved; hardcoding it means
+	changing the default values of `M.cfg`.
 
-	EL SLOT NO ES LA POSICION EN LA RUTA, ES UNA IDENTIDAD. Si el slot fuera "el
-	tercero de los que quedan", pisar el primer punto renumeraria todos los
-	demas y habria que recolocar la ruta entera en cada llegada. Cada punto
-	nace con un numero propio que no cambia, asi que llegar a uno es una sola
-	orden de quitar.
+	THE SLOT IS NOT THE POSITION IN THE ROUTE, IT IS AN IDENTITY. If the slot
+	were "the third of the ones left", stepping on the first point would
+	renumber all the rest and the whole route would have to be laid out again
+	on every arrival. Every point is born with a number of its own that does
+	not change, so reaching one is a single order to remove.
 ]]
 
 local ADDON, ns = ...
@@ -44,60 +43,62 @@ local ADDON, ns = ...
 local M = {}
 ns.Marks = M
 
--- Sube cuando un valor de fabrica cambia de forma que lo guardado por una
--- version anterior ya no representa una decision del jugador. Sin esto, apagar
--- las marcas por defecto no habria apagado nada en el unico cliente que
--- importa: el que ya tiene `on = 1` guardado de ayer.
+-- Goes up when a factory value changes in a way that makes what an earlier
+-- version saved stop being a decision of the player's. Without this, switching
+-- the marks off by default would not have switched anything off on the only
+-- client that matters: the one that already has `on = 1` saved from yesterday.
 local CFG_VERSION = 2
 
 
--- El aspecto elegido. Se guarda porque el servidor lo pierde al desconectar:
--- el addon es donde ya persisten los ajustes por personaje, asi que es el addon
--- quien se lo recuerda al servidor en cada sesion.
+-- The chosen look. It is saved because the server loses it on disconnect: the
+-- addon is where the per-character settings already persist, so it is the
+-- addon that reminds the server of it every session.
 --
--- LOS VALORES DE FABRICA SON LOS ELEGIDOS MIRANDOLOS EN JUEGO: "Shield of the
--- Blue" (45848) a una decima de su tamano original. Estan aqui como PUNTO DE
--- PARTIDA, no como constante: la herramienta sigue recorriendo la lista entera.
+-- THE FACTORY VALUES ARE THE ONES CHOSEN BY LOOKING AT THEM IN GAME: "Shield
+-- of the Blue" (45848) at a tenth of its original size. They are here as a
+-- STARTING POINT, not as a constant: the tool still walks the whole list.
 --
--- APAGADOS DE FABRICA DESDE 2026-08-23, y el motivo es la ANIMACION.
+-- OFF BY DEFAULT SINCE 2026-08-23, and the reason is the ANIMATION.
 --
--- Con `obj 0.1` el tamano en reposo era el bueno, pero al aparecer la marca
--- pegaba un estallido enorme. Eso es el visual del hechizo naciendo: cada
--- visual persistente trae su propia animacion de entrada, y esa animacion vive
--- en el cliente, en el kit del hechizo. El servidor decide DONDE, CUAL y CUANTO
--- de grande -- radio y escala -- pero no puede decirle al cliente que se salte
--- una animacion, ni empezarla a medias, ni acortarla. No hay campo para eso.
+-- With `obj 0.1` the resting size was the good one, but on appearing the mark
+-- let out an enormous burst. That is the spell's visual being born: every
+-- persistent visual brings its own entry animation, and that animation lives
+-- in the client, in the spell's kit. The server decides WHERE, WHICH and HOW
+-- BIG -- radius and scale -- but it cannot tell the client to skip an
+-- animation, nor to start it halfway through, nor to shorten it. There is no
+-- field for that.
 --
--- O sea que lo unico que quedaba era buscar entre los 572 visuales uno que
--- naciera quieto, y eso es una caza a ciegas de las que este proyecto ya ha
--- pagado varias. Con los aros de la ruta cumpliendo, no vale la pena: se apaga
--- y la herramienta se queda entera para cuando alguien quiera volver a mirar.
--- `/rts mark on` los enciende.
+-- So the only thing left was to hunt among the 572 visuals for one that was
+-- born still, and that is a blind hunt of the kind this project has already
+-- paid for several times. With the route rings doing their job, it is not
+-- worth it: it gets switched off and the tool stays whole for whenever anyone
+-- wants to go back and look. `/rts mark on` turns them on.
 M.cfg = {
-	on    = 0,     -- 0 = sin marcadores en el mundo (solo el aro y el numero)
-	spell = 45848, -- 0 = el primero de la lista del servidor
-	size  = 0,     -- radio en yardas; 0 = automatico (1/10 del tamano del hechizo)
-	obj   = 0.1,   -- escala del MODELO: 0.1 es la medida buena, vista en juego
-	mode  = 0,     -- 0 el tamano lo mandamos nosotros, 1 lo decide el cliente
+	on    = 0,     -- 0 = no markers in the world (just the ring and the number)
+	spell = 45848, -- 0 = the first one on the server's list
+	size  = 0,     -- radius in yards; 0 = automatic (1/10 of the spell's size)
+	obj   = 0.1,   -- scale of the MODEL: 0.1 is the good measure, seen in game
+	mode  = 0,     -- 0 we send the size, 1 the client decides it
 }
 
--- DOS MANDOS DE TAMANO PORQUE UNO NO BASTA, Y NO ES INDECISION.
+-- TWO SIZE CONTROLS BECAUSE ONE IS NOT ENOUGH, AND IT IS NOT INDECISION.
 --
--- `size` es DYNAMICOBJECT_RADIUS, que es una PETICION: el cliente decide si el
--- visual de suelo que sea se estira con ese radio, y para el que no, todo lo
--- que mandemos se guarda, se contesta y se ignora -- que en pantalla se lee
--- como "el mando no hace nada" y no lo es. `obj` es OBJECT_FIELD_SCALE_X, la
--- escala del modelo, el mismo campo que hace grande o pequena a una criatura:
--- otro campo y otro camino, asi que un visual sordo a uno puede contestar al
--- otro. Cual escucha cada visual es cosa de mirarlo, no de razonarlo.
+-- `size` is DYNAMICOBJECT_RADIUS, which is a REQUEST: the client decides
+-- whether whichever ground visual it is stretches with that radius, and for
+-- the one that does not, everything we send is stored, answered and ignored --
+-- which on screen reads as "the control does nothing" and it is not that.
+-- `obj` is OBJECT_FIELD_SCALE_X, the model scale, the same field that makes a
+-- creature big or small: another field and another path, so a visual deaf to
+-- one may answer the other. Which one each visual listens to is a matter of
+-- looking at it, not of reasoning about it.
 
--- Lo ultimo que dijo el servidor. Se ensena tal cual: es la unica fuente
--- honesta de en que punto de la lista estamos.
+-- The last thing the server said. It is shown exactly as it came: it is the
+-- only honest source of where in the list we are.
 M.at = { index = 0, total = 0, spell = 0, size = 0, mode = 0, placed = 0,
          own = 0, obj = 1, name = "?" }
 
-local placed = {}      -- [slot] = true, lo que creemos que hay puesto
-local TEST_SLOT = 9999 -- fuera del alcance de cualquier ruta real
+local placed = {}      -- [slot] = true, what we believe is placed
+local TEST_SLOT = 9999 -- out of the reach of any real route
 
 local function Server()
 	return ns.Orders and ns.Orders:HasServer()
@@ -107,17 +108,17 @@ local function Send(body)
 	if Server() then ns.SendServer(body) end
 end
 
---- Aspecto -----------------------------------------------------------------
+--- The look ----------------------------------------------------------------
 
--- Recordarle al servidor lo que tenemos guardado. Se llama al entrar en modo
--- RTS y cuando el servidor contesta por primera vez.
+-- Reminding the server of what we have saved. Called on entering RTS mode and
+-- when the server answers for the first time.
 function M:Apply()
 	if not Server() then return end
 	if self.cfg.spell and self.cfg.spell > 0 then
 		Send(("MARKSET spell %d"):format(self.cfg.spell))
 	end
-	-- El orden importa: el hechizo primero, porque el tamano automatico se
-	-- deriva de EL. Al reves se derivaria del hechizo anterior.
+	-- The order matters: the spell first, because the automatic size derives
+	-- from IT. The other way round it would derive from the previous spell.
 	Send(("MARKSET size %.2f"):format(self.cfg.size))
 	Send(("MARKSET obj %.2f"):format(self.cfg.obj))
 	Send(("MARKSET mode %d"):format(self.cfg.mode))
@@ -132,12 +133,12 @@ local function Save()
 	}
 end
 
---- Colocar -----------------------------------------------------------------
+--- Placing -----------------------------------------------------------------
 
--- Lo que hay que ver, contra lo que creemos que hay puesto. Solo se manda la
--- diferencia: un mensaje de addon por marcador y por vuelta seria mucho mas
--- trafico del que hace falta, y ademas el servidor tendria que rehacer objetos
--- que ya estan bien.
+-- What has to be seen, against what we believe is placed. Only the difference
+-- is sent: one addon message per marker per round would be far more traffic
+-- than is needed, and on top of that the server would have to redo objects
+-- that are already right.
 function M:Sync(list)
 	if not Server() then return end
 
@@ -170,22 +171,23 @@ function M:ClearAll()
 	placed = {}
 end
 
--- El servidor se olvida de todo al desconectar o al cambiar de mapa (el nucleo
--- tira todos los dynobjects del jugador), asi que nuestra idea de lo que hay
--- puesto tiene que olvidarse tambien -- si no, `Sync` no volveria a mandar
--- nada porque cree que ya estan.
+-- The server forgets everything on disconnect or on changing map (the core
+-- throws away all of the player's dynobjects), so our idea of what is placed
+-- has to be forgotten too -- otherwise `Sync` would never send anything again
+-- because it believes they are already there.
 function M:Forget()
 	placed = {}
 end
 
--- Un punto que se ha MOVIDO despues de colocar su marca. El servidor fija la
--- posicion al crear el objeto y no la mueve sola, asi que hay que olvidarse de
--- esa marca para que el siguiente `Sync` la vuelva a poner en el sitio bueno.
+-- A point that has MOVED after its mark was placed. The server fixes the
+-- position when it creates the object and does not move it by itself, so that
+-- mark has to be forgotten for the next `Sync` to put it back in the right
+-- place.
 function M:Redo(slot)
 	if slot then placed[slot] = nil end
 end
 
---- Respuestas del servidor -------------------------------------------------
+--- The server's answers ----------------------------------------------------
 
 function M:OnAt(index, total, spell, size, mode, count, own, obj, name)
 	self.at = {
@@ -193,12 +195,14 @@ function M:OnAt(index, total, spell, size, mode, count, own, obj, name)
 		size = size, mode = mode, placed = count, own = own,
 		obj = obj or 1, name = name,
 	}
-	-- Lo que diga el servidor es lo que se guarda: si se pidio un hechizo que
-	-- no existe, lo guardado seria una mentira que sobrevive al reinicio.
+	-- Whatever the server says is what gets saved: if a spell that does not
+	-- exist was asked for, what was saved would be a lie that survives the
+	-- restart.
 	--
-	-- El TAMANO no: el servidor informa del efectivo, y guardarlo convertiria el
-	-- automatico en un numero fijo en cuanto se pidiera el estado una vez -- y
-	-- entonces cambiar de hechizo dejaria el tamano del anterior.
+	-- The SIZE is not: the server reports the effective one, and saving it
+	-- would turn the automatic into a fixed number the moment the state was
+	-- asked for once -- and then changing spell would leave the previous one's
+	-- size behind.
 	self.cfg.spell, self.cfg.mode = spell, mode
 	self.cfg.obj = self.at.obj
 	Save()
@@ -206,39 +210,41 @@ end
 
 function M:Report()
 	local a = self.at
-	ns.Print(("marcas: %s   |cffffff00%s|r (id %d)   %d/%d de la lista")
+	ns.Print(("marks: %s   |cffffff00%s|r (id %d)   %d/%d of the list")
 		:format(self.cfg.on == 1 and "|cff00ff00ON|r" or "|cffff0000OFF|r",
 			a.name, a.spell, a.index + 1, a.total))
-	ns.Print(("  radio |cffffff00%.2f|r de %.2f del hechizo (x%.2f)   " ..
-		"escala del modelo |cffffff00x%.2f|r   puestas |cffffff00%d|r")
+	ns.Print(("  radius |cffffff00%.2f|r of the spell's %.2f (x%.2f)   " ..
+		"model scale |cffffff00x%.2f|r   placed |cffffff00%d|r")
 		:format(a.size, a.own, a.own > 0 and (a.size / a.own) or 0, a.obj or 1,
 			a.placed))
-	ns.Print(("  modo |cffffff00%d|r%s")
+	ns.Print(("  mode |cffffff00%d|r%s")
 		:format(a.mode,
-			a.mode == 1 and " |cffff8800-- el cliente decide el radio de casi " ..
-				"todas las manchas de suelo e ignora el nuestro|r"
-			             or " -- el cliente usa nuestro radio"))
+			a.mode == 1 and " |cffff8800-- the client decides the radius of " ..
+				"nearly every ground patch and ignores ours|r"
+			             or " -- the client uses our radius"))
 	if not Server() then
-		ns.Print("|cffff0000mod-rts no contesta|r: sin servidor no hay marcadores " ..
-			"en el mundo, solo el numero.")
+		ns.Print("|cffff0000mod-rts is not answering|r: with no server there are " ..
+			"no markers in the world, only the number.")
 	end
-	ns.Print("|cffffff00/rts mark next|prev|r recorre la lista, " ..
-		"|cffffff00find <texto>|r busca, |cffffff00<id>|r va directo.")
-	ns.Print("|cffffff00/rts mark size <yardas>|r o |cffffff00scale <fraccion>|r  " ..
-		"|cffffff00mode 0|1|r  |cffffff00test|r pone una donde apuntas  " ..
-		"|cffffff00list|r la lista.")
-	-- SI EL TAMANO NO SE MUEVE, ES QUE EL VISUAL NO ESCUCHA AL RADIO. El otro
-	-- mando escala el modelo y no pasa por esa decision del cliente.
-	ns.Print("|cffffff00/rts mark obj <n>|r escala el MODELO (0.5 = la mitad). " ..
-		"Es el mando de tamano que no depende del visual.")
-	-- Y el aro con el numero que se ve en cada punto de la ruta NO es esto: es
-	-- interfaz proyectada, con su propio mando. Dos cosas encima del mismo sitio.
-	ns.Print("|cff888888El aro con el numero de cada punto es interfaz, no esta marca: " ..
-		"su tamano es |cffffff00/rts route ring <yardas>|r|cff888888.|r")
+	ns.Print("|cffffff00/rts mark next|prev|r walks the list, " ..
+		"|cffffff00find <text>|r searches, |cffffff00<id>|r goes straight there.")
+	ns.Print("|cffffff00/rts mark size <yards>|r or |cffffff00scale <fraction>|r  " ..
+		"|cffffff00mode 0|1|r  |cffffff00test|r puts one where you point  " ..
+		"|cffffff00list|r the list.")
+	-- IF THE SIZE DOES NOT MOVE, IT MEANS THE VISUAL IS NOT LISTENING TO THE
+	-- RADIUS. The other control scales the model and does not go through that
+	-- decision of the client's.
+	ns.Print("|cffffff00/rts mark obj <n>|r scales the MODEL (0.5 = half). " ..
+		"It is the size control that does not depend on the visual.")
+	-- And the ring with the number you see at each point of the route is NOT
+	-- this: it is projected interface, with its own control. Two things on top
+	-- of the same spot.
+	ns.Print("|cff888888The ring with each point's number is interface, not this " ..
+		"mark: its size is |cffffff00/rts route ring <yards>|r|cff888888.|r")
 end
 
--- Una pagina de la lista. Llega troceada y cada trozo dice desde donde va, asi
--- que no depende de que lleguen en orden.
+-- One page of the list. It arrives in pieces and each piece says where it
+-- starts from, so it does not depend on them arriving in order.
 function M:OnList(total, from, payload)
 	local i = from
 	for entry in payload:gmatch("[^;]+") do
@@ -251,14 +257,14 @@ function M:OnList(total, from, payload)
 	self.at.total = total
 end
 
---- El mando ----------------------------------------------------------------
+--- The control -------------------------------------------------------------
 
 function M:Command(args)
 	local sub, value = (args or ""):match("^(%S*)%s*(.*)$")
 	sub = (sub or ""):lower()
 
 	if sub == "" then
-		-- Sin argumentos el servidor contesta el estado y `OnAt` lo imprime.
+		-- With no arguments the server answers the state and `OnAt` prints it.
 		if Server() then Send("MARKSET") else self:Report() end
 		return
 	end
@@ -267,14 +273,14 @@ function M:Command(args)
 		self.cfg.on = (sub == "on") and 1 or 0
 		Save()
 		if self.cfg.on == 0 then self:ClearAll() end
-		ns.Print("marcadores en el mundo: " ..
+		ns.Print("markers in the world: " ..
 			(self.cfg.on == 1 and "|cff00ff00ON|r" or "|cffff0000OFF|r"))
 		return
 	end
 
 	if not Server() then
-		ns.Print("|cffff0000mod-rts no contesta|r: el ajuste de marcadores vive en " ..
-			"el servidor.")
+		ns.Print("|cffff0000mod-rts is not answering|r: the marker setting lives " ..
+			"on the server.")
 		return
 	end
 
@@ -283,9 +289,9 @@ function M:Command(args)
 	elseif sub == "size" then
 		Send(("MARKSET size %s"):format(value))
 	elseif sub == "scale" or sub == "escala" then
-		-- El tamano como FRACCION del original, que es como se pide de verdad:
-		-- "una decima de lo que mide" en vez de un numero de yardas que solo
-		-- significa algo si ya sabes cuanto media.
+		-- The size as a FRACTION of the original, which is how it really gets
+		-- asked for: "a tenth of what it measures" instead of a number of yards
+		-- that only means something if you already know what it measured.
 		Send(("MARKSET scale %s"):format(value))
 	elseif sub == "obj" or sub == "objeto" or sub == "modelo" then
 		Send(("MARKSET obj %s"):format(value))
@@ -295,7 +301,7 @@ function M:Command(args)
 		Send(("MARKSET find %s"):format(value))
 	elseif sub == "list" then
 		local from = tonumber(value) or 0
-		ns.Print(("lista de visuales, desde el %d:"):format(from + 1))
+		ns.Print(("list of visuals, from %d on:"):format(from + 1))
 		Send(("MARKQ %d 20"):format(from))
 	elseif sub == "test" then
 		if value:lower() == "off" then
@@ -305,12 +311,12 @@ function M:Command(args)
 		end
 		local x, y, z = ns.Markers and ns.Markers:CursorGroundPoint()
 		if not x then
-			ns.Print("No se donde apunta el raton (hace falta rts_core y modo RTS).")
+			ns.Print("I do not know where the mouse is pointing (rts_core and RTS mode are needed).")
 			return
 		end
 		Send(("MARK %d %.2f %.2f %.2f"):format(TEST_SLOT, x, y, z))
 		placed[TEST_SLOT] = true
-		ns.Print("marca de prueba puesta. |cffffff00/rts mark test off|r la quita.")
+		ns.Print("test mark placed. |cffffff00/rts mark test off|r takes it away.")
 	elseif tonumber(sub) then
 		Send(("MARKSET spell %d"):format(tonumber(sub)))
 	else
@@ -318,12 +324,12 @@ function M:Command(args)
 	end
 end
 
---- Ciclo -------------------------------------------------------------------
+--- Cycle -------------------------------------------------------------------
 
 function M:Create()
-	-- LOS CUATRO VERBOS DE LAS MARCAS. Vivian en `Camera.lua` hasta 2026-09-02.
-	-- El servidor contesta el estado ENTERO despues de cada cambio, asi que el
-	-- addon nunca tiene que suponer que su peticion salio bien.
+	-- THE FOUR MARK VERBS. They lived in `Camera.lua` until 2026-09-02. The
+	-- server answers the WHOLE state after every change, so the addon never has
+	-- to assume its request went through.
 	ns.Link:On("MARKAT", function(rest)
 		local mi, mt, msp, msz, mmo, mc, mow, mob, mn =
 			rest:match("^(%d+) (%d+) (%d+) ([%d%.]+) (%d+) (%d+) ([%d%.]+) ([%d%.]+) (.*)$")
@@ -334,8 +340,9 @@ function M:Create()
 		M:Report()
 	end)
 
-	-- `MARKQ` se dice en los dos sentidos: la peticion va sola y la respuesta
-	-- trae tres campos. Validar el formato es lo que descarta nuestro eco.
+	-- `MARKQ` is said in both directions: the request goes on its own and the
+	-- answer brings three fields. Validating the format is what discards our
+	-- own echo.
 	ns.Link:On("MARKQ", function(rest)
 		local qt, qf, qp = rest:match("^(%d+) (%d+) (.+)$")
 		if qt then M:OnList(tonumber(qt), tonumber(qf), qp) end
@@ -343,19 +350,19 @@ function M:Create()
 
 	ns.Link:On("MARKERR", function(rest)
 		local n = rest:match("^(%d+)$")
-		if n then ns.Print("|cffff0000No se pudo poner la marca " .. n .. ".|r") end
+		if n then ns.Print("|cffff0000Could not place mark " .. n .. ".|r") end
 	end)
 
 	ns.Link:On("MARKNO", function(rest)
-		ns.Print("|cffffff00Ningun visual se llama|r " .. rest)
+		ns.Print("|cffffff00No visual is called|r " .. rest)
 	end)
 
-	-- EL NUCLEO TIRA TODOS LOS DYNOBJECTS DEL JUGADOR AL CAMBIAR DE MAPA, asi
-	-- que los marcadores de ruta ya no existen. Sin olvidarlo aqui, `M:Sync`
-	-- creeria que siguen puestos y no volveria a mandarlos nunca.
+	-- THE CORE THROWS AWAY ALL OF THE PLAYER'S DYNOBJECTS ON A MAP CHANGE, so
+	-- the route markers no longer exist. Without forgetting it here, `M:Sync`
+	-- would believe they are still placed and would never send them again.
 	--
-	-- Este evento lo escuchaba el frame del canal en `Camera.lua`, que era el
-	-- unico sitio donde `Marks` no tenia nada que hacer. Ahora es suyo.
+	-- This event was listened to by the channel frame in `Camera.lua`, which
+	-- was the one place where `Marks` had nothing to do. Now it is its own.
 	local leave = CreateFrame("Frame", "RTSMarksEvents")
 	leave:RegisterEvent("PLAYER_LEAVING_WORLD")
 	leave:SetScript("OnEvent", function() M:Forget() end)
@@ -368,15 +375,15 @@ function M:Create()
 		end
 		if (tonumber(saved.v) or 1) < CFG_VERSION then
 			self.cfg.on = 0
-			ns.Print("marcas de suelo apagadas (|cffffff00/rts mark on|r las devuelve).")
+			ns.Print("ground marks switched off (|cffffff00/rts mark on|r brings them back).")
 		end
 	end
-	-- Acotado AL LEERLO y no solo al escribirlo: unas SavedVariables viejas
-	-- sobreviven a la version que las escribio, y un tamano de 688 guardado por
-	-- una version anterior no lo arregla ningun `Set*` -- esos solo corren
-	-- cuando el jugador teclea.
-	-- El 0 es un valor VALIDO aqui: significa automatico. Acotarlo hacia arriba
-	-- si, porque un 688 guardado por una version anterior no es una intencion.
+	-- Clamped ON READING and not only on writing: an old set of SavedVariables
+	-- outlives the version that wrote it, and a size of 688 saved by an earlier
+	-- version is not fixed by any `Set*` -- those only run when the player
+	-- types.
+	-- 0 is a VALID value here: it means automatic. Clamping it from above yes,
+	-- because a 688 saved by an earlier version is not an intention.
 	if self.cfg.size < 0 or self.cfg.size > 200 then self.cfg.size = 0 end
 	if self.cfg.obj <= 0 or self.cfg.obj > 20 then self.cfg.obj = 1 end
 	if self.cfg.mode ~= 1 then self.cfg.mode = 0 end

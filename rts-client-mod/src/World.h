@@ -13,13 +13,13 @@ struct Vec3 {
 // SEH-guarded: a bad read returns false, never crashes.
 bool Raycast(const Vec3& start, const Vec3& end, Vec3* hit, float* frac);
 
-// Igual, pero SOLO CONTRA EL TERRENO: ni edificios, ni doodads, ni nada
-// colocado encima. Misma funcion del cliente con otra mascara de banderas --
-// la evidencia de por que 0x100 apaga la mitad de objetos esta en `Offsets.h`,
-// junto a `kIntersectFlagsTerrain`.
+// The same, but ONLY AGAINST TERRAIN: no buildings, no doodads, nothing placed
+// on top. The same client function with a different flag mask -- the evidence
+// for why 0x100 switches off the object half is in `Offsets.h`, next to
+// `kIntersectFlagsTerrain`.
 //
-// Existe porque "lo primero que hay debajo" y "el suelo" no son lo mismo en
-// cuanto hay una casa: la camara libre necesita el segundo.
+// It exists because "the first thing underneath" and "the ground" stop being
+// the same thing the moment there is a house: the free camera needs the second.
 bool RaycastTerrain(const Vec3& start, const Vec3& end, Vec3* hit, float* frac);
 
 }  // namespace world
