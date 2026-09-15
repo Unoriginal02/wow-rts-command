@@ -169,7 +169,7 @@ local LIST = {
 	  icon = "INV_Misc_Key_03", art = "candado",
 	  cmd = { "/rts fc lock" },  d = "clava la camara a tu heroe",
 	  cmd2 = { "/rts fc ojos" },
-	  d2 = "la camara se mete en la cabeza del heroe (solo puedes mirar)" },
+	  d2 = "engancha la camara sobre el heroe: solo giras (ESPACIO/C suben y bajan)" },
 	{ id = "camara",   g = "Ventanas", name = "Camara", raw = true,
 	  icon = "INV_Misc_Spyglass_03",
 	  cmd = { "/rts fc home" },  d = "devuelve la camara sobre tu heroe" },
