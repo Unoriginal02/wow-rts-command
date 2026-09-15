@@ -2,7 +2,7 @@
 ## Title: RTS Command
 ## Notes: RTS-style command layer for playerbots. Free camera, selection, waypoint routes, and action bars for the group along the bottom.
 ## Author: Jairo
-## Version: 1.28.0
+## Version: 1.31.0
 ## SavedVariables: RTSCommandDB
 
 Bridge.lua
@@ -27,6 +27,7 @@ Standby.lua
 Pixels.lua
 Dock.lua
 Cast.lua
+Actions.lua
 Tray.lua
 Portraits.lua
 Window.lua
@@ -40,5 +41,6 @@ Art.lua
 Body.lua
 Macros.lua
 Loot.lua
+Chatter.lua
 Core.lua
 Bindings.xml

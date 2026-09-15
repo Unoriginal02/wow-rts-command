@@ -1,11 +1,12 @@
 --[[
 	Macros.lua -- las ordenes a los bots, como macros del juego.
 
-	DESDE EL 2026-09-13 ESTE FICHERO ES EL UNICO SITIO DONDE HAY ORDENES. La
-	rejilla 4x4 de `Panel.lua` llevaba dieciseis escritas en el codigo y se ha
-	borrado entera: lo que el jugador pulsa para mandar a sus bots son macros de
-	los de verdad, en las ocho casillas de la bandeja (`Tray.lua`). Anadir una
-	orden es anadir una linea al catalogo de abajo, y nada mas.
+	EL CATALOGO ESTA EN `Actions.lua` Y ESTE FICHERO LO COPIA A MACROS DEL
+	JUEGO. Desde que la bandeja sabe lanzar las ordenes por su cuenta -- con
+	icono propio y sin gastar macros -- esto ya no es el camino normal para
+	usarlas: es el camino para SACARLAS DEL ADDON. Un macro de verdad se puede
+	poner en una barra del juego, se le puede asignar una tecla y se puede
+	arrastrar a donde sea; una orden nuestra vive solo en la bandeja.
 
 	`/rts macros` crea (o actualiza) los macros del catalogo.
 	ARRASTRARLOS A LA BANDEJA ES COSA DEL JUGADOR, una vez. No se colocan solos:
@@ -80,129 +81,21 @@ local CHAR_MAX = 18
 local NAME_MAX = 16
 local BODY_MAX = 255
 
---- El catalogo ------------------------------------------------------------
+--- El catalogo, que ya no vive aqui --------------------------------------
 --
--- `cmd` es una lista de comandos de playerbots, uno por linea del macro.
--- NINGUNO ES INVENTADO -- cada uno esta en `ChatCommandHandlerStrategy.cpp` o
--- es un nombre de estrategia de `StrategyContext.h` / `AssistStrategyContext`:
+-- ESTE FICHERO DEJA DE SER EL DUENO DE LAS ORDENES. La lista se ha mudado
+-- entera a `Actions.lua`, que es quien la ensena en el desplegable de la
+-- bandeja y quien la lanza. Aqui se sigue leyendo para lo unico que un macro
+-- de verdad hace y una orden nuestra no: existir FUERA del addon -- en una
+-- barra del juego, con su tecla, o para arrastrarlo a donde sea.
 --
---   follow stay attack pull flee "max dps" "tank attack" drink grind
---   revive repair ll s formation                      (comandos)
---   co / nc  +X  -X  ~X  ?  !                         (estrategias)
---
--- `co` toca el motor de COMBATE y `nc` el de FUERA DE COMBATE. Los dos llevan
--- `dps assist` de fabrica (`AiFactory.cpp`, casi todas las clases), asi que un
--- cambio de asistir que solo toque uno se ve como "va solo el ordenado... hasta
--- que golpea". Por eso todos los de asistir mandan las dos lineas.
+-- Se pide por FUNCION y no se copia a una local al cargar: asi da igual el
+-- orden de los ficheros en el `.toc`, que es la clase de dependencia que no
+-- avisa cuando se rompe -- simplemente sale un catalogo vacio.
 
-local MACROS = {
-	-- --- Mando basico -------------------------------------------------
-	{ name = "Sigueme",  icon = "Ability_Rogue_Sprint",
-	  cmd = { "follow" },              d = "vuelve a seguirte" },
-	{ name = "Quieto",   icon = "Ability_Warrior_DefensiveStance",
-	  cmd = { "stay" },                d = "aguanta donde esta" },
-	{ name = "Ataca",    icon = "Ability_Warrior_Cleave",
-	  cmd = { "attack" },              d = "ataca TU objetivo" },
-	{ name = "Tirar",    icon = "Ability_Hunter_SniperShot",
-	  cmd = { "pull" },                d = "abre el combate el (pull)" },
-	{ name = "Huye",     icon = "Ability_Rogue_Feint",
-	  cmd = { "flee" },                d = "rompe el combate y se aleja" },
-	{ name = "A saco",   icon = "Ability_Warrior_InnerRage",
-	  cmd = { "max dps" },             d = "quema enfriamientos" },
-	{ name = "Tanquea",  icon = "Ability_Defend",
-	  cmd = { "tank attack" },         d = "que coja tu objetivo" },
-	{ name = "Bebe",     icon = "INV_Drink_07",
-	  cmd = { "drink" },               d = "se sienta a comer y beber" },
-	{ name = "Cazar",    icon = "Ability_Hunter_MarkedForDeath",
-	  cmd = { "grind" },               d = "busca bichos por su cuenta" },
-
-	-- --- Asistir: encenderlo y apagarlo --------------------------------
-	--
-	-- `dps assist` es lo que hace que un bot elija objetivo de la lista de
-	-- QUIEN PELEA CON EL GRUPO (`TargetValue::FindTarget` lee "attackers"), no
-	-- de a quien le mandaste tu. Quitarla de los dos motores es lo que se
-	-- comprueba con "Ver combate" / "Ver fuera".
-	{ name = "Solo",     icon = "Ability_Stealth",
-	  cmd = { "co -dps assist,-tank assist", "nc -dps assist,-tank assist" },
-	  d = "que NO se apunte a la pelea de los demas" },
-	{ name = "Asistir DPS", icon = "Ability_Warrior_BattleShout",
-	  cmd = { "co +dps assist", "nc +dps assist" },
-	  d = "devuelve el asistir de fabrica" },
-	{ name = "Asistir tanq", icon = "Ability_Warrior_ShieldWall",
-	  cmd = { "co +tank assist", "nc +tank assist" },
-	  d = "que coja lo que ataca al grupo (tanques)" },
-	{ name = "Ver combate", icon = "INV_Misc_Note_01",
-	  cmd = { "co ?" },
-	  d = "te dice sus estrategias EN combate (selecciona a UNO)" },
-	{ name = "Ver fuera",   icon = "INV_Misc_Map_01",
-	  cmd = { "nc ?" },
-	  d = "las de FUERA de combate (selecciona a UNO)" },
-	{ name = "Reset IA",    icon = "Spell_Nature_TimeStop",
-	  cmd = { "co !", "nc !" },
-	  d = "devuelve las estrategias de fabrica de su clase" },
-	{ name = "Pasivo",      icon = "Spell_Nature_Sleep",
-	  cmd = { "co +passive", "nc +passive" },
-	  d = "no hace NADA por su cuenta (sigue obedeciendo)" },
-	{ name = "Activo",      icon = "Ability_Hunter_Readiness",
-	  cmd = { "co -passive", "nc -passive" },
-	  d = "le quita el pasivo" },
-
-	-- --- Botin, dinero y mantenimiento ---------------------------------
-	{ name = "Botin todo",  icon = "INV_Misc_Coin_01",
-	  cmd = { "ll all" },              d = "recoge todo, grises incluidos" },
-	{ name = "Botin normal", icon = "INV_Misc_Bag_08",
-	  cmd = { "ll normal" },           d = "solo lo que le sirve" },
-	{ name = "Vender gris", icon = "INV_Misc_Gear_01",
-	  cmd = { "s gray" },              d = "vende los grises al vendedor" },
-	{ name = "Reparar",     icon = "INV_Hammer_20",
-	  cmd = { "repair" },              d = "repara su equipo" },
-	{ name = "Revivir",     icon = "Spell_Holy_Resurrection",
-	  cmd = { "revive" },              d = "vuelve del cementerio" },
-
-	-- --- Formacion -----------------------------------------------------
-	{ name = "Formar cerca", icon = "Ability_Warrior_Charge",
-	  cmd = { "formation near" },      d = "se te pegan" },
-	{ name = "Formar lejos", icon = "Ability_Marksmanship",
-	  cmd = { "formation far" },       d = "se abren" },
-
-	-- --- LO QUE NO ES UNA ORDEN A UN BOT --------------------------------
-	--
-	-- Entran aqui el 2026-09-13, con la rejilla 4x4 de `Panel.lua`. Aquellas
-	-- dieciseis casillas eran botones nuestros con la orden escrita dentro;
-	-- cuatro de ellas no eran ordenes a bots sino mandos del propio addon --
-	-- el candado de la camara, las dos ventanas propias y salir del modo -- y
-	-- al borrar la rejilla se quedaban sin sitio.
-	--
-	-- Son macros como las demas, con la unica diferencia de que su cuerpo es un
-	-- comando NUESTRO (`raw`) en vez de uno de playerbots. Asi el jugador los
-	-- arrastra a la bandeja igual que el resto y no hay una segunda clase de
-	-- boton que explicar.
-	--
-	-- SALIR COMO MACRO TIENE UN PELIGRO y por eso esta escrito: el modo RTS
-	-- esconde las barras de accion, asi que si el jugador no se pone este macro
-	-- en la bandeja, la unica forma de salir es la tecla o `/rts`. No se le
-	-- puede reservar una casilla a la fuerza -- son suyas -- pero si decirlo.
-	{ name = "Candado",  icon = "INV_Misc_Key_03", raw = true,
-	  cmd = { "/rts fc lock" },        d = "clava la camara a tu heroe" },
-	{ name = "Bolsas",   icon = "INV_Misc_Bag_09", raw = true,
-	  cmd = { "/rts bolsas" },         d = "la ventana de bolsas del grupo" },
-	{ name = "Misiones", icon = "INV_Misc_Book_09", raw = true,
-	  cmd = { "/rts misiones" },       d = "el registro de misiones del grupo" },
-	{ name = "Salir RTS", icon = "Spell_Nature_Polymorph", raw = true,
-	  cmd = { "/rts" },                d = "sale del modo RTS (o entra)" },
-
-	-- --- Cuidar: la unica orden que necesita un segundo click ------------
-	--
-	-- `PFOCUS` pone a un bot a cuidar de alguien que ELIGES despues, pinchandolo
-	-- en el mundo. Un macro no puede preguntar eso, asi que el macro solo ARMA
-	-- el gesto y el addon se encarga del segundo click.
-	{ name = "Cuidar",   icon = "Spell_Holy_PrayerOfHealing", raw = true,
-	  cmd = { "/rts focus" },          d = "el seleccionado cuida de quien pinches" },
-	{ name = "Suelta",   icon = "Spell_Shadow_Teleport", raw = true,
-	  cmd = { "/rts unfocus" },        d = "le quita el cuidado" },
-}
-
-M.CATALOGUE = MACROS
+local function Catalogue()
+	return (ns.Actions and ns.Actions.LIST) or {}
+end
 
 --- Los iconos: del nombre al indice ---------------------------------------
 --
@@ -294,14 +187,11 @@ local function FindByName(name)
 	return found, mine
 end
 
--- `raw` = el cuerpo ya son comandos nuestros, no verbos de playerbots que haya
--- que envolver en `/rtscmd`.
+-- El cuerpo del macro es EL MISMO TEXTO que lanza la orden desde la bandeja, y
+-- por eso lo escribe `Actions.lua` y no este fichero: dos sitios componiendo
+-- las mismas lineas se separan el dia que una cambia.
 local function BodyOf(entry)
-	local lines = {}
-	for _, c in ipairs(entry.cmd) do
-		table.insert(lines, entry.raw and c or (MARK .. " " .. c))
-	end
-	return table.concat(lines, "\n")
+	return ns.Actions:Body(entry)
 end
 
 --- Crear y actualizar -----------------------------------------------------
@@ -319,6 +209,32 @@ local function Blocked(name, err)
 		"cliente y los macros hay que crearlos a mano desde |cffffff00/macro|r.")
 end
 
+--- NO HAY PODA AUTOMATICA, Y ESTA ES LA CICATRIZ --------------------------
+--
+-- El 2026-09-14 `Build` borraba, antes de crear, todo macro "mio" que ya no
+-- estuviera en el catalogo. La idea era buena -- el catalogo como unica verdad,
+-- sin huerfanos -- y la REGLA era mala: "mio" se decidia con `IsOurs`, o sea
+-- *cualquier macro cuyo cuerpo lleve `/rts` o `/rtscmd` dentro*.
+--
+-- Eso no distingue lo que este addon creo de lo que el JUGADOR se escribio con
+-- nuestros comandos. Y el jugador tenia cuatro suyos -- `/rts command`,
+-- `/rts mode`, `Playerbots add` (que empieza por `/rts` y sigue con comandos de
+-- GM) y `Traerlos` (`/rtscmd summon`) -- que entraban en esa red y se fueron con
+-- los veintidos del recorte, sin haberlos creado nosotros nunca.
+--
+-- LA LECCION, escrita donde se cometio: un addon puede crear y puede
+-- ACTUALIZAR lo que creo, pero **borrar lo que no ha creado no es suyo**, y
+-- "parece mio" no es "es mio". Para poder borrar con derecho haria falta
+-- guardar que macros creamos nosotros, nombre a nombre, y aun asi un nombre
+-- repetido lo volveria ambiguo.
+--
+-- Asi que no se borra nada. Quitar una entrada del catalogo deja de crearla y
+-- ya esta; el macro que sobre lo borra el jugador desde `/macro`, que es de
+-- donde no se puede equivocar nadie.
+--
+-- (`M:Clear()` sigue existiendo y sigue borrando por `IsOurs` -- pero eso lo
+-- pide el jugador a proposito, escribiendolo, y dice cuantos se lleva.)
+
 function M:Build()
 	if InCombatLockdown() then
 		ns.Print("|cffff8800macros:|r en combate no. Sal de la pelea y repite.")
@@ -329,7 +245,7 @@ function M:Build()
 	local made, upd, skipped, full = 0, 0, 0, 0
 	local noIcon = {}
 
-	for _, e in ipairs(MACROS) do
+	for _, e in ipairs(Catalogue()) do
 		local body = BodyOf(e)
 		local icon = IconFor(e.icon)
 		if not icon then
@@ -389,20 +305,20 @@ function M:Build()
 			"o usa |cffffff00/rts macros clear|r y vuelve a intentarlo."):format(amax))
 	end
 
-	ns.Print("Abre |cffffff00/macro|r y arrastralos a las dos barras verticales " ..
-		"de la derecha. Se quedan a la vista en modo RTS.")
+	-- DONDE PONERLOS CAMBIO EL 2026-09-13. Antes era "las dos barras verticales
+	-- de la derecha", porque el modo RTS las dejaba a la vista a proposito para
+	-- esto. Ahora las esconde con el resto de barras de accion y el sitio es la
+	-- BANDEJA: diez casillas propias, que es adonde fue a parar la rejilla 4x4.
+	ns.Print("Abre |cffffff00/macro|r y arrastralos a las |cffffff00diez casillas|r " ..
+		"de abajo a la derecha, en modo RTS.")
 
-	-- EL MODO RTS NO ENCIENDE BARRAS QUE EL JUGADOR TIENE APAGADAS, que es la
-	-- regla de capturar y devolver mirada del otro lado: `Chrome` deja de
-	-- esconderlas, no las inventa. Si estan apagadas en las opciones, los
-	-- macros se crean igual y no hay donde ponerlos -- y eso se lee como "los
-	-- macros no funcionan". Asi que se dice aqui.
-	local right = _G.MultiBarRight
-	if right and not right:IsShown() then
-		ns.Print("|cffff8800Ojo:|r no tienes encendidas esas barras. " ..
-			"Esc -> Interfaz -> Barras de accion -> |cffffff00Barra derecha|r " ..
-			"y |cffffff00Barra derecha 2|r.")
-	end
+	-- Y SE DICE CUANTOS SON, porque el catalogo ya roza el limite de la cuenta:
+	-- 35 de 36. Con dos macros propios del jugador, los ultimos del catalogo no
+	-- caben -- y eso sale por `full`, pero solo DESPUES de intentarlo. Decirlo
+	-- antes es la diferencia entre entenderlo y pensar que el comando falla.
+	local amax2 = Limits()
+	ns.Print(("|cff888888El catalogo son %d macros y la cuenta admite %d.|r")
+		:format(#Catalogue(), amax2))
 end
 
 --- Borrar los nuestros ----------------------------------------------------
@@ -432,8 +348,8 @@ end
 --- Que hay y que haria ----------------------------------------------------
 
 function M:List()
-	ns.Print(("catalogo: %d macros. |cffffff00/rts macros|r los crea."):format(#MACROS))
-	for _, e in ipairs(MACROS) do
+	ns.Print(("catalogo: %d macros. |cffffff00/rts macros|r los crea."):format(#Catalogue()))
+	for _, e in ipairs(Catalogue()) do
 		local idx, mine = FindByName(e.name)
 		local mark = (idx and mine) and "|cff00ff00[puesto]|r"
 			or (idx and "|cffff8800[ocupado]|r" or "|cff888888[no]|r")

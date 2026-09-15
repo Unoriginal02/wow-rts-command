@@ -39,6 +39,30 @@ namespace
     {
         return rts::bots::Resolve(master, name);
     }
+
+    // DESPERTARLE LA IA AHORA MISMO. Es la diferencia entre "el bot tarda en
+    // reaccionar" y "el bot sale disparado", y hace falta porque este modulo NO
+    // camina al bot: le pone el ancla y le borra el camino que llevaba, y quien
+    // le hace andar hasta ahi es su propia IA en su siguiente vuelta.
+    //
+    // Esa vuelta no es inmediata. Playerbots se pone a si mismo una espera
+    // (`nextAICheckDelay`) despues de cada pensamiento -- el `reactDelay` de su
+    // configuracion, mas lo que le anadan las acciones -- y mientras corre, el
+    // bot es sordo. La orden ya habia llegado al servidor; lo que faltaba era
+    // que le tocara pensar. De ahi el sintoma: pones el punto y pasa un rato.
+    //
+    // `SetNextCheckDelay(0)` pone esa espera a cero, asi que piensa en el tick
+    // siguiente. No se le salta ningun turno a nadie ni se toca su motor: es el
+    // mismo mando que playerbots usa consigo mismo, puesto del otro lado.
+    //
+    // SOLO EN LAS ORDENES QUE DAS TU con el raton. Una orden del jugador es
+    // exactamente lo que tiene que adelantarse a lo que el bot estuviera
+    // rumiando; ponerlo en todo lo demas seria quitarle la espera que reparte
+    // su carga, que existe por algo.
+    void WakeAi(Player* bot)
+    {
+        rts::bots::HoldAi(bot, 0);
+    }
 }
 
 // NADIE CAMINA POR EL AIRE, Y EL CLIENTE NO ES QUIEN DECIDE DONDE ESTA EL SUELO.
@@ -261,6 +285,7 @@ bool rts::orders::MoveBot(Player* master, std::string const& botName, float x, f
     bot->StopMoving();
     bot->GetMotionMaster()->Clear();
 
+    WakeAi(bot);
     return true;
 }
 
@@ -309,6 +334,7 @@ bool rts::orders::AttackBot(Player* master, std::string const& botName, ObjectGu
     rts::bots::DoAction(bot, "attack my target");
 
     rts::bots::ForgetLastMove(bot);
+    WakeAi(bot);
     return true;
 }
 
@@ -321,8 +347,13 @@ bool rts::orders::AttackMoveBot(Player* master, std::string const& botName, floa
     // It is genuinely an approximation: it makes the bot pick fights near it
     // rather than along a corridor, so it can be pulled off the path -- the
     // anchor is what drags it back on afterwards.
-    rts::bots::Change(ResolveBot(master, botName), "+grind", rts::bots::IDLE);
+    Player* const bot = ResolveBot(master, botName);
+    rts::bots::Change(bot, "+grind", rts::bots::IDLE);
 
+    // Otra vez DESPUES del cambio de estrategia, no solo el de `MoveBot`: si
+    // despierta antes de tener `grind` puesto, la vuelta que se ha ganado la
+    // piensa con la configuracion vieja.
+    WakeAi(bot);
     return true;
 }
 
@@ -985,6 +1016,59 @@ bool rts::orders::ResetBot(Player* master, std::string const& botName)
     return FollowBot(master, botName);
 }
 
+// QUIETO, SIN DESTINO. Lo mismo que `MoveBot` pero con las anclas puestas en
+// donde el bot ya esta, que es lo que significa "hold position" en un RTS.
+//
+// La posicion se lee DEL BOT, no del jugador: mandar "quieto" a cuatro bots
+// desde aqui tiene que dejar a cada uno en su sitio, no juntarlos.
+bool rts::orders::HoldBot(Player* master, std::string const& botName)
+{
+    Player* bot = ResolveBot(master, botName);
+    if (!rts::bots::Driven(bot))
+        return false;
+
+    float x = bot->GetPositionX();
+    float y = bot->GetPositionY();
+    float z = bot->GetPositionZ();
+
+    rts::bots::Change(bot, "+stay,-passive,-move from group", rts::bots::IDLE);
+    rts::bots::Change(bot, "+stay,-follow,-passive,-move from group", rts::bots::COMBAT);
+
+    rts::bots::SetAnchor(bot, "return", x, y, z, bot->GetMapId());
+    rts::bots::SetAnchor(bot, "stay", x, y, z, bot->GetMapId());
+
+    rts::bots::ForgetLastMove(bot);
+    bot->StopMoving();
+    bot->GetMotionMaster()->Clear();
+
+    WakeAi(bot);
+    return true;
+}
+
+// TRAERLO, POR SU PROPIA ACCION Y NO POR EL CHAT.
+//
+// `summon` es una accion de playerbots (`SummonAction`) y lo unico que hacia
+// falta para dispararla era el chat del grupo: el bot leia "summon" y en su
+// siguiente vuelta se teleportaba. `DoSpecificAction` la llama directamente, o
+// sea sin linea de chat, sin cola de susurros y sin esperar a que le toque
+// pensar.
+//
+// NO SE REIMPLEMENTA EL TELEPORT. La accion suya comprueba vehiculo, linea de
+// vision, combate (`allowSummonInCombat`) y reparacion al llegar; copiar eso
+// aqui seria heredar cuatro reglas que ellos ya mantienen.
+bool rts::orders::SummonBot(Player* master, std::string const& botName)
+{
+    Player* bot = ResolveBot(master, botName);
+    if (!rts::bots::Driven(bot))
+        return false;
+
+    if (!rts::bots::DoAction(bot, "summon"))
+        return false;
+
+    WakeAi(bot);
+    return true;
+}
+
 bool rts::orders::FollowBot(Player* master, std::string const& botName)
 {
     Player* bot = ResolveBot(master, botName);
@@ -997,5 +1081,6 @@ bool rts::orders::FollowBot(Player* master, std::string const& botName)
     rts::bots::ClearAnchor(bot, "return");
     rts::bots::ClearAnchor(bot, "stay");
 
+    WakeAi(bot);
     return true;
 }

@@ -98,6 +98,17 @@ D.active = false
 -- dos bloques que arrancan a distinta altura se leen como descuadrados.
 local MARGIN = 30
 
+-- Y EL SUELO COMUN DE LOS DOS BLOQUES. La derecha acaba en la fila de botones
+-- del juego, que cuelga por debajo del bloque de macros, y `Tray` reserva ese
+-- hueco dejando este mismo respiro por debajo. El centro tiene que arrancar a
+-- la MISMA altura o queda ocho pixeles mas abajo que todo lo demas -- que es
+-- exactamente lo que se veia.
+--
+-- Es un solo numero y lo usan los dos: el centro para subirse y `Tray` para
+-- reservar. Dos numeros iguales escritos en dos sitios se separan el dia que
+-- alguien toca uno.
+local FOOT_PAD = 8
+
 -- El lado del hueco SALE MEDIDO, con techo y suelo por si la medida no se
 -- puede hacer (sin barra de acciones cargada devuelve el 36 de fabrica).
 local SLOT_MIN, SLOT_MAX = 38, 84
@@ -113,7 +124,12 @@ local B_HEAD_H = 26
 local B_HEAD_GAP = 6
 local COL_GAP  = 30     -- entre columnas del estado B
 
-local MACRO_COLS, MACRO_ROWS = 4, 2
+-- CINCO POR DOS, DIEZ CASILLAS. Empezo en cuatro por dos y se quedo corta en
+-- cuanto se uso: ocho ordenes no cubren el mando basico (seguir, quieto, atacar,
+-- tirar, huir), el asistir y el mantenimiento. La rejilla es ancha, no alta,
+-- porque lo que la limita por arriba es el bloque de macros -- crecer a lo alto
+-- empuja las bolsas y el menu fuera de la pantalla.
+local MACRO_COLS, MACRO_ROWS = 5, 2
 
 D.MAIN_N  = MAIN_N
 D.B_SLOTS = B_SLOTS
@@ -319,6 +335,7 @@ function D:HeadHeight()  return HEAD_H end
 function D:BHeadHeight() return B_HEAD_H end
 function D:ColWidth()    return self.colW or 0 end
 function D:Margin()      return MARGIN end
+function D:FootPad()     return FOOT_PAD end
 
 -- LO QUE `Tray` RESERVA DEBAJO para la fila de botones del juego, en pixeles.
 -- No lo decide este fichero porque no puede: los micro-botones son del cliente
@@ -366,7 +383,7 @@ function D:Enter()
 		-- recalcular la x en cada cambio de estado, que es la clase de numero
 		-- que se olvida en el tercer sitio.
 		left = CreateFrame("Frame", "RTSDockLeft", host)
-		left:SetPoint("BOTTOM", host, "BOTTOM", 0, MARGIN)
+		left:SetPoint("BOTTOM", host, "BOTTOM", 0, MARGIN + FOOT_PAD)
 		left:EnableMouse(false)
 
 		-- LA DERECHA SE ANCLA POR ABAJO IGUAL QUE LA IZQUIERDA, y encima suyo

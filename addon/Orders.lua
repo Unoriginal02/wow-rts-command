@@ -452,29 +452,96 @@ function O:Talk()
 	return self:Send("talk", "Interact")
 end
 
-function O:Hold()
-	-- stay pins each bot where it stands, which is exactly hold-position.
-	-- It also ENDS any route: "hold here" and "keep walking the path" are
-	-- contradictory orders, and leaving the path drawn would say the wrong one.
+-- SIN SELECCION, A TODO EL GRUPO -- y diciendolo.
+--
+-- Es lo que ya hacia `/rtscmd`, que es por donde iban estas dos ordenes hasta
+-- hoy: sin nadie cogido, el susurro se convertia en una linea al grupo. Al
+-- pasarlas a directas habia que traerse esa regla o la tecla dejaria de hacer
+-- nada justo cuando no hay seleccion, que es la mitad de las veces que se usa.
+local function Targets(self)
 	local sel = ns.Selection:Get()
-	if ns.Route then ns.Route:ClearFor(sel) end
-	for _, name in ipairs(sel) do self.holding[name] = true end
+	if #sel > 0 then return sel end
+
+	local all = {}
+	for _, m in ipairs(ns.Selection:GetRoster()) do tinsert(all, m.name) end
+	if #all > 0 then
+		ns.Print("|cffffff00sin seleccion|r -> a todo el grupo:")
+	end
+	return all
+end
+
+-- Quieto donde este cada uno. `stay` clava al bot en el sitio, que es
+-- exactamente hold-position, y ADEMAS termina cualquier ruta: "quedate aqui" y
+-- "sigue andando el camino" son ordenes contrarias, y dejar el camino dibujado
+-- diria la equivocada.
+--
+-- DIRECTO DESDE mod-rts 0.52. Antes era un `stay` por el chat: el bot no lo veia
+-- hasta su siguiente vuelta de pensamiento, y cuatro seguidos se los comia la
+-- cola del cliente. El camino de chat se queda como respaldo para un servidor
+-- sin el modulo, igual que en mover.
+function O:Hold()
+	local names = Targets(self)
+	if #names == 0 then
+		ns.Print("No units selected.")
+		return false
+	end
+
+	if ns.Route then ns.Route:ClearFor(names) end
+	for _, name in ipairs(names) do
+		self.holding[name] = true
+		ns.UnitState:Note(name, "stay")
+	end
+
+	if self:HasServer() and ns.Link:ServerAtLeast(52) then
+		ns.SendServer("HOLD " .. table.concat(names, ";"))
+		ns.Print(("Hold position (%d)"):format(#names))
+		return true
+	end
+
 	return self:Send("stay", "Hold position")
+end
+
+-- TRAERLOS A TU LADO. La accion `summon` de playerbots, llamada por dentro.
+function O:Summon(names)
+	names = names or Targets(self)
+	if #names == 0 then
+		ns.Print("No units selected.")
+		return false
+	end
+
+	if self:HasServer() and ns.Link:ServerAtLeast(52) then
+		ns.SendServer("SUMMON " .. table.concat(names, ";"))
+		return true
+	end
+
+	-- Sin modulo, por el chat del grupo: una linea para los cinco.
+	return self:Broadcast("summon", nil)
+end
+
+function O:SummonAll()
+	local all = {}
+	for _, m in ipairs(ns.Selection:GetRoster()) do tinsert(all, m.name) end
+	if #all == 0 then
+		ns.Print("Estas en grupo?")
+		return false
+	end
+	return self:Summon(all)
 end
 
 function O:Follow()
 	-- follow turns StayStrategy back off, so the anchors are gone and the next
 	-- move order has to re-arm stay mode. Same reasoning as Hold for the route.
-	if ns.Route then ns.Route:ClearFor(ns.Selection:Get()) end
+	local names = Targets(self)
+	if #names == 0 then
+		ns.Print("No units selected.")
+		return false
+	end
+
+	if ns.Route then ns.Route:ClearFor(names) end
 	self:ClearHolding()
 
 	if self:HasServer() then
-		local names = {}
-		for _, n in ipairs(ns.Selection:Get()) do
-			tinsert(names, n)
-			ns.UnitState:Note(n, "follow")
-		end
-		if #names == 0 then ns.Print("No units selected.") return false end
+		for _, n in ipairs(names) do ns.UnitState:Note(n, "follow") end
 		ns.SendServer("FOLLOW " .. table.concat(names, ";"))
 		ns.Print(("Follow (%d unit%s)"):format(#names, #names == 1 and "" or "s"))
 		return true
@@ -508,6 +575,19 @@ function O:FollowThese(names)
 
 	for _, n in ipairs(names) do self:SendTo(n, "follow") end
 	return true
+end
+
+-- Seguir, PARA EL GRUPO ENTERO, mire quien mire la seleccion.
+--
+-- No es `O:Follow` con todo seleccionado: `O:Follow` se planta si no hay nada
+-- cogido ("No units selected"), que es lo correcto para una orden que TU das
+-- con el raton y lo contrario de lo que hace falta aqui -- traer al grupo y
+-- que se te peguen es una sola cosa, y no puede depender de que tuvieras algo
+-- seleccionado al pulsar.
+function O:FollowAll()
+	local names = {}
+	for _, m in ipairs(ns.Selection:GetRoster()) do tinsert(names, m.name) end
+	return self:FollowThese(names)
 end
 
 function O:Flee()   return self:Send("flee",   "Flee")          end
@@ -638,10 +718,20 @@ function O:AttackGuid(guid, label)
 end
 
 -- Both act on YOUR current target, so guard against having none.
+--
+-- CON MODULO VA POR `ATTACK`, el mismo camino que el click derecho sobre un
+-- enemigo. La victima viaja DENTRO de la orden, asi que no depende de que el
+-- servidor lea tu objetivo en el momento justo -- y llega sin cola de chat.
+--
+-- `AttackGuid` vuelve aqui cuando no hay modulo, asi que el desvio tiene que
+-- mirar `HasServer` y no al reves: sin esa guarda las dos se llaman en circulo.
 function O:Attack()
 	if not UnitExists("target") or not UnitCanAttack("player", "target") then
 		ns.Print("No hostile target.")
 		return false
+	end
+	if self:HasServer() then
+		return self:AttackGuid(UnitGUID("target"), UnitName("target"))
 	end
 	return self:Send("attack", "Attack " .. UnitName("target"))
 end
@@ -670,6 +760,60 @@ end
 --- Formation ---------------------------------------------------------------
 
 O.FORMATIONS = { "near", "far", "melee", "queue", "chaos", "circle", "line", "shield", "arrow" }
+
+-- LA MARCA DE BANDA Y LA ORDEN, EN EL MISMO GESTO.
+--
+-- Eran dos casillas de la rejilla 4x4 (`Panel.lua`, borrado el 2026-09-13) y
+-- por eso vivian dentro del panel. Ahora son macros, asi que la orden baja aqui:
+-- un macro solo sabe escribir un comando, y este tiene dos mitades que TIENEN
+-- que ir juntas -- poner el icono en tu objetivo y decirle al grupo que vaya a
+-- por ese icono. Separadas, la mitad que falte no da error: deja al grupo
+-- persiguiendo la marca anterior.
+--
+-- `rti` y `rti cc` son verbos de playerbots; el craneo (8) y la luna (5) son los
+-- indices de siempre del propio cliente.
+function O:MarkTarget(cc)
+	local key   = cc and "moon" or "skull"
+	local index = cc and 5 or 8
+
+	local f = SetRaidTarget or SetRaidTargetIcon
+	local puesto = false
+	if f and UnitExists("target") then
+		f("target", index)
+		puesto = true
+	end
+
+	self:Broadcast((cc and "rti cc " or "rti ") .. key,
+		cc and "controlar: luna" or "objetivo: craneo")
+
+	-- SE DICE CUANDO NO SE HA PUESTO. La orden sale igual -- el grupo sigue la
+	-- marca que hubiera -- y sin este aviso parece que el boton no hizo nada.
+	if not puesto then
+		ns.Print("sin objetivo: la marca no se ha puesto en nadie.")
+	end
+	return puesto
+end
+
+-- EL COMPORTAMIENTO DE FABRICA A TODO EL GRUPO. Tambien era una casilla de la
+-- rejilla. Va por `RESET` de mod-rts, que limpia estrategias y roles de una vez;
+-- sin servidor lo mas cerca que hay es devolverlos a seguirte, que es lo que
+-- hacia el boton.
+function O:ResetAll()
+	local names = {}
+	for _, m in ipairs(ns.Selection:GetRoster()) do
+		table.insert(names, m.name)
+	end
+	if #names == 0 then
+		ns.Print("reset: no hay grupo.")
+		return
+	end
+	if self:HasServer() then
+		ns.SendServer("RESET " .. table.concat(names, ";"))
+		ns.Print(("reset: comportamiento de fabrica a los %d."):format(#names))
+	else
+		self:Broadcast("follow", "Vuelven a seguirte")
+	end
+end
 
 function O:Formation(name)
 	return self:Broadcast("formation " .. name, "Formation: " .. name)
@@ -752,6 +896,13 @@ ns.Link:On("DID", function(rest)
 
 	elseif did == "MOVE" and n == "0" then
 		ns.Print("|cffffff00Move order reached no bots.|r")
+
+	elseif (did == "HOLD" or did == "SUMMON") and n == "0" then
+		-- Mismo motivo que el de MOVE: sin esta linea, una orden que no alcanza
+		-- a nadie se ve igual que una que fue bien -- que es como se pasa un
+		-- rato dandole a un boton roto.
+		ns.Print(("|cffffff00%s no llego a ningun bot.|r"):format(
+			did == "HOLD" and "Quieto" or "Traer"))
 
 	elseif did == "LOOT" and n == "0" then
 		-- Cero bots cambiados. Sin esto la estrategia de botin fallaria EN

@@ -68,6 +68,15 @@ namespace
     // pieces in this project -- the DLL, this module, and the addon -- and only
     // the DLL had a version you could see, which made a server-side fix look
     // like nothing had happened. All three now report.
+    // 0.52.0 = `HOLD` y `SUMMON`. Quieto y traer eran las dos ultimas ordenes
+    // de uso diario que viajaban como texto por el chat del grupo: se las comia
+    // la cola del cliente si mandabas varias seguidas, y el bot no las veia
+    // hasta su siguiente vuelta de pensamiento. Ahora van por aqui, como mover.
+    // 0.51.0 = las ordenes que das con el raton despiertan la IA del bot en el
+    // acto (`SetNextCheckDelay(0)`). Este modulo no camina al bot: le pone el
+    // ancla y borra su camino, y andar es cosa de su IA -- que estaba dormida
+    // lo que le durara su propia espera. La orden llegaba al instante y el bot
+    // tardaba en salir, que es lo que se veia.
     // 0.50.0 = un click derecho sobre un nodo de recoleccion deja de ser una
     // orden de movimiento. Recoger una hierba es un LANZAMIENTO y `MoveSelf` lo
     // cancelaba, asi que el arreglo es apartarse: a tiro no se manda nada y
@@ -93,7 +102,7 @@ namespace
     // tercera condicion de `MoveSelf`. El addon debe pedir `ServerAtLeast(46)`
     // antes de usar esos verbos: un verbo que el servidor no conoce NO da error,
     // no contesta, asi que un worldserver sin reiniciar se lee como un addon roto.
-    constexpr char const* kModVersion = "0.50.0";
+    constexpr char const* kModVersion = "0.52.0";
 
     std::string Upper(std::string s)
     {
@@ -1471,6 +1480,26 @@ namespace
 
         if (verb == "FOLLOW")
             return DispatchFollow(player, rest);
+
+        // "HOLD Bot;Otro" -- quieto donde este cada uno.
+        // "SUMMON Bot;Otro" -- a tu lado, ya.
+        //
+        // Las dos tienen la misma forma que FOLLOW -- una lista de nombres y
+        // nada mas -- y las dos sustituyen a una linea de chat que el bot solo
+        // leia cuando le tocaba pensar.
+        if (verb == "HOLD" || verb == "SUMMON")
+        {
+            bool const hold = (verb == "HOLD");
+            int done = 0;
+            for (std::string const& name : SplitList(rest, ';'))
+            {
+                if (hold ? rts::orders::HoldBot(player, name)
+                         : rts::orders::SummonBot(player, name))
+                    ++done;
+            }
+            SendAddon(player, "DID " + verb + " " + std::to_string(done));
+            return true;
+        }
 
         // "LOOT 1" / "LOOT 0" -- que los bots del grupo recojan TODO, o solo lo
         // util. Sustituye al `ll all` que el addon soltaba por el chat de grupo

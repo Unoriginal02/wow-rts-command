@@ -40,6 +40,14 @@ namespace rts
         bool MoveBot(Player* master, std::string const& botName, float x, float y, float z);
 
         // Release a bot back to following its master.
+        // Clavar al bot DONDE ESTA. Es "quieto" sin destino: el mismo par de
+        // anclas que `MoveBot`, puestas en su propia posicion.
+        bool HoldBot(Player* master, std::string const& botName);
+
+        // Traerlo a tu lado AHORA. Es la accion `summon` de playerbots llamada
+        // por dentro, sin pasar por el chat del grupo.
+        bool SummonBot(Player* master, std::string const& botName);
+
         bool FollowBot(Player* master, std::string const& botName);
 
         // Todo a cero: estrategias de fabrica, sin anclajes, siguiendote.

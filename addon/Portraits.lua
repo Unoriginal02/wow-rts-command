@@ -88,6 +88,19 @@ local hooked = false
 local PAD  = 4
 local GLOW = "Interface\\Buttons\\ButtonHilight-Square"
 
+-- CUANTO BRILLA, Y POR QUE ES UN AJUSTE Y NO UNA CONSTANTE.
+--
+-- Empezo en 0.55 y subio a 0.82 el 2026-09-14 a peticion del jugador: *"el glow
+-- es sutil, muy guapo, pero molaria que se viera un 50% mas"*. El 0.82 es
+-- exactamente ese 50%.
+--
+-- Se queda como ajuste guardado porque esto NO se puede acertar desde el
+-- codigo: en `ADD` el brillo se suma a lo que hay debajo, o sea que lo que se
+-- ve depende del retrato (un tauren oscuro y una elfa palida no reaccionan
+-- igual), del gamma del monitor y de la luz de la zona. Con `/rts marcos
+-- brillo <n>` se mira en pantalla y se decide ahi, que es donde se ve.
+local GLOW_ALPHA = 0.82
+
 --- El nombre del personaje de una unidad, SOLO si esta en el grupo ---------
 --
 -- Se resuelve contra el censo y no con `UnitName` a secas: en el grupo puede
@@ -99,6 +112,30 @@ local function NameFor(unit)
 		if m.unit == unit then return m.name end
 	end
 	return nil
+end
+
+--- Cuanto brilla ---------------------------------------------------------
+
+function P:Alpha()
+	local v = RTSCommandDB and RTSCommandDB.glow
+	if type(v) == "number" and v > 0 and v <= 1 then return v end
+	return GLOW_ALPHA
+end
+
+-- Se acota AL LEER y al escribir. Un 0 guardado es una marca invisible que no
+-- se puede recuperar mirando -- parece que la seleccion dejo de funcionar -- y
+-- por encima de 1 el cliente no suma mas, asi que solo serviria para creer que
+-- se ha subido algo.
+function P:SetAlpha(v)
+	v = tonumber(v)
+	if not v then
+		ns.Print("|cffff8800marcos:|r dame un numero entre 0.1 y 1.")
+		return
+	end
+	if v < 0.1 then v = 0.1 elseif v > 1 then v = 1 end
+	if RTSCommandDB then RTSCommandDB.glow = v end
+	for _, m in pairs(marks) do m.glow:SetAlpha(v) end
+	ns.Print(("marcos: brillo de la seleccion a |cffffff00%.2f|r."):format(v))
 end
 
 --- La marca ---------------------------------------------------------------
@@ -126,7 +163,7 @@ local function Mark(entry)
 	-- SUMA a lo que hay debajo, asi que un amarillo saturado sobre un retrato
 	-- claro lo quema.
 	glow:SetVertexColor(1, 0.9, 0.55)
-	glow:SetAlpha(0.55)
+	glow:SetAlpha(P:Alpha())
 
 	m = { frame = f, glow = glow,
 	      anchored = (anchor ~= host) and "retrato" or "marco" }
@@ -224,7 +261,13 @@ function P:Leave()
 	self:Refresh()
 end
 
-function P:Report()
+function P:Report(rest)
+	local sub, val = (rest or ""):match("^(%S*)%s*(%S*)")
+	if (sub or ""):lower() == "brillo" or (sub or ""):lower() == "glow" then
+		self:SetAlpha(val)
+		return
+	end
+
 	ns.Print("|cffffff00marcos del juego|r -- click izquierdo selecciona:")
 	for _, entry in ipairs(FRAMES) do
 		local f = _G[entry.frame]
@@ -240,6 +283,8 @@ function P:Report()
 	if not hooked then
 		ns.Print("  |cff888888todavia sin enganchar: se engancha al entrar en modo RTS.|r")
 	end
+	ns.Print(("brillo de la marca: |cffffff00%.2f|r  " ..
+		"(|cffffff00/rts marcos brillo 0.9|r lo cambia)"):format(self:Alpha()))
 end
 
 ns.Dock:Register(P)

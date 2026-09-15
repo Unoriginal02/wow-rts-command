@@ -994,6 +994,8 @@ local HELP = {
 	"|cffffff00/rts clear|r - clear selection",
 	"|cffffff00/rts list|r - list the roster",
 	"|cffffff00/rts move|r / |cffffff00hold|r / |cffffff00follow|r / |cffffff00attack|r",
+	"|cffffff00/rts reunir|r - todos a donde estas ANDANDO (la casilla Reunir los teletransporta); |cffffff00craneo|r / |cffffff00luna|r marcan tu objetivo",
+	"|cffffff00/rts reset|r - comportamiento de fabrica a todo el grupo",
 	"|cffffff00/rts form <name>|r - " .. table.concat({ "near", "far", "melee", "queue", "chaos", "circle", "line", "shield", "arrow" }, ", "),
 	"|cffffff00/rts cmd <text>|r - send any raw playerbots command to the selection",
 	"|cffffff00/rts amove|r - attack-move to the cursor",
@@ -1027,11 +1029,11 @@ local HELP = {
 	"|cffffff00/rts debug|r - echo every message to and from the server module",
 	"|cffffff00/rts native|r - rts_core.dll status + offset self-test",
 	"|cffffff00/rts ui|r - que se esconde al entrar en modo RTS (de fabrica, solo las barras de accion)",
-	"|cffffff00/rts macros|r - crea los macros de mando (arrastralos a las ocho casillas de la bandeja)",
+	"|cffffff00/rts macros|r - saca el catalogo a macros DEL JUEGO (para barras y teclas)",
 	"|cffffff00/rtscmd <cmd>|r - manda un comando de playerbots a los SELECCIONADOS; |cffffff00/rtsall|r al grupo",
 	"|cffffff00/rts art|r - visor de texturas del cliente (para vestir la barra sin dibujar)",
 	"|cffffff00/rts bags|r - las bolsas de todo el grupo (tambien con su tecla)",
-	"|cffffff00/rts quests|r - abre el registro; su boton Compartir FUERZA la mision al grupo",
+	"|cffffff00/rts quests|r - el registro de TODO el grupo; |cffffff00mio|r abre el de Blizzard",
 	"|cffffff00/rts quests force|r - al entregar tu, el grupo completa y cobra tambien",
 	"|cffffff00/rts quests ai|r - devuelve (o quita) la entrega automatica de playerbots",
 	"|cffffff00/rts skills|r - los huecos de habilidad: los diez tuyos y los cuatro de grupo",
@@ -1041,8 +1043,12 @@ local HELP = {
 	"|cffffff00/rts win|r - las ventanas flotantes; |cffffff00/rts win reset|r las recentra",
 	"|cffffff00/rts skin|r - aspecto WC3 o plano; |cffffff00/rts skin wall <ruta>|r cambia una pieza",
 	"|cffffff00/rts dock|r - la barra de abajo: estado, tamano del hueco, columnas",
-	"|cffffff00/rts tray|r - las ocho casillas de macro; |cffffff00vaciar|r las limpia",
-	"|cffffff00/rts marcos|r - los marcos del juego que seleccionan al pincharlos",
+	"|cffffff00/rts traer|r - los teletransporta a tu lado Y te siguen",
+	"|cffffff00/rts chat|r - el volcado de menus de los bots; |cffffff00ver|r lo recupera, |cffffff00off|r lo deja salir",
+	"|cffffff00/rts invitar|r - mete a tus bots en el grupo; |cffffff00lista|r los ensena o los cambia",
+	"|cffffff00/rts ordenes|r - el catalogo que sale al hacer clic derecho en una casilla",
+	"|cffffff00/rts tray|r - que lleva cada casilla; |cffffff00vaciar|r las limpia",
+	"|cffffff00/rts marcos|r - los marcos del juego que seleccionan al pincharlos; |cffffff00brillo <n>|r sube la marca",
 	"|cffffff00/rts focus|r - el seleccionado cuida de quien pinches; |cffffff00unfocus|r lo suelta",
 	"Bind keys under Key Bindings -> RTS Command.",
 }
@@ -1076,6 +1082,13 @@ SlashCmdList["RTSCOMMAND"] = function(msg)
 		end
 
 	elseif cmd == "move"   then ns.Orders:MoveToCursor()
+	-- REUNIR, CRANEO Y LUNA eran tres casillas de la rejilla 4x4 y no tenian
+	-- comando: se pulsaban o no existian. Al pasar la rejilla a macros lo
+	-- primero que hace falta es una boca por la que el macro pueda hablar.
+	elseif cmd == "reunir" or cmd == "rally" then ns.Orders:MoveToMe()
+	elseif cmd == "craneo" or cmd == "skull" then ns.Orders:MarkTarget(false)
+	elseif cmd == "luna"   or cmd == "moon"  then ns.Orders:MarkTarget(true)
+	elseif cmd == "reset"  then ns.Orders:ResetAll()
 	elseif cmd == "hold"   then ns.Orders:Hold()
 	elseif cmd == "follow" then ns.Orders:Follow()
 	elseif cmd == "attack" then ns.Orders:Attack()
@@ -1236,6 +1249,18 @@ SlashCmdList["RTSCOMMAND"] = function(msg)
 			ns.Camera:Toggle()
 		end
 
+	elseif cmd == "chat" then
+		ns.Chatter:Report((rest or ""):match("^(%S*)"))
+
+	elseif cmd == "traer" or cmd == "bring" then
+		ns.Actions:Bring()
+
+	elseif cmd == "invitar" or cmd == "invite" then
+		ns.Actions:Invite(rest)
+
+	elseif cmd == "ordenes" or cmd == "orders" then
+		ns.Actions:Report()
+
 	elseif cmd == "macros" or cmd == "macro" then
 		-- Los mandos que van a las dos barras verticales de la derecha, que el
 		-- modo RTS deja a la vista justo para esto. Ver Macros.lua.
@@ -1294,7 +1319,7 @@ SlashCmdList["RTSCOMMAND"] = function(msg)
 		ns.Pixels:Report()
 
 	elseif cmd == "marcos" or cmd == "portraits" then
-		ns.Portraits:Report()
+		ns.Portraits:Report(rest)
 
 	-- CUIDAR, EN DOS TIEMPOS. Esta aqui y no en un boton porque el boton se
 	-- fue con la rejilla: ahora es un macro (`/rts macros` crea "Cuidar"), y un
@@ -1364,9 +1389,28 @@ SlashCmdList["RTSCOMMAND"] = function(msg)
 		-- Tu grupo se rehace solo: el heroe que dejas entra de bot y los demas
 		-- vuelven detras.
 		local who = strtrim(rest or "")
+
+		-- SIN NOMBRE, EL QUE TENGAS COGIDO. Es lo que hacia la casilla "Control"
+		-- de la rejilla 4x4, y es lo que permite que esto quepa en un macro: un
+		-- macro no puede preguntar a quien.
+		--
+		-- UNO Y SOLO UNO. Con varios cogidos no hay respuesta correcta, y elegir
+		-- el primero de la lista seria elegir por el jugador algo que no se puede
+		-- deshacer sin otra carga.
 		if who == "" then
-			ns.Print("cambiar: |cffffff00/rts swap <nombre>|r. Tiene que ser un " ..
-			         "personaje de |cffffff00tu cuenta|r, y no vale en combate.")
+			local sel = ns.Selection:Get()
+			if #sel == 1 then
+				who = sel[1]
+			elseif #sel > 1 then
+				ns.Print(("|cffff8800cambiar:|r hay %d seleccionados. Coge a UNO."):format(#sel))
+				return
+			end
+		end
+
+		if who == "" or who == ns.MyName() then
+			ns.Print("cambiar: |cffffff00/rts swap <nombre>|r, o coge a un companero " ..
+			         "y |cffffff00/rts swap|r a secas. Personaje de |cffffff00tu " ..
+			         "cuenta|r, y no vale en combate.")
 			ns.Print("|cff888888Pasas a SER ese personaje -- sus bolsas, su libro, sus " ..
 			         "barras -- y el que dejas se queda de bot en tu grupo.|r")
 		else
@@ -1508,9 +1552,20 @@ SlashCmdList["RTSCOMMAND"] = function(msg)
 				or  "  al entregar tu, solo cobran los que ya la tuvieran lista.")
 			return
 		end
-		-- Sin argumento: MI registro. No hace falta apuntar a nadie ni estar
-		-- delante de un PNJ -- la pregunta es sobre lo que llevo yo.
-		ns.Quests:Open()
+		-- SIN ARGUMENTO, EL REGISTRO DEL GRUPO, y esto cambia el 2026-09-14.
+		--
+		-- Abria el de Blizzard, que es el mismo argumento que ya se escribio una
+		-- vez en la casilla de la rejilla 4x4: el registro del cliente esta a un
+		-- click en el menu de juego -- que ahora vive en la bandeja -- asi que
+		-- gastar el comando corto en un atajo a algo que ya tiene atajo deja sin
+		-- boca a lo unico que NO tiene otra: el registro de los companeros.
+		--
+		-- El de Blizzard sigue aqui, en |cffffff00/rts misiones mio|r.
+		if sub == "mio" or sub == "propio" or sub == "blizzard" then
+			ns.Quests:Open()
+		else
+			ns.QuestBook:Toggle()
+		end
 
 	elseif cmd == "bags" or cmd == "bolsas" then
 		ns.Bags:Toggle()
