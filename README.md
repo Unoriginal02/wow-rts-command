@@ -14,7 +14,7 @@ copies.
 
 | Piece | Version | What it is |
 |---|---|---|
-| `addon/` | 1.31.0 | Lua addon: UI, selection, orders, camera |
+| `addon/` | 1.37.0 | Lua addon: UI, selection, orders, camera |
 | `mod-rts/` | 0.52.0 | AzerothCore module: orders straight into the AI, quests, bags, NPCs, character swap |
 | `rts-client-mod/` | `rts_core.dll` 0.29.0 | Injected into the client: world coordinates, raycast, native effects |
 
@@ -72,8 +72,8 @@ The bot roster `invitar` uses is changed with
 | Right-click an NPC | interact |
 | **Shift** + right-click | chain another waypoint |
 | **Shift** + left-click a hostile | give it an attack-chain number (1..8) |
-| Right-drag | turn the camera (the client's own mouselook) |
-| Left + right together | move forward, the usual gesture |
+| Right-drag | turn the camera (the client's own mouselook). In the **hero view** it pivots around him and tilts instead |
+| Left + right together | move forward, the usual gesture — **it does nothing today**: it reads `RTS_MouseRaw`, and no version of the DLL in this repo publishes it |
 | Click a Blizzard party frame | select that unit, same rules |
 
 ### The keyboard
@@ -82,11 +82,12 @@ The free camera borrows eight keys for as long as RTS mode lasts, and **gives
 them back on the way out** — they are recorded before being touched and never
 saved, so a disconnect cannot leave you without WASD.
 
-| Key | Free camera | Lock / hero view |
-|---|---|---|
-| `W A S D` | move the camera on the horizontal plane | nudge the offset from the hero |
-| `SPACE` / `C` | up and down | up and down relative to him |
-| `Q` / `E` | turn | turn |
+| Key | Free camera | Lock | Hero view |
+|---|---|---|---|
+| `W` / `S` | forward and back on the plane | nudge the offset from the hero | closer and further away, never past him |
+| `A` / `D` | left and right on the plane | nudge the offset from the hero | pivot around him, with him in the centre |
+| `SPACE` / `C` | up and down | up and down relative to him | raise and lower the height over his feet, without tilting |
+| `Q` / `E` | turn | turn | pivot, the same as `A`/`D` |
 
 Everything else is bound under **Options → Key Bindings → RTS Command**: enter
 and leave the mode, camera, select all, clear selection, the five orders
@@ -132,7 +133,7 @@ icons are our own art, not from the client's closed macro-icon list.
 
 > **The exception:** an order can carry a **second order** on right-click. Today
 > only **Candado** does: left-click pins the camera at whatever distance it is
-> at right now, **right-click puts it above the hero, facing the way he faces**.
+> at right now, **right-click puts it behind the hero and keeps it at his back**.
 > On those slots the dropdown moves to **Shift + right-click**, and the tooltip
 > says so.
 
@@ -149,7 +150,7 @@ ends included — is in the header of the file that implements it.
 |---|---|---|
 | **RTS free camera** — flies on the plane, rises and falls, follows the ground | `/rts mode`, `/rts cam` | `addon/FreeCam.lua` |
 | **Lock** — pins the camera at a fixed distance from the hero and travels with him | Candado slot, `/rts fc lock` | `addon/FreeCam.lua` |
-| **Hero view** — one click puts the camera above him, oriented like him | **right-click** Candado, `/rts fc ojos` | `addon/FreeCam.lua` |
+| **Hero view** — one click puts the camera behind him and keeps it at his back | **right-click** Candado, `/rts fc ojos` | `addon/FreeCam.lua` |
 | **Escape hatch** — brings the camera back over your hero | `/rts fc home` | `addon/FreeCam.lua` |
 | **"Ground" is not "the first thing underneath"** — a roof stops counting, so you can get inside buildings | `/rts fc floor 1` | `addon/FreeCam.lua` |
 | **Step filter** — a slope is followed closely, a step is climbed slowly | `/rts fc climb/soft/slow` | `addon/FreeCam.lua` |
@@ -159,35 +160,59 @@ ends included — is in the header of the file that implements it.
 | **Possessed camera** (the old path, still there) | `/rts cam` without the DLL | `mod-rts/src/RtsCamera.cpp` |
 
 The feel settings (`speed`, `lift`, `turn`, `height`, `smoothZ`, `ease`,
-`pitch`, `clear`, `push`, `lockSmooth`, `eyeH`…) are **per character** and are
-listed by `/rts fc`.
+`pitch`, `clear`, `push`, `lockSmooth`, and the hero view's `eyeH`, `eyeD`,
+`eyeTurn`, `eyeSnap`, `eyeBack`) are **per character** and are listed by
+`/rts fc`.
 
 #### The hero view, in detail
 
-**Right-click** the Candado slot and the camera appears **right above your hero,
-facing the way he faces**, and stays attached while he walks, fights, or his AI
-drives him.
-
-What this mode buys you is **the entry**, not a restriction: one click and the
-camera is over your character and oriented like him, without you flying it
-there. Once inside it handles like the normal lock.
+**Right-click** the Candado slot and the camera appears **behind your hero** —
+four yards up, six yards back — looking the way he looks, and stays at his back
+while he walks, fights, or his AI drives him. If he turns, it comes round with
+him.
 
 | | |
 |---|---|
-| Mouse, `Q`/`E` | turn. The orientation is yours from the first frame |
-| `W A S D` | nudge the offset from the hero |
-| `SPACE` / `C` | raise and lower the height above him |
+| `W` / `S` | closer and further away. It stops a yard short of him instead of crossing over |
+| `A` / `D`, `Q` / `E` | pivot around him, with him in the centre |
+| `SPACE` / `C` | raise and lower the height over his feet. A straight translation: it does **not** tilt as it goes |
+| Right-drag sideways | the same pivot |
+| Right-drag up and down | tilt the view up and down |
 
-- **The default is 5 yards** above his feet, and it was measured twice: it
-  started at 2.2 — a human's head, literally inside — and that was too low,
-  because at head height the slope in front hides whatever is behind it and your
-  own model eats the bottom third of the screen. 7 felt high. 5 is what stuck.
-- **The height is saved, the position on the plane is not.** `SPACE`/`C` and
-  `/rts fc eyeH <n>` write the same number (between 0 and 50), so the height you
-  climb to is the height you get next time. Whatever you nudge with `W/A/S/D` is
-  forgotten on the way out, **and that is what makes the button worth
-  pressing**: the second click puts you back above the hero instead of leaving
-  you where you already were.
+**The pivot is measured from his nose, not from the world**, and that one
+decision is the whole mode. The camera sits at `his facing + orbit`, and the
+pivot is the only thing that writes `orbit` — so zero is his back and **stays**
+his back through every turn he takes, and if you pivot round to his flank you
+keep the flank, turn after turn.
+
+**A spin is absorbed, not followed.** Clicking the ground behind you spins the
+hero 180° in a single tick, and a camera glued to his facing replays that as a
+whip-pan. Instead the jump is *moved* from his facing to the orbit — both
+together are the camera, so it does not shift by one degree — and then, **once
+he starts walking**, the camera drifts back behind him at a deliberately slow
+20°/s. A hand on `A`/`D` or on the mouse cancels that return.
+
+**The mouse is split in two.** The yaw cannot simply be adopted the way it is in
+every other mode — it is a consequence of where the hero looks — so what is read
+is the *difference* the client has added since the last frame, and that is spent
+on the orbit. The tilt **is** adopted whole, so dragging up looks up, at your own
+sensitivity and with your own inversion.
+
+- **The default height is 4 yards** over his feet, measured in game four times:
+  2.2 (a human's head, literally inside), 7, 5, and 4 once the camera moved
+  behind him instead of over him.
+- **The height and the distance are saved, the side you were watching from is
+  not.** `SPACE`/`C` and `/rts fc eyeH <n>` write the same number, `W`/`S` and
+  `/rts fc eyeD <n>` the same again — so the spot you back off to is the spot you
+  get next time. The orbit resets to zero on the way in, **and that is what makes
+  the button worth pressing**: one click always puts you at his back.
+- **`/rts fc eyeSnap <deg>`** is what counts as a spin (40° between two readings)
+  and **`/rts fc eyeBack <deg/s>`** how slowly it comes home. `eyeBack 0` never
+  comes home on its own, which is the sticky framing of the first version.
+
+Known and not fixed: **there is no ground under this camera**, the same as the
+lock. Going downhill the terrain behind it sits higher than it does and, with
+`noclip` on, you see the inside of the hill.
 
 You leave with another right-click, with a left-click (which releases the whole
 lock), or with `/rts fc home`.
@@ -229,6 +254,42 @@ lock), or with `/rts fc home`.
 | **Casting a spell AS the bot** — the server casts it for him, with his queue and his checks | click a slot | `mod-rts/src/RtsCommandMode.cpp` |
 | **His real action bar** — the one you built playing that character, read from `character_action` | on selecting him | `mod-rts/src/RtsCommandMode.cpp` |
 | **Spell mirror** when leaving RTS mode in combat | automatic | `addon/Standby.lua` |
+| **The server classifies every spell** — friendly, hostile, ground, dead, self — and the slot behaves accordingly | automatic | `mod-rts/src/RtsCommandMode.cpp` + `addon/Skills.lua` |
+
+#### What a spell slot does when you press it
+
+Nothing in the addon decides what a spell *is*. The server classifies each one
+with the core's own predicates when it sends the bar, and sends a letter along
+with the id — **there is no list of spell ids anywhere in this project**. That
+letter is internal: it is never typed and never shown.
+
+| Letter | What the core says it is | Pressing the slot |
+|---|---|---|
+| `S` | only on the caster | casts |
+| `N` | no target (shouts, auras, stances) | casts |
+| `T` | totem | casts |
+| `A` | needs a friendly target | arms: the next left-click picks who |
+| `H` | needs a hostile target | **casts on whatever you have targeted** |
+| `G` | ground or area | arms: the next left-click picks where |
+| `D` | on a dead unit (resurrect) | arms |
+| `?` | not classified yet (the server has not answered) | arms |
+
+Armed, the icon runs the pet-style circling light and the next **left-click**
+chooses — in the party list or out in the 3D world, indifferently. **Right-click
+cancels.**
+
+- **`H` does not ask**, because attacking is the only thing done in bursts: one
+  question per cast is fine for a heal and one keypress too many on the third hit
+  against the same mob. The target has to **exist, be alive and be attackable** —
+  and that third test is what makes the shortcut safe, because the usual reason
+  for asking is that the client's target is normally just the residue of having
+  clicked someone to select them, and that residue is always one of *yours*.
+  With nothing hostile targeted it arms, exactly as before.
+- **Alt** casts on the character himself without asking, the usual WoW
+  convention.
+- **Shift** asks anyway, whatever the letter says. It is the valve on the
+  classification, and it is how you throw an `H` at something that is not your
+  current target.
 
 > `RtsCommandMode.cpp` also holds verbs **nobody calls today** — `AIM`, `ROLES`,
 > `TGTS` — left over from when the single-piece console existed. They are alive
