@@ -109,28 +109,30 @@
 
 	=== Y LA VISTA DEL HEROE ES EL MISMO CANDADO SIN PLANO =================
 
-	Clic DERECHO en la casilla del candado engancha la camara al heroe y le
-	quita el plano: se queda justo encima de el mientras anda, pelea o le lleva
-	su IA, y lo unico que hace el jugador es MIRAR. Se entra mirando a donde
-	mira el heroe y a partir de ese instante la orientacion es suya.
+	Clic DERECHO en la casilla del candado pone la camara JUSTO ENCIMA del heroe
+	-- cinco yardas de fabrica -- mirando a donde mira el, y engancha las dos
+	cosas: se queda ahi mientras el anda, pelea o le lleva su IA.
 
 	    raton, Q/E      giran
-	    ESPACIO, C      suben y bajan la altura
-	    W/A/S/D         nada: te lleva el heroe
+	    W/A/S/D         retocan el sitio, igual que con el candado
+	    ESPACIO, C      suben y bajan la altura sobre el
 
-	EMPIEZA POR ENCIMA, NO DENTRO (2026-09-15). La primera version se metia en
-	la cabeza, literalmente -- 2.2 yardas, la altura de un humano -- y medida en
-	juego era **muy baja**: a ras de cabeza la cuesta de delante tapa lo que hay
-	detras y el propio modelo se come el tercio de abajo de la pantalla. De una
-	camara enganchada al heroe lo que se quiere es ver POR DONDE VA. El de
-	fabrica son siete yardas y las teclas hacen el resto.
+	LO QUE ESTE MODO COMPRA ES LA ENTRADA, NO UNA RESTRICCION (2026-09-15).
+	Nacio prohibiendo W/A/S/D -- "solo mirar" -- y esa mitad se ha ido a
+	peticion del jugador: no compraba nada. Lo caro y lo util es lo otro, que en
+	UN CLIC la camara este sobre tu heroe, orientada como el, sin conducirla.
 
-	NO ES UN QUINTO MODO. Es el candado con el encuadre clavado en (0, 0,
-	`eyeH`) y el PLANO desconectado, asi que hereda entero el seguimiento
-	suavizado del heroe -- que ahi es mas necesario que nunca: el DLL publica la
-	posicion a 33 Hz y la pantalla va a 60, o sea que copiarla en crudo son 0.2
-	yardas de tiron treinta y tres veces por segundo justo encima del heroe. Lo
-	que en vista de pajaro no se ve, aqui marea.
+	Y LA ALTURA SE MIDIO DOS VECES. Empezo en 2.2 -- la cabeza de un humano,
+	literalmente dentro -- y era **muy baja**: a ras de cabeza la cuesta de
+	delante tapa lo que hay detras y el propio modelo se come el tercio de abajo
+	de la pantalla. Siete se sintio alto. Cinco es lo que quedo.
+
+	NO ES UN QUINTO MODO. Es el candado que en vez de capturar el encuadre que
+	haya en pantalla lo pone en (0, 0, `eyeH`) y ademas orienta, asi que hereda
+	entero el seguimiento suavizado del heroe -- que ahi es mas necesario que
+	nunca: el DLL publica la posicion a 33 Hz y la pantalla va a 60, o sea que
+	copiarla en crudo son 0.2 yardas de tiron treinta y tres veces por segundo
+	justo encima del heroe. Lo que en vista de pajaro no se ve, aqui marea.
 
 	=== SIN DLL ESTO NO ARRANCA, Y LO DICE ==================================
 
@@ -251,16 +253,16 @@ local D = {
 	-- abajo de la pantalla, y de una camara enganchada al heroe lo que se quiere
 	-- es VER POR DONDE VA, no comprobar que tiene los pies en el suelo.
 	--
-	-- Asi que el de fabrica son siete: dentro del rango que pidio (5 a 10), por
-	-- encima del modelo y de casi todo lo que hay a ras de suelo, y todavia lo
-	-- bastante cerca como para que sea la vista DE ESE personaje y no una camara
-	-- RTS mas.
+	-- Quedo en CINCO, medido en juego en dos vueltas: 2.2 era dentro de la
+	-- cabeza, 7 se sentia alto, 5 es lo que pidio. Por encima del modelo y de
+	-- casi todo lo que hay a ras de suelo, y todavia lo bastante cerca como
+	-- para que sea la vista DE ESE personaje y no una camara RTS mas.
 	--
 	-- Y SIGUE SIENDO UN AJUSTE, que es lo que era antes: `ESPACIO` y `C` lo
 	-- suben y lo bajan en vivo, y `/rts fc eyeH 4` lo pone a dedo. Las dos bocas
 	-- escriben ESTE numero y no una copia viva, que es lo que hace que la altura
 	-- a la que subas sea la altura con la que entres la proxima vez.
-	eyeH    = 7.0,    -- yardas sobre los PIES del heroe, con la camara enganchada
+	eyeH    = 5.0,    -- yardas sobre los PIES del heroe, con la camara enganchada
 }
 
 -- SELLO DE GENERACION, y hace falta porque un ajuste CAMBIO DE SIGNIFICADO.
@@ -301,7 +303,10 @@ local EYE_MIN, EYE_MAX = 0.0, 50.0
 -- generacion tira `speed`, `height`, `ease` y las otras quince, y aqui lo que
 -- ha cambiado de criterio es un numero. Se mueve ese, se dice, y no se toca
 -- nada mas.
-local EYE_GEN = 2
+--
+-- 2 -> 3: de siete a cinco, medido en juego. El sello sube otra vez porque el
+-- problema es el mismo: quien ya tenga 7.0 escrito no veria el 5.0 nunca.
+local EYE_GEN = 3
 
 local function MigrateEye(c)
 	if c.eyeGen == EYE_GEN then return end
@@ -883,20 +888,24 @@ local function Follow(c, dt)
 	end
 
 	if F.eyes then
-		-- EL PLANO NO ES DEL JUGADOR, LA ALTURA SI (2026-09-15).
+		-- LAS OCHO TECLAS VALEN AQUI TAMBIEN (2026-09-15). Lo que queda de
+		-- exclusivo de este modo no es una restriccion, es POR DONDE SE ENTRA:
+		-- encima del heroe, mirando a donde mira el, en un clic. Eso era lo
+		-- caro; prohibir moverse una vez dentro no compraba nada y se pidio
+		-- quitarlo.
 		--
-		-- `ox` y `oy` se quedan clavados en cero -- la camara va donde va el
-		-- heroe, que es toda la idea -- pero `ESPACIO` y `C` suben y bajan, a
-		-- peticion del jugador. Sin ellos la unica forma de corregir la altura
-		-- era teclear un comando, y la altura buena depende de donde estes: en
-		-- un bosque quieres estar por encima de los arboles y en una mazmorra no
-		-- cabes.
-		--
-		-- Y ESCRIBEN EN EL AJUSTE, NO EN UNA COPIA VIVA. Es la diferencia entre
-		-- que la altura a la que subes sea la altura con la que entras la
-		-- proxima vez, y que se pierda al salir -- que se leeria como que la
-		-- camara "se olvida". Un solo numero, dos bocas: las teclas y
-		-- `/rts fc eyeH`.
+		-- EL PLANO ES DEL RATO, LA ALTURA ES TUYA, y la asimetria es a
+		-- proposito. `ox`/`oy` se olvidan al salir y por eso volver a entrar
+		-- VUELVE A PONER LA CAMARA SOBRE EL HEROE -- que es para lo que se
+		-- pulsa el boton; si se guardaran, el segundo clic te dejaria donde ya
+		-- estabas y el boton no serviria de nada. La altura no es de este rato:
+		-- es a que distancia te gusta ir de tu personaje, la misma en la
+		-- siguiente partida.
+		st.ox = st.ox + st.vx * dt
+		st.oy = st.oy + st.vy * dt
+
+		-- POR ESO LA ALTURA ESCRIBE EN EL AJUSTE Y EL PLANO NO. Un solo numero,
+		-- dos bocas: `ESPACIO`/`C` y `/rts fc eyeH`.
 		local lift = 0
 		if input.up then lift = lift + 1 end
 		if input.down then lift = lift - 1 end
@@ -910,11 +919,11 @@ local function Follow(c, dt)
 			if h > EYE_MAX then h = EYE_MAX end
 			c.eyeH = h
 		end
-		-- Se reescribe entero cada frame en vez de ponerlo una vez al entrar, y
-		-- eso es lo que hace que tanto las teclas como `/rts fc eyeH 4` se vean
-		-- AHORA -- un ajuste que solo entra al volver a entrar en el modo se lee
-		-- como un ajuste que no funciona.
-		st.ox, st.oy, st.oz = 0, 0, c.eyeH
+		-- La Z se reescribe entera cada frame en vez de ponerla una vez al
+		-- entrar, y eso es lo que hace que tanto las teclas como
+		-- `/rts fc eyeH 4` se vean AHORA -- un ajuste que solo entra al volver a
+		-- entrar en el modo se lee como un ajuste que no funciona.
+		st.oz = c.eyeH
 	else
 		-- Las teclas RETOCAN EL ENCUADRE. Misma velocidad y mismo suavizado que
 		-- en el modo libre: `st.vx/vy` ya vienen calculadas del mismo solver de
@@ -1069,8 +1078,8 @@ function F:SetEyes(on)
 		ns.Print("  |cffff8800No se hacia donde mira|r: gira la camara un momento " ..
 			"y vuelve a entrar (|cffffff00/rts fc|r lo explica).")
 	end
-	ns.Print("  |cff888888El raton y Q/E giran, ESPACIO y C suben y bajan. " ..
-		"W/A/S/D no mueven: te lleva el heroe.|r")
+	ns.Print("  |cff888888El raton y Q/E giran, W/A/S/D retocan el sitio y " ..
+		"ESPACIO/C la altura. Te lleva el heroe.|r")
 	return true
 end
 
@@ -1129,13 +1138,6 @@ function F:Step(dt)
 	if mouseLeft and mouseRight then my = my + 1 end
 	if input.right then mx = mx + 1 end
 	if input.left then mx = mx - 1 end
-
-	-- EN PRIMERA PERSONA LAS TECLAS DE MOVER NO MUEVEN. Es la otra mitad de lo
-	-- que se pidio: la camara es la cabeza del heroe y quien la lleva de paseo
-	-- es el heroe. Se apaga en la FUENTE y no en `Follow` para que la velocidad
-	-- ni siquiera llegue a existir -- dejarla crecer y luego ignorarla es un
-	-- empujon guardado que sale de golpe en cuanto se sale del modo.
-	if self.eyes then mx, my = 0, 0 end
 
 	if mx ~= 0 or my ~= 0 then
 		local fx, fy = FlatForward()

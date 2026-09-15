@@ -78,10 +78,10 @@ La cámara libre se queda ocho teclas mientras dura el modo RTS, y **las
 devuelve al salir** —se apuntan antes de tocarlas y no se guardan nunca, así
 que una desconexión no te deja sin WASD.
 
-| Tecla | Cámara libre / candado | Vista del héroe |
+| Tecla | Cámara libre | Candado / vista del héroe |
 |---|---|---|
-| `W A S D` | mover la cámara en el plano horizontal | **nada**: te lleva el héroe |
-| `ESPACIO` / `C` | subir y bajar | subir y bajar la altura sobre él |
+| `W A S D` | mover la cámara en el plano horizontal | retocar el sitio respecto al héroe |
+| `ESPACIO` / `C` | subir y bajar | subir y bajar sobre él |
 | `Q` / `E` | girar | girar |
 
 Lo demás se asigna en **Opciones → Teclas → RTS Command**: entrar y salir del
@@ -126,9 +126,9 @@ arte nuestro, no de la lista cerrada del cliente.
 
 > **La excepción:** una orden puede llevar **segunda orden** en el clic derecho.
 > Hoy solo la lleva el **Candado**: izquierdo clava la cámara a la distancia que
-> tenga ahora mismo, **derecho la engancha justo encima del héroe** y te deja
-> solo mirar. En esas casillas el desplegable se aparta a **Mayús + derecho**, y
-> el tooltip lo dice.
+> tenga ahora mismo, **derecho la pone encima del héroe mirando como él**. En
+> esas casillas el desplegable se aparta a **Mayús + derecho**, y el tooltip lo
+> dice.
 
 ---
 
@@ -143,7 +143,7 @@ salida incluidos— está en la cabecera del fichero que la implementa.
 |---|---|---|
 | **Cámara libre RTS** — vuela en el plano, sube y baja, sigue el suelo | `/rts mode`, `/rts cam` | `addon/FreeCam.lua` |
 | **Candado** — clava la cámara a una distancia fija del héroe y viaja con él | casilla Candado, `/rts fc lock` | `addon/FreeCam.lua` |
-| **Vista del héroe** — la cámara enganchada justo encima de él: solo giras y subes/bajas | clic **derecho** en el Candado, `/rts fc ojos` | `addon/FreeCam.lua` |
+| **Vista del héroe** — en un clic, la cámara encima de él y orientada como él | clic **derecho** en el Candado, `/rts fc ojos` | `addon/FreeCam.lua` |
 | **Salida de emergencia** — devuelve la cámara sobre tu héroe | `/rts fc home` | `addon/FreeCam.lua` |
 | **El suelo no es "lo primero que hay debajo"** — un tejado deja de contar, así que se puede entrar en las casas | `/rts fc floor 1` | `addon/FreeCam.lua` |
 | **Filtro de escalón** — una cuesta se sigue de cerca, un escalón se sube despacio | `/rts fc climb/soft/slow` | `addon/FreeCam.lua` |
@@ -158,24 +158,30 @@ listan con `/rts fc`.
 
 #### La vista del héroe, en detalle
 
-Clic **derecho** en la casilla del Candado. La cámara se engancha al héroe y le
-quita el plano: se queda encima de él mientras anda, pelea o le lleva su IA, y
-lo único que haces tú es mirar.
+Clic **derecho** en la casilla del Candado y la cámara aparece **justo encima de
+tu héroe, mirando a donde mira él**, y se queda enganchada mientras él anda,
+pelea o le lleva su IA.
 
-- **Se entra mirando a donde mira el héroe**, y solo al entrar: a partir de ahí
-  la orientación es tuya y no se vuelve a tocar.
-- **`ESPACIO` y `C` suben y bajan.** La altura buena depende de dónde estés —en
-  un bosque quieres estar por encima de los árboles y en una mazmorra no cabes—
-  así que es una tecla, no un comando.
-- **Lo que subas se queda.** Las teclas y `/rts fc eyeH <n>` escriben el mismo
-  número, así que la altura a la que subes es la altura con la que entras la
-  próxima vez. Entre 0 y 50 yardas.
-- **De fábrica son 7 yardas** sobre sus pies. Empezó en 2.2 —la cabeza de un
-  humano, literalmente dentro— y medida en juego era muy baja: a ras de cabeza
-  la cuesta de delante tapa lo que hay detrás y el propio modelo se come el
-  tercio de abajo de la pantalla. De una cámara enganchada al héroe lo que
-  quieres es ver **por dónde va**.
-- `W/A/S/D` no hacen nada ahí dentro, a propósito.
+Lo que compra este modo es **la entrada**, no una restricción: en un clic tienes
+la cámara sobre tu personaje y orientada como él, sin conducirla hasta allí. Una
+vez dentro se maneja como el candado normal.
+
+| | |
+|---|---|
+| Ratón, `Q`/`E` | giran. La orientación es tuya desde el primer frame |
+| `W A S D` | retocan el sitio respecto al héroe |
+| `ESPACIO` / `C` | suben y bajan la altura sobre él |
+
+- **De fábrica son 5 yardas** sobre sus pies, y se midió dos veces: empezó en
+  2.2 —la cabeza de un humano, literalmente dentro— y era muy baja, porque a ras
+  de cabeza la cuesta de delante tapa lo que hay detrás y el propio modelo se
+  come el tercio de abajo de la pantalla. 7 se sintió alto. 5 es lo que quedó.
+- **La altura se guarda, el sitio en el plano no.** `ESPACIO`/`C` y
+  `/rts fc eyeH <n>` escriben el mismo número (entre 0 y 50), así que la altura
+  a la que subes es con la que entras la próxima vez. Lo que retoques con
+  `W/A/S/D` se olvida al salir, **y eso es lo que hace que el botón sirva**: el
+  segundo clic vuelve a ponerte encima del héroe en vez de dejarte donde ya
+  estabas.
 
 Se sale con otro clic derecho, con el izquierdo (que suelta el candado entero) o
 con `/rts fc home`.

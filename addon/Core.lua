@@ -1021,7 +1021,7 @@ local HELP = {
 	"|cffffff00/rts cam here|r - recentre over your character; |cffffff00mouse|r toggles mouse steering",
 	"|cffffff00/rts fc|r - ajustes de la camara libre (velocidad, altura, suavizado, giro)",
 	"|cffffff00/rts fc home|r - devuelve la camara sobre tu heroe si se queda atascada",
-	"|cffffff00/rts fc ojos|r - engancha la camara sobre el heroe: solo giras, ESPACIO/C suben y bajan (clic DERECHO en el candado)",
+	"|cffffff00/rts fc ojos|r - pone la camara encima del heroe mirando como el, y la engancha (clic DERECHO en el candado)",
 	"|cffffff00/rts cam probe|r - SONDEO: ¿sirve la camara libre del cliente? (|cffffff00spec 0|r sale)",
 	"|cffffff00/rts cam colision|r - la camara atraviesa geometria (cuevas); |cffffff00geo|r inventaria el resto",
 	"|cffffff00/rts cam speed <n>|r - how fast it flies",
