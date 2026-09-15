@@ -1010,7 +1010,17 @@ end
 
 -- The buttons, from the DLL. `IsMouseButtonDown` returns NO while the client has
 -- the mouse grabbed, so to know whether BOTH are held there is no other source.
--- It stays only for the move-forward gesture; the turning no longer uses it.
+--
+-- AND NOBODY PUBLISHES `RTS_MouseRaw` TODAY, so this answers "neither button" on
+-- every frame and the one gesture left hanging off it -- left + right to move
+-- forward -- does nothing. It reads as implemented and is not: the producer went
+-- with the fourth attempt at mouse turning (raw deltas from the DLL, measured to
+-- feel jerky) and the consumer stayed.
+--
+-- IT IS KEPT ON PURPOSE, pending a decision on publishing the two buttons from
+-- `Publisher.cpp`, which is where the missing half is. What HAS gone is the line
+-- in `/rts fc mouse` that reported them: a diagnostic that prints "right button:
+-- NO" while you hold the right button does not report a fault, it invents one.
 local function MouseButtons()
 	if RTS_MouseRaw ~= 1 then return false, false end
 	local b = tonumber(RTS_MouseB) or 0
@@ -2225,7 +2235,6 @@ function F:Mouse()
 	ns.Print("|cff33ccffcamara:|r gira con el DERECHO durante 2 segundos...")
 	local t, dyaw, dpitch, n = 0, 0, 0, 0
 	local y0, p0 = nil, nil
-	local sawL, sawR = false, false
 	local f = CreateFrame("Frame")
 	f:SetScript("OnUpdate", function(self2, e)
 		t = t + e
@@ -2240,15 +2249,10 @@ function F:Mouse()
 			end
 			y0, p0 = yaw, pitch
 		end
-		local l, r = MouseButtons()
-		if l then sawL = true end
-		if r then sawR = true end
 		if t < 2.0 then return end
 		self2:SetScript("OnUpdate", nil)
 		ns.Print(("  lecturas de angulo: %d   giro acumulado: yaw %.1f, pitch %.1f"):format(
 			n, dyaw, dpitch))
-		ns.Print(("  botones (del DLL): derecho %s   izquierdo %s"):format(
-			sawR and "|cff00ff00SI|r" or "|cffff0000NO|r", sawL and "SI" or "no"))
 		if n == 0 then
 			ns.Print("  |cffff0000CommentatorGetCamera no contesta|r: la puerta esta")
 			ns.Print("  cerrada. |cffffff00/rts cam probe|r dice en que paso.")
