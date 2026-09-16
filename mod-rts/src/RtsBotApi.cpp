@@ -12,6 +12,7 @@
 #include "LastMovementValue.h"
 #include "LootStrategyValue.h"
 #include "PlayerbotAI.h"
+#include "PlayerbotAIConfig.h"
 #include "PlayerbotMgr.h"
 #include "PlayerbotRepository.h"
 #include "PositionValue.h"
@@ -219,6 +220,11 @@ bool rts::bots::HoldAi(Player* bot, uint32 ms)
     // mando que ellos usan para no pensar durante un GCD.
     ai->SetNextCheckDelay(ms);
     return true;
+}
+
+float rts::bots::ReactDistance()
+{
+    return sPlayerbotAIConfig.reactDistance;
 }
 
 // === valores del contexto ===================================================

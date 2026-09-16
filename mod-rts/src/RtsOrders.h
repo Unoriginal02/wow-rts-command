@@ -37,7 +37,66 @@ namespace rts
         // home afterwards.
         //
         // `master` is the commanding player; the bot must be in their group.
-        bool MoveBot(Player* master, std::string const& botName, float x, float y, float z);
+        //
+        // EL DESTINO QUE SE PIDE NO ES SIEMPRE EL QUE SE ANCLA. Un punto lejos
+        // se parte en TRAMOS sobre el navmesh (ver `NextLeg`), y lo que se
+        // ancla es el final del primero. Los tres punteros de salida dicen
+        // donde acabo de verdad y por que, para que el addon dibuje y mida
+        // contra lo que pasa y no contra lo que pidio.
+        bool MoveBot(Player* master, std::string const& botName, float x, float y, float z,
+                     float* legX = nullptr, float* legY = nullptr, float* legZ = nullptr,
+                     int* legKind = nullptr);
+
+        // QUE PASA CON UN TRAMO. El orden importa: de mejor a peor.
+        enum LegKind
+        {
+            LEG_FULL    = 0,   // el camino entero cabe: el destino es el punto
+            LEG_PARTIAL = 1,   // cabe un trozo: se anda y se vuelve a preguntar
+            LEG_NONE    = 2,   // no hay camino andando hasta ahi
+        };
+
+        // EL SIGUIENTE TRAMO ANDABLE HACIA UN PUNTO, SOBRE EL NAVMESH.
+        //
+        // Existe porque el que decidia esto era el addon, y lo decidia con
+        // geometria: cogia la recta hasta el punto y cortaba a cien yardas. Esa
+        // cuenta no sabe que hay una montana en medio, asi que el punto
+        // intermedio caia en la ladera -- y una ladera empinada NO esta en el
+        // navmesh.
+        //
+        // Lo que hace el nucleo con un destino que no esta en la malla es lo que
+        // convertia eso en el fallo que se veia (`PathGenerator.cpp`, rama
+        // `startPoly == INVALID_POLYREF || endPoly == INVALID_POLYREF`):
+        //
+        //     BuildShortcut();                       // DOS puntos: aqui y alli
+        //     bool path = creature ? creature->CanFly() : true;
+        //     if (path || ...) { _type = PATHFIND_NORMAL | PATHFIND_NOT_USING_PATH; return; }
+        //
+        // Un bot es `Player`, no `Creature`, asi que `creature` es nulo y `path`
+        // sale CIERTO: cualquier destino fuera de la malla devuelve una RECTA
+        // etiquetada como `PATHFIND_NORMAL`. Y playerbots la acepta -- su filtro
+        // es `PATHFIND_NORMAL | PATHFIND_INCOMPLETE`. `BuildShortcut` ademas
+        // solo pega al suelo sus DOS extremos, asi que el spline interpola la Z
+        // en linea recta entre ellos: el bot atraviesa el monte flotando.
+        //
+        // Aqui el tramo sale de `PathGenerator::GetPath()`, que es la polilinea
+        // de verdad sobre la malla, y el corte se hace ANDANDO esa polilinea --
+        // asi que el punto intermedio esta sobre ella por construccion, y es
+        // andable por definicion.
+        //
+        // Devuelve false cuando no hay camino; `tx/ty/tz` quedan entonces en el
+        // punto pedido, que es lo que habia antes de todo esto.
+        bool NextLeg(Player* bot, float fx, float fy, float fz,
+                     float& tx, float& ty, float& tz, int& kind);
+
+        // QUE DICE LA MALLA SOBRE ESTE VIAJE, en una linea para el chat.
+        //
+        // Existe porque "sigue cruzando la montana" y "no hay camino y nadie lo
+        // dice" se ven IGUAL desde fuera, y distinguirlos mirando la pantalla ya
+        // ha costado una vuelta. Esto imprime las banderas de `PathGenerator`,
+        // cuantos puntos trajo, cuanto mide y donde acabaria el tramo -- que es
+        // exactamente lo que hay que saber para decidir si el fallo esta en la
+        // malla, en el tope de 74 puntos o en nosotros.
+        std::string PathReport(Player* who, float x, float y, float z);
 
         // Release a bot back to following its master.
         // Clavar al bot DONDE ESTA. Es "quieto" sin destino: el mismo par de

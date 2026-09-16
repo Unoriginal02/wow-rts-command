@@ -17,6 +17,7 @@
 #include "Map.h"
 #include "MapCollisionData.h"
 #include "MotionMaster.h"
+#include "PathGenerator.h"
 #include "ObjectAccessor.h"
 #include "Player.h"
 #include "SpellInfo.h"
@@ -249,11 +250,187 @@ bool rts::orders::GroundRay(Player const* who,
     return false;
 }
 
-bool rts::orders::MoveBot(Player* master, std::string const& botName, float x, float y, float z)
+namespace
+{
+    // CUANTO SE LE MANDA DE UNA VEZ, en yardas de camino.
+    //
+    // El tope duro lo pone la IA del bot: un ancla a mas de `ReactDistance` no
+    // es util para `MoveToPositionAction` y el bot ni arranca. El margen de un
+    // tercio no es prudencia: la distancia que esa comprobacion mide es EN LINEA
+    // RECTA desde donde el bot este cuando le toque pensar, y un tramo de camino
+    // que rodea una loma tiene mas camino que recta. Un presupuesto pegado al
+    // limite deja el arranque a suerte.
+    float LegBudget()
+    {
+        float const react = rts::bots::ReactDistance();
+        float budget = react * 0.66f;
+        if (budget < 30.0f)
+            budget = 30.0f;
+        if (budget > 200.0f)
+            budget = 200.0f;
+        return budget;
+    }
+
+    // ESTAS CUATRO BANDERAS QUIEREN DECIR "EL NUCLEO VA A IR EN LINEA RECTA".
+    //
+    //   NOPATH         -- no hay camino, y lo que queda es el atajo de dos puntos
+    //   SHORTCUT       -- el atajo, dicho con todas las letras
+    //   NOT_USING_PATH -- destino fuera de la malla (o sin mmap): atajo, y ademas
+    //                     se presenta como NORMAL. Ver la nota de `NextLeg`.
+    //   SHORT          -- habia camino, pero pasa de 74 puntos y lo han tirado
+    //
+    // Ninguna de las cuatro sirve para andar. `PATHFIND_INCOMPLETE` SI sirve y no
+    // esta aqui a proposito: es un camino de verdad que se queda corto, o sea
+    // justo lo que un tramo quiere.
+    constexpr int kPathUnusable = PATHFIND_NOPATH | PATHFIND_SHORTCUT |
+                                  PATHFIND_NOT_USING_PATH | PATHFIND_SHORT;
+
+    // Andar la polilinea de la malla hasta gastar el presupuesto. El punto que
+    // sale esta SOBRE ella, asi que es andable por construccion -- que es la
+    // diferencia entera con cortar la recta.
+    //
+    // Devuelve false si el camino entero cabe: entonces el destino es el punto.
+    bool CutAt(Movement::PointsArray const& pts, float budget,
+               float& tx, float& ty, float& tz)
+    {
+        float used = 0.0f;
+        for (std::size_t i = 1; i < pts.size(); ++i)
+        {
+            float const dx = pts[i].x - pts[i - 1].x;
+            float const dy = pts[i].y - pts[i - 1].y;
+            float const dz = pts[i].z - pts[i - 1].z;
+            float const seg = std::sqrt(dx * dx + dy * dy + dz * dz);
+            if (seg < 1e-4f)
+                continue;
+
+            if (used + seg >= budget)
+            {
+                float const f = (budget - used) / seg;
+                tx = pts[i - 1].x + dx * f;
+                ty = pts[i - 1].y + dy * f;
+                tz = pts[i - 1].z + dz * f;
+                return true;
+            }
+            used += seg;
+        }
+        return false;
+    }
+}
+
+bool rts::orders::NextLeg(Player* bot, float fx, float fy, float fz,
+                          float& tx, float& ty, float& tz, int& kind)
+{
+    tx = fx; ty = fy; tz = fz;
+    kind = LEG_NONE;
+
+    if (!bot || !bot->IsInWorld())
+        return false;
+
+    float const budget = LegBudget();
+
+    // 1. EL CAMINO ENTERO HASTA EL PUNTO. Lo normal, y lo unico que hace falta
+    //    mientras el destino este en la malla y no quede demasiado lejos.
+    {
+        PathGenerator gen(bot);
+        gen.CalculatePath(fx, fy, fz);
+        int const type = gen.GetPathType();
+
+        if (!(type & kPathUnusable))
+        {
+            Movement::PointsArray const& pts = gen.GetPath();
+            if (pts.size() >= 2)
+            {
+                if (CutAt(pts, budget, tx, ty, tz))
+                {
+                    kind = LEG_PARTIAL;
+                    return true;
+                }
+
+                // Cabe entero. Si el camino se queda corto del objetivo
+                // (`INCOMPLETE`), el final de la polilinea es lo mas cerca que
+                // la malla llega: se anda hasta ahi y se vuelve a preguntar
+                // desde el sitio nuevo, que es donde puede haber mas camino.
+                tx = pts.back().x; ty = pts.back().y; tz = pts.back().z;
+                kind = (type & PATHFIND_INCOMPLETE) ? LEG_PARTIAL : LEG_FULL;
+                return true;
+            }
+        }
+    }
+
+    // 2. NO SE PUDO VER EL CAMINO ENTERO, QUE NO ES LO MISMO QUE NO HABERLO.
+    //
+    //    `PATHFIND_SHORT` es literalmente "hay camino y son mas de 74 puntos":
+    //    un viaje de varios cientos de yardas lo da siempre, y ahi el nucleo
+    //    tira el camino bueno y deja el atajo. Asi que se pregunta por un punto
+    //    MAS CERCA -- a un presupuesto de distancia sobre la recta -- que es una
+    //    pregunta que la malla si sabe contestar.
+    //
+    //    Y ESTE SONDEO NO SE USA A CIEGAS, que es lo que hacia el addon y lo que
+    //    metia al bot en la montana: solo vale si la malla enruta HASTA EL. Si
+    //    el sondeo tambien cae fuera -- porque lo que hay en medio es una pared
+    //    -- no hay tramo, y eso se dice en vez de mandarle a volar.
+    {
+        float const dx = fx - bot->GetPositionX();
+        float const dy = fy - bot->GetPositionY();
+        float const flat = std::sqrt(dx * dx + dy * dy);
+        if (flat < 1.0f)
+            return false;
+
+        float const f = budget / flat;
+        float px = bot->GetPositionX() + dx * f;
+        float py = bot->GetPositionY() + dy * f;
+        float pz = bot->GetPositionZ() + (fz - bot->GetPositionZ()) * f;
+        bot->UpdateAllowedPositionZ(px, py, pz);
+
+        PathGenerator gen(bot);
+        gen.CalculatePath(px, py, pz);
+        int const type = gen.GetPathType();
+        if (type & kPathUnusable)
+            return false;
+
+        Movement::PointsArray const& pts = gen.GetPath();
+        if (pts.size() < 2)
+            return false;
+
+        if (!CutAt(pts, budget, tx, ty, tz))
+        {
+            tx = pts.back().x; ty = pts.back().y; tz = pts.back().z;
+        }
+        kind = LEG_PARTIAL;
+        return true;
+    }
+}
+
+bool rts::orders::MoveBot(Player* master, std::string const& botName, float x, float y, float z,
+                          float* legX, float* legY, float* legZ, int* legKind)
 {
     Player* bot = ResolveBot(master, botName);
     if (!rts::bots::Driven(bot))
         return false;
+
+    // EL TRAMO, ANTES DE ANCLAR NADA. Un punto lejos, o al otro lado de un
+    // monte, no se manda tal cual: se manda hasta donde la malla llega, y al
+    // llegar el addon vuelve a pedir. Ver `NextLeg`.
+    int kind = LEG_FULL;
+    float tx = x, ty = y, tz = z;
+    bool const routed = NextLeg(bot, x, y, z, tx, ty, tz, kind);
+
+    if (legKind)
+        *legKind = kind;
+
+    // SIN CAMINO NO SE MUEVE, y esa es la mitad que faltaba. Anclarle igual era
+    // exactamente lo que le hacia atravesar la montana flotando: el nucleo no se
+    // niega, sustituye el camino por una recta de dos puntos y la anda. Mejor no
+    // ir que ir por el aire, y quien llama lo dice.
+    if (!routed)
+    {
+        if (legX) *legX = x;
+        if (legY) *legY = y;
+        if (legZ) *legZ = z;
+        return false;
+    }
+
+    x = tx; y = ty; z = tz;
 
     // The same strategy flip StayChatShortcutAction performs, minus the
     // TellMaster that made the bot stop and mime a conversation first.
@@ -286,6 +463,10 @@ bool rts::orders::MoveBot(Player* master, std::string const& botName, float x, f
     bot->GetMotionMaster()->Clear();
 
     WakeAi(bot);
+
+    if (legX) *legX = x;
+    if (legY) *legY = y;
+    if (legZ) *legZ = z;
     return true;
 }
 
@@ -448,13 +629,92 @@ bool rts::orders::MoveSelf(Player* player, float x, float y, float z, std::strin
     // para un bot, y un MovePoint a una Z flotante te deja flotando igual.
     GroundZ(player, x, y, z);
 
+    // EL HEROE TAMBIEN VA POR TRAMOS, y esto es lo que faltaba.
+    //
+    // `MoveBot` se arreglo y tu propio personaje no, porque no pasa por el
+    // (`ResolveBot` rechaza a proposito que te ordenes a ti mismo por esa via).
+    // Es el patron de la etapa 5h otra vez: dos caminos para la misma cosa y el
+    // arreglo puesto solo en uno -- y el que quedaba es el que se ve, porque tu
+    // heroe es el que miras.
+    int kind = LEG_FULL;
+    float tx = x, ty = y, tz = z;
+    if (!NextLeg(player, x, y, z, tx, ty, tz, kind))
+        return fail("no walking path from here");
+    x = tx; y = ty; z = tz;
+
+    // Al suelo tambien aqui: la Z del click vale lo mismo para tu personaje que
+    // para un bot, y un MovePoint a una Z flotante te deja flotando igual.
+    GroundZ(player, x, y, z);
+
     player->StopMoving();
     player->GetMotionMaster()->Clear();
-    player->GetMotionMaster()->MovePoint(0, x, y, z);
+
+    // `forceDestination` A FALSO, Y ES LA MITAD QUE DE VERDAD VOLABA.
+    //
+    // `MotionMaster::MovePoint` lo trae a CIERTO por defecto, y con el puesto
+    // `PathGenerator` hace esto al final (`PathGenerator.cpp`):
+    //
+    //     if (_forceDestination && (!(_type & PATHFIND_NORMAL) ||
+    //                               !InRange(end, actualEnd, 1.0f, 1.0f)))
+    //     {   ... SetActualEndPosition(GetEndPosition()); BuildShortcut(); ...
+    //         _type = PathType(PATHFIND_NORMAL | PATHFIND_NOT_USING_PATH);   }
+    //
+    // O sea: si el camino bueno no aterriza EXACTAMENTE en el punto pedido --
+    // que es el caso normal al pinchar una ladera o al otro lado de un monte --
+    // **tira el camino y pone la recta**. No es que la malla fallara: es que se
+    // le pide que ignore lo que la malla dijo.
+    //
+    // playerbots ya lo pasa a falso en su `DoMovePoint`, asi que los bots nunca
+    // tuvieron esta mitad y tu heroe si. De ahi que el sintoma se viera en el
+    // personaje que uno mira todo el rato.
+    player->GetMotionMaster()->MovePoint(0, x, y, z, FORCED_MOVEMENT_NONE,
+                                         0.0f, 0.0f, /*generatePath*/ true,
+                                         /*forceDestination*/ false);
 
     if (why)
-        *why = "ordered";
+        *why = (kind == LEG_PARTIAL) ? "ordered (leg)" : "ordered";
     return true;
+}
+
+std::string rts::orders::PathReport(Player* who, float x, float y, float z)
+{
+    if (!who || !who->IsInWorld())
+        return "no esta en el mundo";
+
+    PathGenerator gen(who);
+    gen.CalculatePath(x, y, z);
+    int const type = gen.GetPathType();
+
+    std::ostringstream out;
+    out << std::fixed << std::setprecision(1);
+    out << "tipo=0x" << std::hex << type << std::dec;
+
+    // Las banderas por su nombre: el numero solo obliga a ir a mirar la cabecera.
+    if (type & PATHFIND_NORMAL)            out << " NORMAL";
+    if (type & PATHFIND_SHORTCUT)          out << " SHORTCUT";
+    if (type & PATHFIND_INCOMPLETE)        out << " INCOMPLETE";
+    if (type & PATHFIND_NOPATH)            out << " NOPATH";
+    if (type & PATHFIND_NOT_USING_PATH)    out << " NOT_USING_PATH";
+    if (type & PATHFIND_SHORT)             out << " SHORT";
+    if (type & PATHFIND_FARFROMPOLY_START) out << " FAR_START";
+    if (type & PATHFIND_FARFROMPOLY_END)   out << " FAR_END";
+
+    out << " pts=" << gen.GetPath().size()
+        << " largo=" << gen.getPathLength()
+        << " recta=" << who->GetExactDist(x, y, z);
+
+    float tx, ty, tz;
+    int kind = LEG_NONE;
+    if (NextLeg(who, x, y, z, tx, ty, tz, kind))
+    {
+        out << " -> tramo " << ((kind == LEG_FULL) ? "ENTERO" : "TROZO")
+            << " a " << who->GetExactDist(tx, ty, tz) << " yd";
+    }
+    else
+    {
+        out << " -> SIN TRAMO (no se manda)";
+    }
+    return out.str();
 }
 
 rts::orders::ClickIntent rts::orders::ClassifyClick(Player* master, ObjectGuid targetGuid)

@@ -14,8 +14,8 @@ copies.
 
 | Piece | Version | What it is |
 |---|---|---|
-| `addon/` | 1.38.0 | Lua addon: UI, selection, orders, camera |
-| `mod-rts/` | 0.52.0 | AzerothCore module: orders straight into the AI, quests, bags, NPCs, character swap |
+| `addon/` | 1.41.0 | Lua addon: UI, selection, orders, camera |
+| `mod-rts/` | 0.54.0 | AzerothCore module: orders straight into the AI, quests, bags, NPCs, character swap |
 | `rts-client-mod/` | `rts_core.dll` 0.30.0 | Injected into the client: world coordinates, raycast, native effects |
 
 ```
@@ -152,6 +152,7 @@ ends included — is in the header of the file that implements it.
 | **Lock** — pins the camera at a fixed distance from the hero and travels with him | Candado slot, `/rts fc lock` | `addon/FreeCam.lua` |
 | **Hero view** — one click puts the camera behind him and keeps it at his back | **right-click** Candado, `/rts fc ojos` | `addon/FreeCam.lua` |
 | **Escape hatch** — brings the camera back over your hero | `/rts fc home` | `addon/FreeCam.lua` |
+| **Entering backs the camera off the hero**, instead of parking on his head | `/rts fc back <yd>` (15 by default, 0 = on top) | `addon/FreeCam.lua` |
 | **"Ground" is not "the first thing underneath"** — a roof stops counting, so you can get inside buildings | `/rts fc floor 1` | `addon/FreeCam.lua` |
 | **Step filter** — a slope is followed closely, a step is climbed slowly | `/rts fc climb/soft/slow` | `addon/FreeCam.lua` |
 | **No collision** — the camera passes through geometry (caves) | `/rts fc noclip 1` | `addon/Camera.lua` |
@@ -240,6 +241,7 @@ lock), or with `/rts fc home`.
 | Move / hold / follow / attack / attack-move | mouse, keys, `/rts move`, `hold`, `follow`, `attack`, `amove` | `addon/Orders.lua` |
 | **Orders straight into the AI**, never through chat | automatic | `mod-rts/src/RtsOrders.cpp` |
 | **Multi-point routes** | Shift + right-click | `addon/Route.lua` |
+| **A long trip is cut into legs on the navmesh** | automatic | `mod-rts/src/RtsOrders.cpp` (`NextLeg`) |
 | **A ground marker on every waypoint**, drawn by the client | `/rts mark next/prev/find/size` | `addon/Marks.lua` + `mod-rts/src/RtsMarks.cpp` |
 | **"Go here" flare** | automatic on every order | `addon/Flare.lua` |
 | **Attack chain** — mark 1, 2, 3, 4 and they go in that order | Shift + left-click a hostile, `/rts chain` | `addon/Chain.lua` + `mod-rts/src/RtsChain.cpp` |
@@ -543,6 +545,63 @@ anyone noticing.
 the only thread where Lua may be touched. It replaced a D3D9 `EndScene`
 trampoline that, under Windows 11's `d3d9on12` layer, hooked a vtable the client
 does not actually call through — so it never fired.
+
+### 4.4b Walking there: who decides the route, and where it went wrong
+
+We do no pathfinding of our own, and should not: the server has Detour and the
+mmaps. What we decide is **how much of a trip to ask for at once**, and that is
+what was wrong.
+
+A move order sets playerbots' `stay`/`return` anchor and wakes the AI. The bot's
+own `MovementAction::MoveTo` then calls AzerothCore's `PathGenerator`, and so
+does `PointMovementGenerator` underneath it. Two limits shape everything:
+
+- `MoveToPositionAction::isUseful()` is `distance > followDistance && distance <
+  reactDistance`. With `AiPlayerbot.ReactDistance = 150`, an anchor further than
+  that **is not useful to the AI and the bot never starts**.
+- `PathGenerator` gives up past `MAX_POINT_PATH_LENGTH` (74 points at a 4-yard
+  step, so ~296 yards of path) and replaces the whole path with
+  `BuildShortcut()` — **two points, start and end**.
+
+So a long trip has to be cut into legs, and the addon used to cut it by
+**geometry**: take the straight line to the waypoint, stop at a hundred yards,
+interpolate the height. That cut knows nothing about a mountain in the way, so
+the intermediate point landed on the mountainside — and a steep slope is not on
+the navmesh. What the core does then is the whole bug:
+
+```cpp
+if (startPoly == INVALID_POLYREF || endPoly == INVALID_POLYREF)
+{
+    BuildShortcut();
+    bool path = creature ? creature->CanFly() : true;
+    if (path || ...) { _type = PATHFIND_NORMAL | PATHFIND_NOT_USING_PATH; return; }
+```
+
+A bot is a `Player`, not a `Creature`, so `creature` is null and `path` comes out
+**true**: any off-mesh destination returns a straight line labelled
+`PATHFIND_NORMAL`. playerbots accepts it — its filter is `PATHFIND_NORMAL |
+PATHFIND_INCOMPLETE`. And `BuildShortcut` only grounds its **two** endpoints, so
+the spline interpolates Z in a straight line between them: the bot goes through
+the mountain, floating.
+
+`orders::NextLeg` cuts the leg on the **navmesh polyline** instead
+(`PathGenerator::GetPath()`), walking it until the budget runs out — so the
+intermediate point is on the mesh by construction. Four path types are treated as
+"the core is about to go straight" and refused: `NOPATH`, `SHORTCUT`,
+`NOT_USING_PATH` and `SHORT`. `INCOMPLETE` is kept, because a real path that
+falls short is exactly what a leg wants.
+
+When the whole path cannot be seen — `SHORT` means "there is a path and it is
+over 74 points" — it probes a nearer point and paths to **that**, and uses it
+only if the mesh routes there. That is the addon's old guess, with the one step
+that was missing: checking it. If even the probe is unreachable, nobody is sent
+and the order says so, which beats watching a bot fly.
+
+The budget is two thirds of `ReactDistance`, read from playerbots rather than
+copied, because a number written down here would be contradicted by the `.conf`
+in silence. The server answers each move with `MOVEAT <name> <x> <y> <z> <kind>`:
+the addon measures arrival, draws the route and detects stalls against where the
+bot is **actually** going, not against what was asked for.
 
 ### 4.5 Blizzard frames: borrowed, not reimplemented
 

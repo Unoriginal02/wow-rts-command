@@ -246,6 +246,13 @@ function R:Count()
 	return #routes, pts
 end
 
+-- Parte el SERVIDOR los viajes largos? Desde mod-rts 0.53 si, y sobre el
+-- navmesh en vez de sobre la recta. Mientras no conteste se supone que no:
+-- el respaldo siempre existe, el verbo nuevo no siempre.
+local function ServerCuts()
+	return ns.Orders:HasServer() and ns.Link:ServerAtLeast(53)
+end
+
 --- Mandar el tramo actual --------------------------------------------------
 --
 -- CADA UNIDAD VA A SU PROPIO PUNTO Y A SU PROPIO RITMO. Antes la ruta tenia UN
@@ -274,11 +281,27 @@ local function Issue(route, mover)
 
 			-- Y a donde se le manda AHORA, que puede ser un punto intermedio si
 			-- el de verdad queda fuera del alcance util de la IA.
+			--
+			-- EL QUE PARTE EL VIAJE ES EL SERVIDOR, Y NO POR REPARTIR TRABAJO.
+			--
+			-- Lo que habia aqui cortaba LA RECTA hasta el punto: `cx + (fx-cx)*f`,
+			-- con la Z interpolada. Esa cuenta no sabe que hay una montana en
+			-- medio, asi que el intermedio caia en la ladera -- y una ladera
+			-- empinada no esta en el navmesh. El nucleo, ante un destino fuera de
+			-- la malla, no se niega: sustituye el camino por una recta de dos
+			-- puntos y la anda. Eso es el bot atravesando el monte flotando.
+			--
+			-- Desde mod-rts 0.53 el troceo lo hace `orders::NextLeg`, que anda la
+			-- polilinea de la malla y corta SOBRE ella. Aqui se manda el punto de
+			-- verdad y el servidor contesta con `MOVEAT`: donde acabo el tramo y
+			-- si era un trozo. Contra un servidor viejo se sigue cortando la
+			-- recta, que es lo que habia -- malo en cuesta, pero al menos el bot
+			-- arranca.
 			local tx, ty, tz = fx, fy, fz
 			local cx, cy, cz = PosOf(name)
 			local d = cx and Dist2D(cx, cy, fx, fy) or nil
 
-			if d and d > R.cfg.maxleg then
+			if not ServerCuts() and d and d > R.cfg.maxleg then
 				local f = R.cfg.maxleg / d
 				tx = cx + (fx - cx) * f
 				ty = cy + (fy - cy) * f
@@ -360,7 +383,11 @@ local function StartUnits(route, issued)
 			-- troceo), asi que a mas de `maxleg` la IA lo ignoraria. Dejando
 			-- `sent` a nil, el siguiente tick lo manda ya troceado -- 0,2 s en
 			-- vez de los 5 que tardaria en notarlo el detector de bot parado.
-			sent = (issued and not (cx and Dist2D(cx, cy, tx, ty) > R.cfg.maxleg))
+			-- Con el servidor troceando (0.53+) esa reserva sobra: `MoveBot`
+			-- ya ancla dentro del alcance por su cuenta, asi que reenviar seria
+			-- una segunda orden por click y nada mas.
+			sent = (issued and (ServerCuts()
+			        or not (cx and Dist2D(cx, cy, tx, ty) > R.cfg.maxleg)))
 			       and 1 or nil,
 			d0 = cx and Dist2D(cx, cy, tx, ty) or nil,
 			px = cx, py = cy, pat = now,
@@ -926,6 +953,36 @@ function R:Create()
 	-- otro sitio: eso se dice, porque un punto que aterriza lejos sin que nada
 	-- lo avise es indistinguible de un fallo del gesto -- y esa confusion es la
 	-- que ha costado varias rondas de pruebas en este mismo click.
+	-- DONDE HA ACABADO EL TRAMO DE VERDAD.
+	--
+	-- El servidor no ancla siempre en el punto que se le pide: si queda
+	-- lejos, o al otro lado de un monte, ancla en el ultimo sitio de la
+	-- malla que alcanza. Sin esto el addon mediria la llegada contra el
+	-- waypoint mientras el bot anda hacia otro sitio: no llegaria nunca, y a
+	-- los 40 s el plazo se saltaria el tramo entero.
+	--
+	-- `tipo`: 0 = el punto entero, 1 = un trozo (al llegar se vuelve a
+	-- pedir), 2 = no hay camino andando. El 2 no se dibuja de otra forma
+	-- todavia; el servidor ya lo dice por el chat, y el bot se queda quieto
+	-- en vez de irse por el aire.
+	ns.Link:On("MOVEAT", function(rest)
+		local name, tx, ty, tz, kind =
+			rest:match("^(%S+) (%-?[%d%.]+) (%-?[%d%.]+) (%-?[%d%.]+) (%d)$")
+		if not name then return end
+		local route = byUnit[name]
+		local u = route and route.u[name]
+		if not u then return end
+
+		tx, ty, tz = tonumber(tx), tonumber(ty), tonumber(tz)
+		u.tx, u.ty = tx, ty
+		u.partial = (kind == "1")
+
+		-- El largo del trozo se rehace contra el sitio bueno: es lo que mide
+		-- el "ya va por el 95%", y con el largo del punto final ese 95% caeria
+		-- mucho mas alla del tramo que el bot va a andar.
+		if u.px then u.d0 = Dist2D(u.px, u.py, tx, ty) end
+	end)
+
 	ns.Link:On("GROUNDNO", function(rest)
 		local id = tonumber(rest and rest:match("^(%d+)"))
 		if not id or R:PointExact(id) then return end

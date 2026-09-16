@@ -1030,6 +1030,7 @@ local HELP = {
 	"|cffffff00/rts state|r - the tint colour each selected unit is being given",
 	"|cffffff00/rts cal|r - measure the projection (fixes rings that sit short)",
 	"|cffffff00/rts aim|r - why the ground point lands where it lands (cursor vs the DLL ray)",
+	"|cffffff00/rts path|r - what the server's navmesh says about walking to the cursor",
 	"|cffffff00/rts version|r - versions of all three pieces (addon, server, DLL)",
 	"|cffffff00/rts pick|r / |cffffff00pick on|r - what is under the cursor, once or continuously",
 	"|cffffff00/rts debug|r - echo every message to and from the server module",
@@ -1154,6 +1155,27 @@ SlashCmdList["RTSCOMMAND"] = function(msg)
 
 	elseif cmd == "markers" then
 		ns.Markers:Toggle()
+
+	elseif cmd == "path" or cmd == "camino" then
+		-- QUE DICE LA MALLA DEL SERVIDOR sobre el viaje hasta donde apuntas.
+		--
+		-- El unico sitio donde se puede contestar es el servidor: los mmaps son
+		-- suyos. Aqui solo van el punto y los nombres, y la respuesta llega por
+		-- el chat -- una linea por unidad, con las banderas de `PathGenerator`
+		-- escritas con su nombre.
+		if not ns.Orders:HasServer() then
+			ns.Print("|cffff0000/rts path|r necesita mod-rts.")
+		else
+			local x, y, z = ns.Markers:CursorGroundPoint()
+			if not x then
+				ns.Print("|cffff8800/rts path:|r no se donde apuntas. Pon el cursor en el suelo.")
+			else
+				local sel = ns.Selection:Get()
+				local names = table.concat(sel, ";")
+				if names == "" then names = ns.MyName() end
+				ns.SendServer(("PATHQ %.2f %.2f %.2f %s"):format(x, y, z, names))
+			end
+		end
 
 	elseif cmd == "aim" or cmd == "punteria" then
 		-- Por que el punto de suelo sale donde sale. Contesta si el rayo del

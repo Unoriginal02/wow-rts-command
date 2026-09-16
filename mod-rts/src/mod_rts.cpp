@@ -102,7 +102,7 @@ namespace
     // tercera condicion de `MoveSelf`. El addon debe pedir `ServerAtLeast(46)`
     // antes de usar esos verbos: un verbo que el servidor no conoce NO da error,
     // no contesta, asi que un worldserver sin reiniciar se lee como un addon roto.
-    constexpr char const* kModVersion = "0.52.0";
+    constexpr char const* kModVersion = "0.54.0";
 
     std::string Upper(std::string s)
     {
@@ -225,10 +225,21 @@ namespace
     // whisper per bot at 0.15s apart, so a four-bot order took most of a second
     // to leave the client; here it is a single packet and the bots turn at the
     // same instant, which is most of what makes an RTS feel responsive.
+    // EL DESTINO QUE SE PIDE Y EL SITIO AL QUE VA NO SON EL MISMO, y desde que
+    // `MoveBot` parte los viajes largos en tramos sobre el navmesh hay que
+    // decirlo: el addon mide la llegada, dibuja la ruta y detecta atascos contra
+    // el punto al que CREE que va el bot. Si eso es el waypoint final mientras el
+    // bot anda hacia un punto intermedio, nunca llega, y a los cuarenta segundos
+    // el plazo se salta el tramo -- un bot que no obedece, otra vez, por medir
+    // contra lo que se pidio en vez de contra lo que pasa.
+    //
+    // `MOVEAT <nombre> <x> <y> <z> <tipo>`, uno por bot. 0 = el punto entero,
+    // 1 = un trozo (hay que volver a pedir al llegar), 2 = no hay camino.
     bool DispatchMove(Player* player, std::string const& rest)
     {
         std::size_t start = 0;
         int moved = 0;
+        int lost = 0;
 
         while (start <= rest.size())
         {
@@ -240,14 +251,36 @@ namespace
                 std::istringstream in(entry);
                 std::string name;
                 float x = 0.0f, y = 0.0f, z = 0.0f;
-                if ((in >> name >> x >> y >> z) && rts::orders::MoveBot(player, name, x, y, z))
-                    ++moved;
+                if (in >> name >> x >> y >> z)
+                {
+                    float lx = x, ly = y, lz = z;
+                    int kind = rts::orders::LEG_FULL;
+                    if (rts::orders::MoveBot(player, name, x, y, z, &lx, &ly, &lz, &kind))
+                        ++moved;
+                    else if (kind == rts::orders::LEG_NONE)
+                        ++lost;
+
+                    std::ostringstream out;
+                    out << "MOVEAT " << name << ' ' << std::fixed << std::setprecision(2)
+                        << lx << ' ' << ly << ' ' << lz << ' ' << kind;
+                    SendAddon(player, out.str());
+                }
             }
 
             if (end == std::string::npos)
                 break;
             start = end + 1;
         }
+
+        // UNA LINEA POR ORDEN, NO UNA POR BOT. Y se dice, porque el fallo que
+        // esto sustituye era mudo: el bot salia volando por la montana y llegaba
+        // -- mal, atravesandola -- asi que no habia nada que contar. Ahora no
+        // sale, y un bot quieto sin explicacion es justo la clase de silencio
+        // que ha costado rondas de pruebas en este mismo gesto.
+        if (lost > 0)
+            Reply(player, "RTS: " + std::to_string(lost) +
+                  " sin camino andando hasta ahi -- no van. Prueba un punto mas cerca "
+                  "o rodeando.");
 
         return moved > 0;
     }
@@ -1464,13 +1497,36 @@ namespace
             }
 
             int moved = 0;
+            int lost = 0;
             for (Dest const& d : dests)
             {
                 if (d.name == selfName)
+                {
                     moved += rts::orders::MoveSelf(player, d.x, d.y, d.z) ? 1 : 0;
-                else if (rts::orders::MoveBot(player, d.name, d.x, d.y, d.z))
+                    continue;
+                }
+
+                // El mismo troceo sobre el navmesh que el camino de la ruta, y
+                // por el mismo sitio: un click lejos o al otro lado de un monte
+                // es el caso de todos los dias. Ver `orders::NextLeg`.
+                float lx = d.x, ly = d.y, lz = d.z;
+                int kind = rts::orders::LEG_FULL;
+                if (rts::orders::MoveBot(player, d.name, d.x, d.y, d.z, &lx, &ly, &lz, &kind))
                     ++moved;
+                else if (kind == rts::orders::LEG_NONE)
+                    ++lost;
+
+                std::ostringstream out;
+                out << "MOVEAT " << d.name << ' ' << std::fixed << std::setprecision(2)
+                    << lx << ' ' << ly << ' ' << lz << ' ' << kind;
+                SendAddon(player, out.str());
             }
+
+            if (lost > 0)
+                Reply(player, "RTS: " + std::to_string(lost) +
+                      " sin camino andando hasta ahi -- no van. Prueba un punto mas cerca "
+                      "o rodeando.");
+
             SendAddon(player, "DID MOVE " + std::to_string(moved));
             return true;
         }
@@ -1931,6 +1987,48 @@ namespace
                     ++moved;
             }
             return moved > 0;
+        }
+
+        // "PATHQ x y z Nombre;Otro" -- QUE DICE LA MALLA SOBRE ESTE VIAJE.
+        //
+        // El diagnostico de `/rts path`, y existe por la misma razon que
+        // `/rts aim`: "sigue cruzando la montana" y "no hay camino y nadie lo
+        // dice" se ven igual en pantalla. Contesta por el chat, una linea por
+        // unidad, con las banderas de `PathGenerator` por su nombre.
+        //
+        // Sin nombres contesta por TI, que es el caso que mas se mira.
+        if (verb == "PATHQ")
+        {
+            std::istringstream in(rest);
+            float x = 0.0f, y = 0.0f, z = 0.0f;
+            if (!(in >> x >> y >> z))
+                return false;
+
+            std::string names;
+            in >> names;
+
+            Reply(player, "RTS: camino hacia " +
+                  std::to_string(int(x)) + " " + std::to_string(int(y)) + " " +
+                  std::to_string(int(z)));
+
+            bool any = false;
+            for (std::string const& n : SplitList(names, ';'))
+            {
+                if (n.empty())
+                    continue;
+                Player* who = (n == player->GetName())
+                            ? player : rts::bots::Resolve(player, n);
+                if (!who)
+                    continue;
+                any = true;
+                Reply(player, "RTS:   " + n + ": " +
+                      rts::orders::PathReport(who, x, y, z));
+            }
+
+            if (!any)
+                Reply(player, "RTS:   " + player->GetName() + ": " +
+                      rts::orders::PathReport(player, x, y, z));
+            return true;
         }
 
         // "SELFMOVE x y z" -- the commanding player's own character, which is

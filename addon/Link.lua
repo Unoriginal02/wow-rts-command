@@ -249,7 +249,7 @@ end
 -- unico que pasa es que no adelanta la deteccion; nada se rompe.
 local REPLY_ONLY = {
 	VER = true, DID = true, CAMPOS = true,
-	GROUNDAT = true, GROUNDNO = true,
+	GROUNDAT = true, GROUNDNO = true, MOVEAT = true,
 	MARKAT = true, MARKERR = true, MARKNO = true,
 	BAGEND = true, BAGOK = true, BAGERR = true,
 	NPCQEND = true, QDONE = true, QERR = true,

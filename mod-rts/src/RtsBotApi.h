@@ -146,6 +146,22 @@ namespace rts
 
         // --- posicion --------------------------------------------------------
 
+        // HASTA DONDE LLEGA EL BRAZO DE SU IA, en yardas.
+        //
+        // Es `AiPlayerbot.ReactDistance` (150 de fabrica), y no es un dato
+        // decorativo: `MoveToPositionAction::isUseful()` es literalmente
+        //
+        //     pos.isSet() && distance > followDistance && distance < reactDistance
+        //
+        // asi que un ancla mas lejos que esto NO ES UTIL para su IA y el bot no
+        // arranca siquiera -- se queda quieto con la orden puesta. De ahi sale
+        // el presupuesto de cada tramo en `orders::NextLeg`, que es quien parte
+        // un viaje largo en trozos que si estan dentro del brazo.
+        //
+        // Se lee en vez de escribirse a mano porque es CONFIGURABLE: un numero
+        // copiado aqui quedaria desmentido por el `.conf` sin que nada avise.
+        float ReactDistance();
+
         // Los anclajes con nombre de playerbots ("stay", "return"). Poner el
         // anclaje es lo que hace que el bot camine ahi y se quede, en vez de
         // empujarle nosotros cada tick.
