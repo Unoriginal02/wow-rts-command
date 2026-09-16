@@ -52,10 +52,25 @@
 
 	El maestro sale como uno mas, arriba del todo.
 
-	=== EL BOTON FORZAR LA DA POR HECHA Y COBRADA ===========================
+	=== EL BOTON COMPLETAR LA DA POR HECHA Y COBRADA ========================
 
 	Sin PNJ y sin ir a ningun sitio: objetivos por cumplidos, los objetos que
 	falten a la bolsa, recompensa elegida por `BestReward` y fuera del registro.
+
+	VALE PARA TU HEROE IGUAL QUE PARA UN BOT, y no es un caso aparte: el maestro
+	sale en la ventana como uno mas (`Party` lo devuelve el primero) y `Who` lo
+	resuelve por su propio nombre, asi que la fila de tu personaje hace
+	exactamente lo mismo que la de los demas.
+
+	Y sobre una mision que YA ESTE LISTA no hay nada que forzar: el camino entero
+	se reduce a lo unico que faltaba, ENTREGARLA. `ForceToComplete` la ve ya en
+	`QUEST_STATUS_COMPLETE`, no toca los objetivos, y `RewardQuest` la cobra ahi
+	mismo -- sin PNJ, sin paseo y sin ventana de recompensa.
+
+	Ese es el motivo del nombre. "Forzar" describia el caso peor -- una mision a
+	medias que hay que empujar -- y el que mas se usa es el otro: tienes cuatro
+	listas y no te apetece el viaje. Un boton se llama por lo que hace, y en los
+	dos casos hace lo mismo: completarla.
 
 	Es mas ancho que el forzado de `TurnIn`, que exige un PNJ delante y ademas
 	solo alcanza a lo que TU ya entregaste. Aquella puerta existe porque su
@@ -156,11 +171,13 @@ local function NewRow(card, i)
 	if ns.Skin then ns.Skin:Dress(r.force, true) end
 	r.force.label = ns.W:Text(r.force, ns.W.FONT.tiny)
 	r.force.label:SetPoint("CENTER", r.force, "CENTER", 0, 0)
-	r.force.label:SetText("Forzar")
-	ns.W:Tip(r.force, "Forzar",
+	r.force.label:SetText("Completar")
+	ns.W:Tip(r.force, "Completar",
 		"La da por hecha Y COBRADA ahi mismo, sin ir al PNJ.\n" ..
 		"Objetivos cumplidos, los objetos que falten a la bolsa,\n" ..
 		"y la recompensa se elige sola por clase y stats.\n\n" ..
+		"Si ya esta |cffffcc00lista|r, esto es solo la entrega.\n" ..
+		"Tu heroe incluido: su fila hace lo mismo que las demas.\n\n" ..
 		"No se salta la bolsa llena, las diarias, ni el oro\n" ..
 		"de las misiones que cuestan dinero.")
 
