@@ -242,6 +242,7 @@ local D = {
 	lift    = 14.0,   -- yards/second of offset with SPACE and C
 	turn    = 90.0,   -- degrees/second with Q and E
 	height  = 30.0,   -- starting offset above the ground
+	back    = 15.0,   -- yardas que la camara se retira del heroe AL ENTRAR (0 = encima)
 	minH    = 4.0,    -- the lowest `height` may be. NOT a floor on the flight:
 	                  -- with C you go through anything
 	maxH    = 300.0,  -- ceiling on the offset
@@ -529,6 +530,9 @@ local function Cfg()
 	if c.minH   <  0 or c.minH   > 100 then c.minH   = D.minH   end
 	if c.maxH   <= c.minH               then c.maxH   = D.maxH   end
 	if c.height < c.minH or c.height > c.maxH then c.height = D.height end
+	-- Cero es una eleccion legitima -- la camara justo encima del heroe, que es
+	-- como entraba antes -- asi que el minimo es 0 y no un pelo por encima.
+	if c.back   <  0 or c.back   > 200 then c.back   = D.back   end
 	if c.smoothZ <= 0 or c.smoothZ > 60 then c.smoothZ = D.smoothZ end
 	-- `floor` is a choice, not a magnitude: anything else is garbage and goes
 	-- back to the default rather than being clipped. And it is compared against
@@ -1537,6 +1541,29 @@ function F:Step(dt)
 	-- we are about to ask for, and the measurement would be comparing two
 	-- different instants.
 	CalibrateYaw()
+
+	-- EL RETROCESO DE ENTRADA, UNA SOLA VEZ. Ver `F:Start`: se encarga alli y
+	-- se cobra aqui, en cuanto hay un vector de mirada que creerse.
+	--
+	-- Se anda hacia atras en el PLANO (`FlatForward`), no a lo largo de la
+	-- mirada: con la camara inclinada 45 grados, retroceder por el eje de la
+	-- vista bajaria tanto como retrasa, y la altura de entrada la decide
+	-- `height` -- dos duenos para el mismo numero. Retirarse es ir hacia atras
+	-- sobre el suelo; la altura ya tiene quien la lleve.
+	if st.pullback and not self.eyes then
+		local fx, fy = FlatForward()
+		if fx then
+			st.x = st.x - fx * st.pullback
+			st.y = st.y - fy * st.pullback
+			-- El suelo filtrado es el del sitio de ANTES, y la camara acaba de
+			-- moverse quince yardas: dejarlo puesto haria que el primer tick
+			-- despues del salto corrigiera la altura contra un terreno que ya
+			-- no esta debajo. Se siembra de nuevo, igual que al entrar.
+			st.gz, st.gstep, st.buried = nil, 0, 0
+			st.pullback = nil
+		end
+	end
+
 	local mouseLeft, mouseRight = MouseButtons()
 
 	-- --- turning ------------------------------------------------------
@@ -1987,6 +2014,21 @@ function F:Start()
 	-- depende del yaw para nada (sale del vector que publica el DLL).
 	st.yaw = 0
 	st.pitch = c.pitch
+	-- Y LA CAMARA SE RETIRA UN POCO, que es lo que separa mirar al heroe de
+	-- estar posado en su cabeza.
+	--
+	-- No se puede hacer aqui, y esa es toda la razon de que sea un encargo y no
+	-- una suma: retirarse es ir hacia ATRAS, o sea que hace falta saber hacia
+	-- donde se mira, y en esta linea todavia no se sabe. El yaw acaba de ponerse
+	-- a 0 y la convencion de angulos de `CommentatorSetCamera` no se puede leer
+	-- del binario -- es la misma razon por la que arranca en 0 en vez de heredar
+	-- el de la camara de antes. Lo que SI es de fiar es el vector que el DLL
+	-- publica, y ese no existe hasta que la camara este puesta.
+	--
+	-- Asi que se apunta y lo gasta el primer tick que tenga ese vector, un par
+	-- de fotogramas despues. Se ve como un retroceso corto al entrar, que es
+	-- exactamente lo que es.
+	st.pullback = (c.back > 0) and c.back or nil
 	-- EL CANDADO NO SOBREVIVE A UNA SALIDA. Entrar al modo recoloca la camara
 	-- sobre el heroe, asi que un candado heredado traeria el encuadre de la
 	-- sesion anterior -- de otro continente, o de antes de un cambio de
@@ -2108,6 +2150,7 @@ local LABEL = {
 	lift = "velocidad de subida (yd/s)",
 	turn = "giro (grados/s)",
 	height = "altura sobre el suelo (yd)",
+	back = "cuanto se retira la camara del heroe al entrar (yd; 0 = justo encima)",
 	minH = "altura minima de `height` (yd); el vuelo ya no tiene suelo",
 	maxH = "altura maxima (yd)",
 	smoothZ = "suavizado de altura (k)",
