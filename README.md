@@ -651,3 +651,21 @@ binary are a comfortable place to confirm a wrong idea without opening the code.
 The disassembled addresses for **this** `Wow.exe` (MD5
 `45892BDEDD0AD70AED4CCD22D9FB5984`, build 12340) are in
 `rts-client-mod/src/Offsets.h`, each one next to the dump that justifies it.
+
+## 7. License
+
+GPL-2.0-or-later. Full text in [`LICENSE`](LICENSE).
+
+Copyright (C) 2026 Jairo.
+
+This is not a free choice. `mod-rts/` is an AzerothCore module: it includes
+`ScriptMgr.h`, `Player.h`, `PlayerbotAI.h` and links into `worldserver`.
+AzerothCore and mod-playerbots are both *"version 2 of the License, or (at your
+option) any later version"*, so anything that links into them inherits that.
+The addon and the DLL are covered by the same license simply so the repository
+speaks with one voice.
+
+What this means in practice: use it, change it, run your own server with it.
+If you distribute it — or a fork of it — it goes out under the GPL too, with
+sources. `rts_core.dll` is injected into a copy of `Wow.exe` you already own;
+nothing from Blizzard is redistributed here, and none of this touches retail.
