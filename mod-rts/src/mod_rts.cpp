@@ -102,7 +102,7 @@ namespace
     // tercera condicion de `MoveSelf`. El addon debe pedir `ServerAtLeast(46)`
     // antes de usar esos verbos: un verbo que el servidor no conoce NO da error,
     // no contesta, asi que un worldserver sin reiniciar se lee como un addon roto.
-    constexpr char const* kModVersion = "0.54.0";
+    constexpr char const* kModVersion = "0.55.0";
 
     std::string Upper(std::string s)
     {
@@ -911,6 +911,61 @@ namespace
         }
 
         // --- command mode -------------------------------------------------
+        // "CDQ <nombre> <id,id,...>" -> "CD <nombre> <id:queda:total,...>".
+        //
+        // Los enfriamientos de los hechizos que la consola tiene PUESTOS ahora
+        // mismo. El cliente no puede saberlos: `GetSpellCooldown` es de tu
+        // libro, y estos son de un bot.
+        //
+        // SOLO VUELVEN LOS QUE ESTAN ENFRIANDO, que casi siempre son ninguno o
+        // uno. Contestar los veinte cada vez seria mandar diecinueve ceros dos
+        // veces por segundo para siempre.
+        //
+        // Y SE CONTESTA AUNQUE LA LISTA SALGA VACIA, con un "-". Sin eso el
+        // addon no puede distinguir "nada enfriando" de "la pregunta se perdio",
+        // y la diferencia importa: en el primer caso hay que APAGAR las ruedas
+        // que hubiera puestas.
+        if (verb == "CDQ")
+        {
+            std::istringstream in(rest);
+            std::string name, list;
+            if (!(in >> name))
+                return false;
+            in >> list;
+
+            std::vector<uint32> ids;
+            {
+                std::istringstream ls(list);
+                std::string one;
+                while (std::getline(ls, one, ','))
+                {
+                    uint32 const id = static_cast<uint32>(std::atoi(one.c_str()));
+                    if (id)
+                        ids.push_back(id);
+                }
+            }
+
+            auto const cds = rts::command::Cooldowns(player, name, ids);
+
+            std::string chunk;
+            for (auto const& cd : cds)
+            {
+                std::string const piece = std::to_string(cd.id) + ':' +
+                                          std::to_string(cd.remainMs) + ':' +
+                                          std::to_string(cd.totalMs);
+                if (chunk.size() + piece.size() + 2 > 200)
+                {
+                    SendAddon(player, "CD " + name + " " + chunk);
+                    chunk.clear();
+                }
+                if (!chunk.empty())
+                    chunk += ",";
+                chunk += piece;
+            }
+            SendAddon(player, "CD " + name + " " + (chunk.empty() ? "-" : chunk));
+            return true;
+        }
+
         // "BARS <nombre>" -> el catalogo de hechizos de ese personaje: primero
         // su barra de acciones (lo que TU colocaste jugandolo) y detras todo lo
         // demas que sepa, por nombre.

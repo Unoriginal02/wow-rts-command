@@ -206,6 +206,48 @@ static Player* SpellSubject(Player* master, std::string const& name)
     return rts::bots::Resolve(master, name);
 }
 
+std::vector<rts::command::SpellCd> rts::command::Cooldowns(Player* master,
+                                                           std::string const& botName,
+                                                           std::vector<uint32> const& ids)
+{
+    std::vector<SpellCd> out;
+
+    Player* bot = SpellSubject(master, botName);
+    if (!bot)
+        return out;
+
+    for (uint32 id : ids)
+    {
+        if (!id)
+            continue;
+
+        uint32 const remain = bot->GetSpellCooldownDelay(id);
+        if (!remain)
+            continue;       // no enfria: no se manda, que es la mayoria
+
+        // EL TOTAL SALE DEL HECHIZO Y NO DEL NUCLEO, porque el nucleo no lo
+        // guarda: `m_spellCooldowns` solo apunta CUANDO ACABA. De las dos que
+        // trae el hechizo se coge la mayor -- un hechizo con categoria (las
+        // pociones, los sellos) tiene la suya en `CategoryRecoveryTime` y la
+        // propia a cero, y quedarse con la propia dibujaria una rueda de
+        // duracion cero sobre algo que si esta enfriando.
+        uint32 total = 0;
+        if (SpellInfo const* info = sSpellMgr->GetSpellInfo(id))
+            total = std::max(info->RecoveryTime, info->CategoryRecoveryTime);
+
+        // Y SI EL HECHIZO NO DECLARA NINGUNA, lo que queda ES el total. Pasa con
+        // los enfriamientos que pone un aura o un efecto, y sin esto la rueda
+        // saldria con duracion cero -- o sea, no saldria. Mejor una rueda que
+        // empieza llena y baja bien que ninguna.
+        if (total < remain)
+            total = remain;
+
+        out.push_back({ id, remain, total });
+    }
+
+    return out;
+}
+
 std::vector<rts::command::BarSpell> rts::command::ActionBarSpells(Player* master,
                                                                   std::string const& botName)
 {

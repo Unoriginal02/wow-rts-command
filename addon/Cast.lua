@@ -62,6 +62,62 @@ ns.Cast = C
 
 C.active = false
 
+-- Las teclas de la fila de arriba. Arriba del todo porque las LEEN dos sitios
+-- muy separados: el dibujo del hueco (el numero que se ve) y el atado del
+-- binding, y las dos tienen que decir lo mismo o el numero pintado miente.
+local KEY_NAMES = { "1", "2", "3", "4", "5", "6", "7", "8", "9", "0" }
+
+-- CUANTOS HUECOS CON TECLA LLEVA UNA COLUMNA del estado B. Son los DOS DE
+-- ARRIBA del 2x2, y las mismas diez teclas se reparten por columnas en el
+-- orden en que estan en pantalla: 1-2 la primera, 3-4 la segunda, hasta 9-0
+-- con cinco cogidos. Asi la tecla y el hueco se leen de izquierda a derecha
+-- igual que en el estado A, sin nada que traducir.
+--
+-- La fila de abajo se queda sin tecla A PROPOSITO: son veinte huecos y diez
+-- numeros, y darle a la de abajo un modificador la pondria a competir con el
+-- que ya significa "elige objetivo" en ese mismo boton. Se deja para el raton.
+local B_KEYS = 2
+
+-- QUE TECLA LE TOCA A UN HUECO, o nil si no lleva ninguna. `col` es el indice
+-- de columna del estado B y no se usa en el A.
+--
+-- UNA SOLA FUNCION PARA LOS DOS SITIOS que tienen que decir lo mismo: el
+-- numero que se pinta encima del hueco y el que decide `KeyButton` al
+-- pulsarlo. Escrito dos veces, el dia que cambie el reparto uno de los dos se
+-- queda viejo y el numero pintado miente.
+local function KeyFor(set, i, col)
+	if (set or "main") == "main" then
+		return (i <= ns.Dock.MAIN_N) and KEY_NAMES[i] or nil
+	end
+	if not col or i > B_KEYS then return nil end
+	return KEY_NAMES[(col - 1) * B_KEYS + i]
+end
+
+--- LOS ENFRIAMIENTOS -------------------------------------------------------
+--
+-- DE DONDE SALEN, que es lo que decide todo lo demas:
+--
+--   * DE TU HEROE los sabe el cliente. `GetSpellCooldown(id)` es de TU libro y
+--     tu personaje esta en el. Sale gratis y sin preguntar a nadie.
+--   * DE UN BOT no los sabe. Ese libro no es el tuyo, y de un id ajeno el
+--     cliente solo tiene lo del DBC -- nombre, icono, rango -- que no dice si
+--     esta enfriando. Los contesta el servidor (`CDQ`/`CD`).
+--
+-- Asi que hay dos caminos y no uno con un rodeo, y el de tu heroe es el bueno:
+-- no cuesta mensaje, no llega tarde y no se puede perder.
+--
+-- LA RUEDA LA ANIMA EL CLIENTE. `CooldownFrame_SetTimer(cd, inicio, total, 1)`
+-- y se acabo: no hay que refrescarla, baja sola. Por eso se pregunta despacio
+-- (una vez por segundo) y no por fotograma -- lo unico que hace falta saber es
+-- CUANDO EMPIEZA uno nuevo, y un segundo de retraso en eso no se ve.
+local cdCache = {}        -- id -> { start, dur }   (del bot que se este mirando)
+local cdOwner = nil       -- de quien es esa cache
+local cdAsked = 0
+-- UN NOMBRE POR RUEDA, y un contador y no el indice del hueco: en el estado
+-- de varios hay cinco columnas con un hueco 1 cada una, y cinco frames con
+-- el mismo nombre se pisan en `_G`.
+local cdSeq = 0
+
 local spellBtn = {}       -- i -> square button (state A)
 local colBtn = {}         -- ci -> { head, spells = {} }
 local headName
@@ -328,6 +384,13 @@ local function SpellButton(store, i, parent, size, set)
 	if not b then
 		b = ns.W:Button(parent, size)
 		b:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+		-- LA RUEDA DEL ENFRIAMIENTO ES DEL CLIENTE, no una textura nuestra que
+		-- haya que animar: `CooldownFrameTemplate` se dibuja y baja solo. Y el
+		-- frame tiene que tener NOMBRE porque la plantilla busca sus piezas por
+		-- nombre, la misma trampa que `AutoCastShine`.
+		cdSeq = cdSeq + 1
+		b.cd = CreateFrame("Cooldown", "RTSCastCd" .. cdSeq, b, "CooldownFrameTemplate")
+		b.cd:SetAllPoints(b.icon)
 		b:SetScript("OnClick", function(self, button)
 			if not self.owner then return end
 			if button == "RightButton" then
@@ -358,25 +421,32 @@ local function PlaceSquare(b, parent, c)
 	b:Show()
 end
 
-local function PaintSpell(b, owner, i, s, aiming, set)
+local function PaintSpell(b, owner, i, s, aiming, set, col)
 	b.owner, b.index, b.set, b.spell = owner, i, set, s and s.spellId or nil
+
+	-- LA TECLA, ESCRITA EN EL HUECO QUE LA TIENE. Un atajo que no esta en
+	-- pantalla es un atajo que no existe: hay que acordarse de el, y nadie se
+	-- acuerda de diez. Solo lleva numero el hueco que tiene tecla -- la fila de
+	-- arriba en el estado A, los dos de arriba de cada columna en el B; el
+	-- resto se deja limpio en vez de poner un numero que no hace nada, que
+	-- seria peor que no poner ninguno.
+	b.label:SetText(KeyFor(set, i, col) or "")
 
 	if not s then
 		b.icon:SetTexture("Interface\\Buttons\\UI-Quickslot")
 		b.icon:SetTexCoord(0, 1, 0, 1)
 		b.icon:SetVertexColor(0.35, 0.35, 0.4)
 		b.icon:SetAlpha(0.8)
-		b.label:SetText("")
 		ns.W:Tip(b, "Slot " .. i .. " empty",
 			"Right click to choose a spell of " .. owner .. ".")
 		SetArmed(b, false)
+		if b.cd then b.cd:Hide() end
 		return
 	end
 
 	b.icon:SetTexture(s.texture)
 	b.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
 	b.icon:SetAlpha(1)
-	b.label:SetText("")
 
 	-- A SPELL THAT IS NO LONGER ON ITS BAR IS DRAWN DIMMED, not erased. The bot
 	-- may not be loaded yet or the reply may not have arrived.
@@ -402,12 +472,178 @@ local function PaintSpell(b, owner, i, s, aiming, set)
 
 	SetArmed(b, aiming and aiming.owner == owner and aiming.slot == i
 		and (aiming.set or "main") == (set or "main"))
+
+	C:PaintCooldown(b, owner, s.spellId)
+end
+
+--- Enfriamientos: las dos fuentes ------------------------------------------
+
+-- Es tu propio personaje? Entonces lo sabe el cliente y no hay que preguntar.
+local function IsMine(owner)
+	return owner == nil or owner == ns.MyName()
+end
+
+function C:PaintCooldown(b, owner, spellId)
+	if not b.cd or not spellId then return end
+
+	local start, dur
+	if IsMine(owner) then
+		local st, du = GetSpellCooldown(spellId)
+		start, dur = st, du
+	else
+		local e = (cdOwner == owner) and cdCache[spellId] or nil
+		if e then start, dur = e.start, e.dur end
+	end
+
+	-- `dur > 1.5` DEJA FUERA EL GLOBAL. El enfriamiento global sale en TODOS los
+	-- hechizos a la vez cada vez que lanzas cualquier cosa, y pintarlo convierte
+	-- la barra entera en una rueda que gira sin parar: mucho movimiento que no
+	-- dice nada. Es lo que hace la propia barra del juego.
+	if start and dur and dur > 1.5 and start > 0 then
+		CooldownFrame_SetTimer(b.cd, start, dur, 1)
+	else
+		b.cd:Hide()
+	end
+end
+
+-- Preguntar por los que hay puestos, despacio.
+--
+-- SOLO POR LOS QUE SE VEN, y por eso la lista la manda quien dibuja: el bot
+-- conoce cien hechizos y en los huecos hay veinte. Los otros ochenta serian
+-- ochenta numeros por mensaje, dos veces por segundo, sobre un canal de 255
+-- caracteres.
+function C:AskCooldowns()
+	if not self.active then return end
+	if ns.Dock:State() ~= "A" then return end
+
+	local owner = ns.Dock:Subject()
+	if not owner or IsMine(owner) then return end
+	if not ns.Orders:HasServer() or not ns.Link:ServerAtLeast(55) then return end
+
+	local now = GetTime()
+	if now - cdAsked < 1.0 then return end
+	cdAsked = now
+
+	local slots = ns.Skills:Slots(owner, ns.Dock.MAIN_TOTAL, "main")
+	local ids, seen = {}, {}
+	for i = 1, ns.Dock.MAIN_TOTAL do
+		local sp = slots[i]
+		if sp and sp.spellId and not seen[sp.spellId] then
+			seen[sp.spellId] = true
+			table.insert(ids, sp.spellId)
+		end
+	end
+	if #ids == 0 then return end
+
+	ns.SendServer(("CDQ %s %s"):format(owner, table.concat(ids, ",")))
 end
 
 --- Layout ------------------------------------------------------------------
 
 local function HideAll(list)
 	for _, b in ipairs(list) do b:Hide() end
+end
+
+--- LAS TECLAS 1234567890 ---------------------------------------------------
+--
+-- Las MISMAS diez teclas en los dos estados, repartidas segun lo que haya en
+-- pantalla (`KeyFor`, arriba):
+--
+--   A  uno cogido      los diez huecos de la fila de arriba
+--   B  varios cogidos  los DOS de arriba de cada columna, dos por cabeza:
+--                      1-2 el primero, 3-4 el segundo... 9-0 el quinto
+--
+-- La fila de abajo no lleva tecla en ninguno de los dos, y no es un olvido: no
+-- quedan numeros, y repartir Shift+1..0 sobre ella pondria un modificador a
+-- competir con el que ya significa "elige objetivo" en el mismo boton. Esa
+-- fila es del raton.
+--
+-- === POR QUE UN BOTON INTERMEDIO Y NO EL HUECO ============================
+--
+-- `SetBindingClick` quiere el NOMBRE de un frame, y los huecos no lo tienen:
+-- `W:Button` los crea con `nil` de nombre, como todo en esta consola. Ponerles
+-- nombre seria la respuesta corta y trae dos problemas que este proxy no tiene:
+-- el hueco se ESCONDE (estado B, consola cerrada) y un binding a un frame
+-- escondido no dispara, y ademas el binding tendria que rehacerse cada vez que
+-- el reparto de huecos cambia de sitio.
+--
+-- Diez botones propios, invisibles, con nombre fijo y una vida entera. Lo que
+-- cambia es a quien apuntan, y eso se lee en el momento de la pulsacion -- que
+-- con varios cogidos no es solo QUIEN, sino tambien QUE HUECO: la tecla 3 es
+-- el hueco 1 del segundo de la fila.
+--
+-- === Y SE COGEN PRESTADAS, NO SE ROBAN ===================================
+--
+-- 1..0 son la barra de acciones del jugador. Se guarda lo que cada tecla hacia
+-- y se devuelve al salir, que es la misma regla de `FreeCam:GrabKeys` y la de
+-- los frames de Blizzard: **lo que habia antes se anota y se pone de vuelta**.
+--
+-- En combate no se pueden tocar (`SetBinding*` esta protegida), asi que se
+-- avisa y se reintenta al salir de la pelea. Ni coger ni devolver puede fallar
+-- en silencio: una tecla que se queda cogida despues de salir del modo RTS es
+-- una barra de acciones que no responde, y eso no se relaciona con el modo.
+local keyBtn, savedKeys = {}, nil
+
+local function KeyButton(i)
+	local b = keyBtn[i]
+	if b then return b end
+	b = CreateFrame("Button", "RTSCastKey" .. i, UIParent)
+	b:Hide()
+	b:RegisterForClicks("AnyUp")
+	b:SetScript("OnClick", function()
+		-- EL DUENO SE LEE AHORA, no cuando se ato la tecla. La consola cambia
+		-- de sujeto cada vez que cambias la seleccion, y un dueno capturado al
+		-- atar lanzaria el hechizo del bot de hace diez minutos.
+		if ns.Dock:State() == "A" then
+			local owner = ns.Dock:Subject()
+			if not owner then return end
+			ns.Skills:Use(owner, i, "main")
+			return
+		end
+
+		-- CON VARIOS COGIDOS la tecla dice columna y hueco, y las dos cosas se
+		-- leen igual de tarde: la columna es el orden de la seleccion y ese
+		-- orden cambia con cada clic.
+		--
+		-- Y SIN COLUMNA NO PASA NADA. Con tres cogidos las teclas 7..0 no
+		-- apuntan a nadie; se callan en vez de caer sobre el ultimo, que seria
+		-- mandar un hechizo que nadie ha pedido.
+		local ci   = math.floor((i - 1) / B_KEYS) + 1
+		local slot = (i - 1) % B_KEYS + 1
+		local m = ns.Dock:Columns()[ci]
+		if not m then return end
+		ns.Skills:Use(m.name, slot, "group")
+	end)
+	keyBtn[i] = b
+	return b
+end
+
+function C:GrabKeys()
+	if savedKeys then return true end
+	if InCombatLockdown() then
+		ns.Print("|cffff8800teclas:|r en combate no se pueden coger 1..0.")
+		return false
+	end
+	savedKeys = {}
+	for i, k in ipairs(KEY_NAMES) do
+		savedKeys[k] = GetBindingAction(k) or ""
+		SetBindingClick(k, KeyButton(i):GetName())
+	end
+	return true
+end
+
+function C:ReleaseKeys()
+	if not savedKeys then return true end
+	if InCombatLockdown() then return false end
+	for k, action in pairs(savedKeys) do
+		if action ~= "" then SetBinding(k, action) else SetBinding(k, nil) end
+	end
+	savedKeys = nil
+	return true
+end
+
+function C:KeysPending()
+	return savedKeys ~= nil
 end
 
 function C:Layout()
@@ -440,7 +676,7 @@ function C:LayoutA()
 	headName:Show()
 
 	local cells = ns.Dock:SpellCells()
-	for i = 1, ns.Dock.MAIN_N do
+	for i = 1, ns.Dock.MAIN_TOTAL do
 		local c = cells[i]
 		if c then
 			PlaceSquare(SpellButton(spellBtn, i, sHost, c.w, "main"), sHost, c)
@@ -513,8 +749,8 @@ function C:Refresh()
 			headName:SetText(Clip(owner, NAME_A))
 			headName:SetTextColor(c.r, c.g, c.b)
 		end
-		local slots = ns.Skills:Slots(owner, ns.Dock.MAIN_N, "main")
-		for i = 1, ns.Dock.MAIN_N do
+		local slots = ns.Skills:Slots(owner, ns.Dock.MAIN_TOTAL, "main")
+		for i = 1, ns.Dock.MAIN_TOTAL do
 			local b = spellBtn[i]
 			if b and b:IsShown() then PaintSpell(b, owner, i, slots[i], aiming, "main") end
 		end
@@ -532,7 +768,9 @@ function C:Refresh()
 			local slots = ns.Skills:Slots(m.name, ns.Dock.B_SLOTS, "group")
 			for i = 1, ns.Dock.B_SLOTS do
 				local b = col.spells[i]
-				if b and b:IsShown() then PaintSpell(b, m.name, i, slots[i], aiming, "group") end
+				if b and b:IsShown() then
+					PaintSpell(b, m.name, i, slots[i], aiming, "group", ci)
+				end
 			end
 		end
 	end
@@ -570,11 +808,51 @@ end
 function C:Enter()
 	self.active = true
 
+	-- LAS TECLAS, AL ABRIR. No antes: fuera de la consola 1..0 son la barra de
+	-- acciones del jugador y tienen que seguir siendolo.
+	self:GrabKeys()
+
 	if not self.wired then
 		self.wired = true
+		-- LA SALIDA DE COMBATE DEVUELVE LO QUE NO SE PUDO DEVOLVER.
+		-- `SetBinding` esta bloqueada en combate, asi que cerrar la consola
+		-- en mitad de una pelea dejaria 1..0 cogidas hasta la siguiente vez
+		-- que se abriera -- o sea, una barra de acciones muerta sin nada que
+		-- lo relacione con esto. Misma red que la de `Camera.lua` con Q/E.
+		local ev = CreateFrame("Frame", "RTSCastKeyEvents")
+		ev:RegisterEvent("PLAYER_REGEN_ENABLED")
+		ev:RegisterEvent("PLAYER_LEAVING_WORLD")
+		ev:SetScript("OnEvent", function()
+			if not C.active then C:ReleaseKeys() end
+		end)
 		ns.Dock:OnLayout(function() C:Layout() end)
 		ns.Skills:Subscribe(function() C:Refresh() end)
 		ns.Selection:Subscribe(function() C:Refresh() end)
+
+		-- LO QUE ENFRIA AHORA MISMO. Ver `AskCooldowns`: vienen solo los que
+		-- estan enfriando, y "-" significa NINGUNO -- que no es lo mismo que
+		-- que no haya contestado nadie. Sin ese caso, una rueda puesta se
+		-- quedaria girando despues de que el hechizo ya estuviera listo.
+		ns.Link:On("CD", function(rest)
+			local who, list = rest:match("^(%S+)%s+(%S+)$")
+			if not who then return end
+			cdOwner, cdCache = who, {}
+			if list ~= "-" then
+				for id, rem, tot in list:gmatch("(%d+):(%d+):(%d+)") do
+					id, rem, tot = tonumber(id), tonumber(rem), tonumber(tot)
+					-- El arranque se despeja: con el total y lo que queda, el
+					-- momento en que empezo es resta. Es lo que la rueda pide.
+					cdCache[id] = { start = GetTime() - (tot - rem) / 1000,
+					                dur = tot / 1000 }
+				end
+			end
+			C:Refresh()
+		end)
+
+		-- EL LATIDO. Una vez por segundo, y solo mientras la consola mira a un
+		-- bot: `AskCooldowns` se calla sola en cualquier otro caso.
+		local tick = CreateFrame("Frame", "RTSCastCdTick")
+		tick:SetScript("OnUpdate", function() C:AskCooldowns() end)
 
 		ns.Link:On("PFOCUS", function(rest)
 			-- TWO DIRECTIONS: we send `PFOCUS <bot> <guid>` and the reply comes
@@ -593,6 +871,7 @@ end
 
 function C:Leave()
 	self.active = false
+	self:ReleaseKeys()
 	self.pendingFocus = nil
 	self:HidePicker()
 	HideAll(spellBtn)

@@ -252,6 +252,7 @@ local REPLY_ONLY = {
 	GROUNDAT = true, GROUNDNO = true, MOVEAT = true,
 	MARKAT = true, MARKERR = true, MARKNO = true,
 	BAGEND = true, BAGOK = true, BAGERR = true,
+	CD = true,
 	NPCQEND = true, QDONE = true, QERR = true,
 	BARSEND = true, SWAPPED = true, IAM = true, MYBARS = true,
 	CASTQ = true,

@@ -772,7 +772,7 @@ function K:Report()
 	-- LOS DOS JUEGOS, Y DICIENDO CUAL ES CUAL. El diagnostico se abre justo
 	-- cuando un boton no hace lo que se esperaba, y "el hueco 2" significa dos
 	-- hechizos distintos segun cuantos lleves cogidos.
-	for _, which in ipairs({ { "main", ns.Dock.MAIN_N, "tuyos (uno cogido)" },
+	for _, which in ipairs({ { "main", ns.Dock.MAIN_TOTAL, "tuyos (uno cogido)" },
 	                         { "group", K.GROUP_SLOTS, "de grupo (dos o mas)" } }) do
 		local set, n, label = which[1], which[2], which[3]
 		local slots = self:Slots(name, n, set)

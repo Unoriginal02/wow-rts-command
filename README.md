@@ -14,8 +14,8 @@ copies.
 
 | Piece | Version | What it is |
 |---|---|---|
-| `addon/` | 1.41.0 | Lua addon: UI, selection, orders, camera |
-| `mod-rts/` | 0.54.0 | AzerothCore module: orders straight into the AI, quests, bags, NPCs, character swap |
+| `addon/` | 1.42.0 | Lua addon: UI, selection, orders, camera |
+| `mod-rts/` | 0.55.0 | AzerothCore module: orders straight into the AI, quests, bags, NPCs, character swap |
 | `rts-client-mod/` | `rts_core.dll` 0.30.0 | Injected into the client: world coordinates, raycast, native effects |
 
 ```
@@ -101,6 +101,7 @@ alone recalls it).
 +---------------------------------------------------------------+
 |              Bob  (dps)                                       |
 |        [1][2][3][4][5][6][7][8][9][0]    [M][M][M][M][M]      |
+|        [ ][ ][ ][ ][ ][ ][ ][ ][ ][ ]                         |
 |                                          [M][M][M][M][M]      |
 |                                          [ the game's bags ]  |
 |                                          [char][talents]...   |
@@ -108,9 +109,15 @@ alone recalls it).
 ```
 
 - **Centre: the unit.** With one selected (or none, and then it is you): their
-  name and **ten spell slots**. With two or more: one column per head with a
-  2x2 of **four** — and those are *a different list*, the things you cast on the
-  group, not the first four of the ten.
+  name and **twenty spell slots, in two rows of ten**. The top row is bound to
+  **1234567890**, and the number is drawn on the slot that owns it; the bottom
+  row has no key, because there are no numbers left and Shift is already the
+  "choose a target" modifier on the same button. With two or more: one column
+  per head with a 2x2 of **four** — and those are *a different list*, the things
+  you cast on the group, not the first four of the ten. **The same ten keys
+  follow**, split two per head: 1-2 the first column, 3-4 the second, up to 9-0
+  with five picked. Again only the top row of each 2x2; the bottom one is for
+  the mouse.
 - **Right: your own stuff,** and it never moves: ten slots, the bags and the
   game menu.
 
@@ -255,7 +262,9 @@ lock), or with `/rts fc home`.
 
 | Feature | How you use it | Where it lives |
 |---|---|---|
-| Ten configurable slots per character, plus four group ones | right-click a slot, `/rts skills` | `addon/Skills.lua` (data) + `addon/Cast.lua` (drawing) |
+| Twenty configurable slots per character (2 x 10), plus four group ones | right-click a slot, `/rts skills` | `addon/Skills.lua` (data) + `addon/Cast.lua` (drawing) |
+| **1234567890 on the top row** — all ten on one head, or two per head with several picked. Borrowed while the console is open and handed back on close | automatic | `addon/Cast.lua` |
+| **Cooldown swirls** — the client's own, on your hero for free and asked of the server for a bot | automatic | `addon/Cast.lua` + `mod-rts/src/RtsCommandMode.cpp` |
 | **Spell queue** — pressing while the bot is busy leaves it waiting instead of failing | automatic | `mod-rts/src/RtsQueue.cpp` |
 | **Focus** — the selected unit looks after whoever you click | `/rts focus` / `/rts unfocus` | `addon/Cast.lua` |
 | **Casting a spell AS the bot** — the server casts it for him, with his queue and his checks | click a slot | `mod-rts/src/RtsCommandMode.cpp` |

@@ -72,6 +72,34 @@ namespace rts
         // alterna: en pantalla es "ese boton no hace nada, a veces".
         std::vector<BarSpell> ActionBarSpells(Player* master, std::string const& botName);
 
+        // LO QUE LE QUEDA DE ENFRIAMIENTO A CADA HECHIZO QUE SE PREGUNTA.
+        //
+        // El cliente NO puede contestar esto por su cuenta. `GetSpellCooldown`
+        // es de TU libro: sabe de tus hechizos y de nadie mas, y los huecos de
+        // la consola son de un bot. Lo unico que el cliente tiene de un id ajeno
+        // es lo del DBC -- nombre, icono, rango -- que no incluye si esta
+        // enfriando ni cuanto le queda.
+        //
+        // Se piden por id y se contestan por id: la lista la pone quien dibuja,
+        // porque es quien sabe que hechizos hay puestos en los huecos ahora
+        // mismo. Mandar los cien que el bot conoce seria mandar noventa que
+        // nadie va a mirar.
+        //
+        // `remainMs` sale de `Player::GetSpellCooldownDelay`, que ya devuelve
+        // milisegundos. `totalMs` NO sale de ahi -- el nucleo no guarda cuando
+        // empezo -- asi que se toma del propio hechizo (`RecoveryTime`, o la de
+        // su categoria), que es lo que hace falta para dibujar la rueda: con el
+        // total y lo que queda, el arranque se despeja.
+        struct SpellCd
+        {
+            uint32 id;
+            uint32 remainMs;
+            uint32 totalMs;
+        };
+
+        std::vector<SpellCd> Cooldowns(Player* master, std::string const& botName,
+                                       std::vector<uint32> const& ids);
+
         // Cast one of the bot's spells. `targetGuid` may be empty, in which case
         // the bot's own current target is used.
         //

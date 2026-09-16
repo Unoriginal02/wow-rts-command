@@ -116,7 +116,20 @@ local FOOT_PAD = 8
 local SLOT_MIN, SLOT_MAX = 38, 84
 local GAP = 7
 
-local MAIN_N = 10       -- the slots of state A
+-- STATE A IS TWO ROWS OF TEN, and the second one is not a copy of the first.
+--
+-- `MAIN_N` is the slots of ONE row and `MAIN_ROWS` how many there are; what the
+-- drawing loops over is `MAIN_TOTAL`. Splitting it in three names rather than
+-- raising a single 10 to 20 is what lets the keys exist: 1..0 are bound to the
+-- TOP row, so "how many slots there are" and "how many keys there are" are two
+-- different questions and each has its own number. Written as one they come
+-- apart the day the second row grows.
+--
+-- Storage was already there: `Skills.MAX_SLOTS` has been 20 since the widest
+-- bar was measured, and `SET.main.n` with it. Nothing had to be migrated.
+local MAIN_N = 10       -- slots per row of state A
+local MAIN_ROWS = 2     -- rows of them
+local MAIN_TOTAL = MAIN_N * MAIN_ROWS
 local B_SLOTS = 4       -- the 2x2 of state B
 local B_COLS, B_ROWS = 2, 2
 
@@ -134,6 +147,8 @@ local COL_GAP  = 30     -- between columns of state B
 local MACRO_COLS, MACRO_ROWS = 5, 2
 
 D.MAIN_N  = MAIN_N
+D.MAIN_ROWS = MAIN_ROWS
+D.MAIN_TOTAL = MAIN_TOTAL
 D.B_SLOTS = B_SLOTS
 D.MACRO_N = MACRO_COLS * MACRO_ROWS
 
@@ -221,10 +236,11 @@ local function Recompute()
 	--- LEFT --------------------------------------------------------------
 	if D:State() == "A" then
 		local w = MAIN_N * s + GAP * (MAIN_N - 1)
+		local h = MAIN_ROWS * s + GAP * (MAIN_ROWS - 1)
 		D.leftW = w
-		D.leftH = HEAD_H + HEAD_GAP + s
+		D.leftH = HEAD_H + HEAD_GAP + h
 		Rect("head",   0, 0, w, HEAD_H)
-		Rect("spells", 0, HEAD_H + HEAD_GAP, w, s)
+		Rect("spells", 0, HEAD_H + HEAD_GAP, w, h)
 		D.cols = 0
 	else
 		local cols = #D:Columns()
@@ -304,8 +320,13 @@ function D:SpellCells()
 	local out = {}
 	local s = self.slot or 0
 	if s <= 0 then return out end
-	for i = 1, MAIN_N do
-		out[i] = { x = (i - 1) * (s + GAP), y = 0, w = s, h = s }
+	-- FILA A FILA, y la de arriba primero: los huecos 1..10 son la de arriba
+	-- y 11..20 la de abajo. Ese orden es el que hace que las teclas 1..0 y
+	-- lo que se ve encima de ellas sean lo mismo sin tener que traducir nada.
+	for i = 1, MAIN_TOTAL do
+		local c = (i - 1) % MAIN_N
+		local r = math.floor((i - 1) / MAIN_N)
+		out[i] = { x = c * (s + GAP), y = r * (s + GAP), w = s, h = s }
 	end
 	return out
 end
@@ -450,7 +471,8 @@ function D:Report()
 	ns.Print(("|cffffff00dock|r state |cff33ccff%s|r, %d px slot (one action button)"):format(
 		self:State(), self.slot or 0))
 	if self:State() == "A" then
-		ns.Print(("  %s: %d slots"):format(tostring(self:Subject()), MAIN_N))
+		ns.Print(("  %s: %d slots (%d x %d)"):format(
+			tostring(self:Subject()), MAIN_TOTAL, MAIN_ROWS, MAIN_N))
 	else
 		ns.Print(("  %d columns of %d slots"):format(self.cols or 0, B_SLOTS))
 	end
