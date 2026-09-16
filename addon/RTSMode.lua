@@ -474,7 +474,7 @@ end
 -- Right-click means three different things depending on what is under it:
 -- an enemy is an attack order, a friendly NPC is an interaction, and bare
 -- ground is a move.
-function R:OnRightClick(sx, sy, hover, shift)
+function R:OnRightClick(sx, sy, hover, shift, shot)
 	-- El derecho cancela una habilidad armada y NO da la orden. Es la salida del
 	-- gesto, y tiene que existir: sin ella la unica forma de deshacer un "elige
 	-- objetivo" pulsado por error es lanzarlo sobre algo.
@@ -489,7 +489,26 @@ function R:OnRightClick(sx, sy, hover, shift)
 
 	if ns.Selection:IsEmpty() then return end
 
-	local x, y, z = ns.Markers:CursorGroundPoint()
+	-- DONDE SE PINCHO. UNA SOLA RESPUESTA, Y LA DEL DLL MANDA.
+	--
+	-- `shot` es el rayo que el DLL casco en el mensaje de ESTA pulsacion: el
+	-- pixel de verdad, la camara de ese fotograma, y la funcion de picking del
+	-- propio cliente contra el terreno, los edificios y los modelos. No hay nada
+	-- que estimar ni con que arbitrar.
+	--
+	-- `CursorGroundPoint` se queda de suplente para un cliente sin DLL, y esa es
+	-- toda su vida ahora. Sigue cortando un PLANO horizontal -- lo unico que Lua
+	-- puede hacer sin mapa -- y en cuesta eso falla mas cuanto mas lejos y mas
+	-- rasante mires. Por eso el rayo viaja con la orden: el servidor lo corta
+	-- contra su suelo y corrige.
+	local x, y, z
+	local exact = false
+	if shot and shot.x then
+		x, y, z = shot.x, shot.y, shot.z
+		exact = true
+	else
+		x, y, z = ns.Markers:CursorGroundPoint()
+	end
 
 	-- SHIFT ENCADENA UN PUNTO DE RUTA, y no llega a preguntar que hay debajo.
 	-- Es deliberado: shift + click derecho sobre un bicho en un RTS sigue
@@ -502,8 +521,8 @@ function R:OnRightClick(sx, sy, hover, shift)
 		-- mandar -- el punto encadenado se manda cuando le toque -- asi que la
 		-- pregunta va sola, con el numero del punto para que la respuesta
 		-- corrija el que se pregunto y no el que este de moda al llegar.
-		local id = ns.Route:Add(x, y, z)
-		ns.Orders:AskGround(tonumber(id))
+		local id = ns.Route:Add(x, y, z, exact)
+		ns.Orders:AskGround(tonumber(id), shot)
 		return
 	end
 
@@ -578,7 +597,7 @@ function R:OnRightClick(sx, sy, hover, shift)
 	-- seria dos ordenes por click, que es lo que pasaba en el primer borrador.
 	local rayId
 	if x and guid == "0" then
-		rayId = tonumber(ns.Route:Set(x, y, z))
+		rayId = tonumber(ns.Route:Set(x, y, z, exact))
 	else
 		ns.Route:ClearFor(ns.Selection:Get())
 	end
@@ -588,7 +607,7 @@ function R:OnRightClick(sx, sy, hover, shift)
 	-- corregida y no hay que esperar a nada. Lo que si llega despues es la
 	-- respuesta para el dibujo (`GROUNDAT`), y por eso va el numero del punto.
 	if ns.Orders:HasServer() then
-		ns.Orders:Click(guid, x, y, z, rayId)
+		ns.Orders:Click(guid, x, y, z, rayId, shot)
 		return
 	end
 
@@ -752,6 +771,19 @@ local function BeginGesture(button)
     down.drift = 0
     -- Snapshot now, while the client still owns the mouse.
     down.hover = R:HoverUnit()
+
+    -- Y EL PUNTO DEL SUELO, TAMBIEN EN LA PULSACION.
+    --
+    -- Por lo mismo que el mouseover: lo que el jugador apunto es lo que hay
+    -- cuando aprieta, no lo que quede cuando suelte. La diferencia entre las dos
+    -- cosas es un cursor que el cliente congela y mueve por su cuenta durante el
+    -- boton, y una camara que sigue paneando -- o sea, exactamente los casos en
+    -- los que el punto acababa donde nadie pincho.
+    --
+    -- Lo contesta el DLL en el mensaje del boton (`Markers:ClickShot`), asi que
+    -- ya esta puesto cuando esto corre. Nil si no hay DLL: entonces manda el
+    -- camino de siempre y nada cambia.
+    down.shot = ns.Markers:ClickShot(button)
 end
 
 -- Has the CAMERA moved since the button went down?
@@ -829,6 +861,7 @@ local function EndGesture(button)
     local moved = math.abs(sx - down.x) + math.abs(sy - down.y)
     local shift = IsShiftKeyDown()
     local hover = down.hover
+    local shot  = down.shot
 
     if button == "LeftButton" then
         -- Two ways to tell a drag, because there are two ways the press can
@@ -876,13 +909,14 @@ local function EndGesture(button)
         -- CAMERA moved, which is the thing that actually changes during a drag.
         if not down.turned then
             ReportGesture(button, "orden")
-            R:OnRightClick(sx, sy, hover, shift)
+            R:OnRightClick(sx, sy, hover, shift, shot)
         else
             ReportGesture(button, "|cffff0000TRAGADO|r (giro de camara)")
         end
     end
 
     down.button, down.hover, down.dragging, down.turned = nil, nil, false, false
+    down.shot = nil
     down.armed, down.fx, down.fy, down.fz = false, nil, nil, nil
     ReleaseCapture()
 end

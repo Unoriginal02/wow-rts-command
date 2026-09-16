@@ -597,24 +597,43 @@ function O:Flee()   return self:Send("flee",   "Flee")          end
 
 --- Combat ------------------------------------------------------------------
 
--- An undecided right-click: a guid (or "0"), a ground point, and who is
--- selected. The server works out whether that means attack, interact or move,
--- because it is the only side that can -- see RtsOrders::ClassifyClick.
+-- EL RAYO QUE SE MANDA ES EL DEL CLICK, no uno reconstruido despues.
+--
+-- Cuando el DLL vio la pulsacion trae el rayo con ella (`Markers:ClickShot`), y
+-- ese es el bueno: sale del pixel de verdad y de la camara de aquel fotograma.
+-- Reconstruirlo aqui -- que es lo que hacia `Markers:CursorRay` -- lo vuelve a
+-- sacar del cursor de AHORA y de la escala derivada del fov, o sea de tres
+-- cosas que pueden haber cambiado o no coincidir: entonces el punto que el
+-- cliente vio y el que el servidor corta son respuestas a preguntas distintas.
+--
+-- Con el rayo del click las dos partes cortan LA MISMA recta, y lo que quede de
+-- diferencia es terreno -- el cliente y el servidor no tienen exactamente el
+-- mismo suelo -- y no proyeccion.
+local function RayOf(shot)
+	if shot and shot.ox then
+		return shot.ox, shot.oy, shot.oz, shot.dx, shot.dy, shot.dz
+	end
+	return ns.Markers:CursorRay()
+end
+
 -- Ask where a ray hits the ground without sending any order. It is the path of
 -- shift + right-click, which notes a waypoint and sends nothing yet.
 --
 -- NO ANSWER DOES NO HARM: the point keeps the plane estimate, which is what
 -- there was before any of this.
-function O:AskGround(id)
+function O:AskGround(id, shot)
 	if not id or id == 0 or not self:HasServer() then return false end
-	local ox, oy, oz, dx, dy, dz = ns.Markers:CursorRay()
+	local ox, oy, oz, dx, dy, dz = RayOf(shot)
 	if not ox then return false end
 	ns.SendServer(("GROUND %d %.2f %.2f %.2f %.5f %.5f %.5f")
 		:format(id, ox, oy, oz, dx, dy, dz))
 	return true
 end
 
-function O:Click(guid, x, y, z, rayId)
+-- An undecided right-click: a guid (or "0"), a ground point, and who is
+-- selected. The server works out whether that means attack, interact or move,
+-- because it is the only side that can -- see RtsOrders::ClassifyClick.
+function O:Click(guid, x, y, z, rayId, shot)
 	local sel = ns.Selection:Get()
 	if #sel == 0 then return false end
 
@@ -665,7 +684,7 @@ function O:Click(guid, x, y, z, rayId)
 	-- fits: the length depends on the group's NAMES and on whether the click
 	-- carries a guid, so "it fits" is a property of the game in progress, not of
 	-- the format.
-	local ox, oy, oz, dx, dy, dz = ns.Markers:CursorRay()
+	local ox, oy, oz, dx, dy, dz = RayOf(shot)
 	if ox then
 		local tail = ("@ %d %.1f %.1f %.1f %.4f %.4f %.4f %.1f %.1f %.1f")
 			:format(rayId or 0, ox, oy, oz, dx, dy, dz, x, y, z)

@@ -28,31 +28,14 @@ constexpr float kUpSign    =  1.0f;
 
 }  // namespace
 
-bool Get(const camera::Camera& cam, world::Vec3* hit) {
-    if (!hit) return false;
-
-    HWND hwnd = static_cast<HWND>(mainthread::Window());
-    if (!hwnd) return false;
-
-    POINT pt;
-    if (!GetCursorPos(&pt)) return false;
-    if (!ScreenToClient(hwnd, &pt)) return false;
-
-    RECT rc;
-    if (!GetClientRect(hwnd, &rc)) return false;
-
-    float const w = static_cast<float>(rc.right - rc.left);
-    float const h = static_cast<float>(rc.bottom - rc.top);
+bool At(const camera::Camera& cam, float px, float py, float w, float h, Shot* out) {
+    if (!out) return false;
     if (w < 1.0f || h < 1.0f) return false;
-
-    // Cursor outside the client area (alt-tabbed, or over another window) would
-    // otherwise produce a confident answer for a ray nobody aimed.
-    if (pt.x < 0 || pt.y < 0 || pt.x > rc.right || pt.y > rc.bottom) return false;
 
     // Normalised device coords. Windows counts y downward and the projection
     // counts it upward, so y is flipped here and nowhere else.
-    float const ndcx = (static_cast<float>(pt.x) / w) * 2.0f - 1.0f;
-    float const ndcy = 1.0f - (static_cast<float>(pt.y) / h) * 2.0f;
+    float const ndcx = (px / w) * 2.0f - 1.0f;
+    float const ndcy = 1.0f - (py / h) * 2.0f;
 
     float const aspect = w / h;
     float const tv = std::tan(cam.fov * 0.5f) / std::sqrt(1.0f + aspect * aspect);
@@ -70,12 +53,48 @@ bool Get(const camera::Camera& cam, world::Vec3* hit) {
     for (int i = 0; i < 3; ++i)
         dir[i] = cam.mat[i] + cam.mat[3 + i] * a + cam.mat[6 + i] * b;
 
-    world::Vec3 const start = {cam.pos[0], cam.pos[1], cam.pos[2]};
-    world::Vec3 const end   = {cam.pos[0] + dir[0] * kRange,
-                               cam.pos[1] + dir[1] * kRange,
-                               cam.pos[2] + dir[2] * kRange};
+    float const len = std::sqrt(dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]);
+    if (len < 1e-6f) return false;
 
-    return world::Raycast(start, end, hit, nullptr);
+    out->origin = {cam.pos[0], cam.pos[1], cam.pos[2]};
+    out->dir    = {dir[0] / len, dir[1] / len, dir[2] / len};
+    out->hit    = {0.f, 0.f, 0.f};
+
+    world::Vec3 const end = {out->origin.x + out->dir.x * kRange,
+                             out->origin.y + out->dir.y * kRange,
+                             out->origin.z + out->dir.z * kRange};
+
+    out->hitOk = world::Raycast(out->origin, end, &out->hit, nullptr);
+    return true;
+}
+
+bool Get(const camera::Camera& cam, world::Vec3* hit) {
+    if (!hit) return false;
+
+    HWND hwnd = static_cast<HWND>(mainthread::Window());
+    if (!hwnd) return false;
+
+    POINT pt;
+    if (!GetCursorPos(&pt)) return false;
+    if (!ScreenToClient(hwnd, &pt)) return false;
+
+    RECT rc;
+    if (!GetClientRect(hwnd, &rc)) return false;
+
+    // Cursor outside the client area (alt-tabbed, or over another window) would
+    // otherwise produce a confident answer for a ray nobody aimed.
+    if (pt.x < 0 || pt.y < 0 || pt.x > rc.right || pt.y > rc.bottom) return false;
+
+    Shot shot;
+    if (!At(cam, static_cast<float>(pt.x), static_cast<float>(pt.y),
+            static_cast<float>(rc.right - rc.left),
+            static_cast<float>(rc.bottom - rc.top), &shot)) {
+        return false;
+    }
+    if (!shot.hitOk) return false;
+
+    *hit = shot.hit;
+    return true;
 }
 
 }  // namespace cursorray

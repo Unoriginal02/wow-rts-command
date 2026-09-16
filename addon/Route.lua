@@ -119,9 +119,16 @@ local byUnit = {}
 -- si fuera "el tercero de los que quedan" pisar el primer punto renumeraria
 -- todos los demas y habria que recolocar la ruta entera en cada llegada.
 local nextId = 0
-local function NewPoint(x, y, z)
+
+-- `exact` = el punto salio del rayo que el DLL casco en la pulsacion, contra la
+-- geometria de verdad del cliente. Lo unico que hace es decidir si callarse
+-- cuando el servidor no sepa contestar: sobre un punto exacto, `GROUNDNO` no es
+-- una mala noticia -- el sitio ya es bueno y ese aviso seria ruido en cada
+-- click -- y sobre una estimacion si lo es, porque entonces nadie ha corregido
+-- un corte contra un plano horizontal y el punto se queda donde se supuso.
+local function NewPoint(x, y, z, exact)
 	nextId = nextId + 1
-	return { x, y, z, id = nextId }
+	return { x, y, z, id = nextId, exact = exact or false }
 end
 
 --- Posiciones --------------------------------------------------------------
@@ -442,13 +449,13 @@ end
 -- NO MANDA LA ORDEN. El click derecho normal ya la manda por su camino de
 -- siempre, que ademas pasa por el servidor para que decida si era atacar o
 -- lootear. Aqui solo se anota el destino.
-function R:Set(x, y, z)
+function R:Set(x, y, z, exact)
 	local units = RouteUnits(true)
 	if #units == 0 then return false end
 	self:ClearFor(units)
 	if not self.enabled then return false end
 
-	local route = { units = units, pts = { NewPoint(x, y, z) }, col = ColourFor(units) }
+	local route = { units = units, pts = { NewPoint(x, y, z, exact) }, col = ColourFor(units) }
 	BuildOffsets(route, x, y)
 	StartUnits(route, true)     -- la orden del primer tramo ya va por Orders:Click
 	tinsert(routes, route)
@@ -463,7 +470,7 @@ end
 -- Shift + click derecho: un punto mas al final. Si no habia ruta, esto ES la
 -- ruta y ademas arranca -- de otra forma el primer shift+click no haria nada y
 -- habria que acordarse de dar uno normal antes.
-function R:Add(x, y, z)
+function R:Add(x, y, z, exact)
 	if not self.enabled then return false end
 
 	-- `false`: si esta ruta ya existe, la orden de seguir salio con su primer
@@ -490,7 +497,7 @@ function R:Add(x, y, z)
 	end
 
 	if not route then
-		self:Set(x, y, z)
+		self:Set(x, y, z, exact)
 		local nueva = byUnit[units[1]]
 		if nueva then
 			-- Aqui SI hay que mandarla: este camino no viene de un click derecho
@@ -503,11 +510,24 @@ function R:Add(x, y, z)
 		return nueva and nueva.pts[1] and nueva.pts[1].id or true
 	end
 
-	local pt = NewPoint(x, y, z)
+	local pt = NewPoint(x, y, z, exact)
 	tinsert(route.pts, pt)
 	route.col = ColourFor(route.units)
 	ns.Print(("Ruta: |cffffff00punto %d|r"):format(#route.pts))
 	return pt.id
+end
+
+-- Vino ese punto del rayo del click, o de la estimacion? Solo lo pregunta el
+-- aviso de `GROUNDNO`; un id que ya no existe cuenta como exacto, que es la
+-- respuesta callada y la correcta para una ruta que se borro mientras volaba la
+-- pregunta.
+function R:PointExact(id)
+	for _, route in ipairs(routes) do
+		for _, p in ipairs(route.pts) do
+			if p.id == id then return p.exact and true or false end
+		end
+	end
+	return true
 end
 
 -- EL SERVIDOR HA DICHO DONDE ESTA EL SUELO DE VERDAD DE ESE PUNTO.
@@ -895,9 +915,24 @@ function R:Create()
 		end
 	end)
 
-	-- El rayo se fue al cielo o no habia mapa: el addon se queda con su
-	-- estimacion. Se calla a proposito -- un aviso por click seria ruido.
-	ns.Link:On("GROUNDNO", function() end)
+	-- EL SERVIDOR NO SABE DONDE CORTA ESE RAYO: se fue al cielo, o cruzo terreno
+	-- sin cargar. El addon se queda con lo que tuviera.
+	--
+	-- Y ahora depende de QUE tuviera, que es lo que decide si esto es una
+	-- noticia. Si el punto lo dio el rayo del click -- la geometria del propio
+	-- cliente -- el sitio es bueno y el servidor no tenia nada que corregir:
+	-- silencio, como hasta ahora. Si era la estimacion del plano, nadie la ha
+	-- corregido y el punto se queda donde se SUPUSO, que en cuesta puede ser
+	-- otro sitio: eso se dice, porque un punto que aterriza lejos sin que nada
+	-- lo avise es indistinguible de un fallo del gesto -- y esa confusion es la
+	-- que ha costado varias rondas de pruebas en este mismo click.
+	ns.Link:On("GROUNDNO", function(rest)
+		local id = tonumber(rest and rest:match("^(%d+)"))
+		if not id or R:PointExact(id) then return end
+		ns.Print("|cffff8800El servidor no sabe donde corta ese rayo|r " ..
+			"- el punto se queda en la estimacion y en cuesta puede irse. " ..
+			"Prueba mas cerca del suelo que ves.")
+	end)
 
 	Overlay()
 

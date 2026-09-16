@@ -352,6 +352,64 @@ function M:CursorGroundPoint()
 	return ex + dx * k, ey + dy * k, ez + dz * k
 end
 
+-- EL PUNTO DE LA PULSACION, que no es el mismo que el punto del cursor.
+--
+-- `CursorGroundPoint` de aqui arriba contesta "donde apunta el raton AHORA", y
+-- para eso esta bien: es lo que dibuja el reticulo, cada fotograma. Una ORDEN
+-- pregunta otra cosa -- "donde estaba apuntando cuando apreto" -- y las dos
+-- respuestas se separan justo en el momento en que importa:
+--
+--   * el rayo continuo lo tira el DLL desde el cursor de WINDOWS, y mientras el
+--     cliente tiene el raton cogido -- que es lo que hace un boton apretado --
+--     ese cursor lo mueve el. El rayo sale hacia donde no apunta nadie.
+--   * y llega con hasta un tick de retraso, que con la camara paneando es
+--     bastante suelo.
+--
+-- Desde rts_core 0.30.0 el DLL casca el rayo EN EL MENSAJE del boton: con el
+-- pixel que trae el propio mensaje, con la camara del fotograma que el jugador
+-- estaba mirando, y antes de que el cliente reparta el click -- asi que cuando
+-- nuestro OnMouseDown corre, la respuesta a ESA pulsacion ya es un global.
+--
+-- Aqui no hay proyeccion, ni escala, ni tolerancia, ni plano: no hay nada que
+-- estimar. O el DLL vio la pulsacion, y entonces el punto es exacto por
+-- construccion, o no la vio y esto devuelve nil para que el camino de siempre
+-- siga siendo el que contesta.
+--
+-- EL NUMERO DE SECUENCIA ES LA COMPROBACION, y es la unica que hace falta: si
+-- no ha subido desde la ultima pulsacion que consumimos, este mensaje no ha
+-- llegado -- cliente sin DLL, o un cliente que no entrega el raton por la cola
+-- de ventanas -- y devolver el disparo anterior seria mandar la orden al sitio
+-- del click de antes.
+function M:ClickShot(button)
+	local seq = tonumber(RTS_ClkSeq)
+	if not seq then return nil end
+	if seq == self.lastShotSeq then return nil end       -- esta pulsacion no se vio
+	self.lastShotSeq = seq
+
+	local want = (button == "LeftButton") and 1 or 2
+	if tonumber(RTS_ClkBtn) ~= want then return nil end
+
+	local shot = {
+		seq = seq,
+		ox = RTS_ClkOX, oy = RTS_ClkOY, oz = RTS_ClkOZ,
+		dx = RTS_ClkDX, dy = RTS_ClkDY, dz = RTS_ClkDZ,
+	}
+	-- El rayo vale aunque no cortara nada: es con lo que se le pregunta al
+	-- servidor, que si tiene mapa. Solo el PUNTO depende de que acertara.
+	if RTS_ClkHit == 1 then
+		shot.x, shot.y, shot.z = RTS_ClkX, RTS_ClkY, RTS_ClkZ
+	end
+	if type(shot.ox) ~= "number" or type(shot.dx) ~= "number" then return nil end
+
+	if self.aim.on then
+		ns.Print(("|cff88ccffclick|r #%d btn%d en %s,%s -> %s"):format(
+			seq, tonumber(RTS_ClkBtn) or 0, tostring(RTS_ClkPx), tostring(RTS_ClkPy),
+			shot.x and ("|cff00ff00%.1f %.1f %.1f|r"):format(shot.x, shot.y, shot.z)
+			       or "|cffffff00sin corte (cielo)|r"))
+	end
+	return shot
+end
+
 -- Solve SX/SY exactly from the currently selected unit + current cursor.
 -- Put the cursor on the unit's feet (the game draws it at its true position),
 -- and this derives the projection scale that maps that world point to that

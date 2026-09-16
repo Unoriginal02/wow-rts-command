@@ -1897,6 +1897,23 @@ SlashCmdList["RTSCOMMAND"] = function(msg)
 				ns.Print("|cffffff00cursor ray: absent|r - rts_core older than 0.8.0")
 			end
 
+			-- EL RAYO DEL CLICK, que es el que manda en una orden. El de
+			-- arriba es el continuo, del cursor de Windows y un tick tarde; este
+			-- lo casca el DLL en el mensaje del boton, con el pixel del propio
+			-- mensaje. Si falta, el gesto sigue funcionando por el camino de
+			-- antes -- estimacion de plano corregida por el servidor -- que es
+			-- peor en cuesta y a distancia.
+			if RTS_ClkSeq then
+				ns.Print(("|cff00ff00click ray:|r pulsacion #%d, boton %s en %s,%s, %s")
+					:format(RTS_ClkSeq, tostring(RTS_ClkBtn), tostring(RTS_ClkPx),
+						tostring(RTS_ClkPy),
+						RTS_ClkHit == 1 and ("corta en %.1f, %.1f, %.1f"):format(
+							RTS_ClkX, RTS_ClkY, RTS_ClkZ) or "sin corte"))
+			else
+				ns.Print("|cffffff00click ray: absent|r - rts_core older than 0.30.0, " ..
+					"or this client does not deliver the mouse through the window queue.")
+			end
+
 			-- Camera + screen-centre look-at point.
 			if RTS_HasCam == 1 then
 				ns.Print(("camera pos: %.1f, %.1f, %.1f"):format(RTS_CamX, RTS_CamY, RTS_CamZ))

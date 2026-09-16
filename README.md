@@ -14,9 +14,9 @@ copies.
 
 | Piece | Version | What it is |
 |---|---|---|
-| `addon/` | 1.37.0 | Lua addon: UI, selection, orders, camera |
+| `addon/` | 1.38.0 | Lua addon: UI, selection, orders, camera |
 | `mod-rts/` | 0.52.0 | AzerothCore module: orders straight into the AI, quests, bags, NPCs, character swap |
-| `rts-client-mod/` | `rts_core.dll` 0.29.0 | Injected into the client: world coordinates, raycast, native effects |
+| `rts-client-mod/` | `rts_core.dll` 0.30.0 | Injected into the client: world coordinates, raycast, native effects |
 
 ```
 WoW client  <->  worldserver (+ mod-rts + mod-playerbots)  <->  MySQL
@@ -477,12 +477,36 @@ flag masks:
 It is used for the point under the cursor, for the ring heights, and for the
 free camera's three rays (ground, terrain and ceiling).
 
+**And for the click itself, cast in the mouse message.** An order does not ask
+"where is the cursor now", it asks "where was I aiming when I pressed", and the
+two answers come apart in exactly the cases that matter: the continuous ray is
+fired from the **Windows** cursor, which the client moves about on its own while
+it owns the mouse — which is what a held button does — and it is up to a tick
+old, which with a panning camera is a long way on the ground. In game that read
+as *"only a patch in the middle of the screen works, further out the mark comes
+back toward the centre"*.
+
+`WM_LBUTTONDOWN` / `WM_RBUTTONDOWN` have neither problem, and the `WndProc` hook
+already sees them. The pixel comes out of the message itself, the ray is cast
+there and then with the camera of the frame the player was looking at, and the
+result is published **before** the client is handed the message — so by the time
+the addon's `OnMouseDown` runs, the answer to its own press is already a global.
+No projection, no calibration, no tolerance, no plane. The ray is published with
+the point, so the server's `GroundRay` clips the **same** straight line the
+client saw rather than one Lua rebuilds from its own FOV and scale.
+
+A sequence number says whether the press was seen. If it does not advance — no
+DLL, or a client that does not deliver the mouse through the window queue — the
+addon falls back to the plane estimate it used before, so the worst case is the
+old behaviour rather than a broken one.
+
 ### 4.4 The Lua ↔ DLL bridge
 
 **DLL to addon:** `FrameScript_Execute` (`0x00819210`) runs a Lua source string
 in the client's global state, and what it runs is assignments to `RTS_*` globals
 the addon reads: player position and facing, camera (position, 3x3 basis, FOV,
-aspect), the three rays under the camera, the cursor point, and the list of
+aspect), the three rays under the camera, the cursor point, the click
+ray (`RTS_Clk*`, published from the button's own message), and the list of
 nearby units.
 
 Cadence: **100 Hz for the camera alone**, 33 Hz for the full state. The camera

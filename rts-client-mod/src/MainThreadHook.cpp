@@ -43,7 +43,46 @@ HWND FindClientWindow() {
     return ctx.result;
 }
 
+// A MOUSE PRESS IS THE ONE PIECE OF INPUT WE WANT TO SEE, and this is the only
+// place it can be seen honestly.
+//
+// The message carries the click's CLIENT-AREA pixel in lParam, which is the
+// coordinate the client itself will use -- not the Windows cursor, which the
+// client warps about while it owns the mouse, and not a value read a tick later.
+// Casting here answers "where did this press land" with the camera of the frame
+// the player was looking at.
+//
+// It runs BEFORE CallWindowProc, so the client has not been given the message
+// yet and no Lua handler for this click can have run. By the time the addon's
+// OnMouseDown fires, the answer to its own press is already a global.
+//
+// Nothing is swallowed: the message goes on to the client untouched.
+int ClickButton(UINT msg) {
+    switch (msg) {
+        case WM_LBUTTONDOWN:
+        case WM_LBUTTONDBLCLK:   // the second press of a double click arrives as this
+            return 1;
+        case WM_RBUTTONDOWN:
+        case WM_RBUTTONDBLCLK:
+            return 2;
+        default:
+            return 0;
+    }
+}
+
 LRESULT CALLBACK HookedProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    if (int const button = ClickButton(msg)) {
+        // Signed: a press that starts inside the window and is reported past
+        // its edge comes through as a negative short, and LOWORD alone would
+        // turn that into 65000-odd pixels.
+        int const px = static_cast<short>(LOWORD(lParam));
+        int const py = static_cast<short>(HIWORD(lParam));
+        __try {
+            publisher::PublishClick(button, px, py);
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+        }
+    }
+
     // Runs on the client's main thread -- the only place Lua may be touched.
     // Publish only on our own message, so ordinary window traffic is untouched.
     if (msg == g_pokeMsg) {

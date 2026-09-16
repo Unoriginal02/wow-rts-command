@@ -17,8 +17,26 @@
 
 namespace cursorray {
 
-// Ground/collision point under the mouse cursor. False if the cursor is outside
-// the client area, the camera is unreadable, or the ray hit nothing (sky).
+// A cast: the ray that was fired, and what it found.
+//
+// THE RAY IS WORTH HAVING EVEN WHEN NOTHING WAS HIT. It is what the server is
+// asked with -- it has the map and we do not -- so `origin`/`dir` are filled
+// whenever the camera is readable, and `hitOk` says separately whether the
+// client's own picking found ground along it.
+struct Shot {
+    world::Vec3 origin;
+    world::Vec3 dir;      // unit length
+    world::Vec3 hit;
+    bool        hitOk;
+};
+
+// Cast through a CLIENT-AREA pixel, with the window size that pixel was
+// measured in. y counts downward, as every Windows mouse message reports it.
+// False if the geometry is unusable (zero-sized window, degenerate fov).
+bool At(const camera::Camera& cam, float px, float py, float w, float h, Shot* out);
+
+// Ground/collision point under the Windows cursor. False if the cursor is
+// outside the client area, the camera is unreadable, or the ray hit nothing.
 bool Get(const camera::Camera& cam, world::Vec3* hit);
 
 }  // namespace cursorray

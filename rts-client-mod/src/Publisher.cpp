@@ -6,6 +6,7 @@
 
 #include "CVarChannel.h"
 #include "Camera.h"
+#include "MainThreadHook.h"
 #include "Circle.h"
 #include "SelfShow.h"
 #include "CursorRay.h"
@@ -24,11 +25,12 @@ namespace {
 // is that the function no longer exists. You do not go back, you go forward by
 // removing.
 //
+// 0.30.0 = the click ray: cast from the mouse MESSAGE's pixel, at the press.
 // 0.28.0 = the DLL writes bit 19: the server cannot carry it set.
 // 0.27.0 = "I can attack" comes back armed with the flags: one of the two gates.
 // 0.26.0 = the switch that gives "I can attack" back (the bit 19 veto).
 // 0.25.0 = the camera's ground is published TWICE, with and without buildings.
-constexpr const char* kVersion = "0.29.0";
+constexpr const char* kVersion = "0.30.0";
 constexpr int kProtocol = 3;
 
 // Every published unit costs ~110 bytes of Lua source that the client parses on
@@ -215,6 +217,8 @@ void SortByGuid(objmgr::UnitInfo* units, int count) {
 
 uint32_t g_heartbeat = 0;
 bool g_announced = false;
+bool g_announcedClick = false;
+uint32_t g_clickSeq = 0;
 bool g_loggedCamera = false;
 
 struct Snapshot {
@@ -394,6 +398,88 @@ namespace publisher {
 void PublishCamera() {
     if (!lua::StateReady()) return;
     PublishCameraOnly();
+}
+
+// WHERE THE PLAYER CLICKED, ANSWERED AT THE CLICK.
+//
+// The 33 Hz `RTS_Cur*` ray is the wrong tool for an order, for two reasons that
+// are both about WHICH cursor and WHICH instant:
+//
+//   * it is cast from `GetCursorPos`, the WINDOWS cursor. While the client owns
+//     the mouse -- which is what a held button does -- the client moves that
+//     cursor itself, so the ray goes somewhere nobody aimed. In game that reads
+//     as "only a small patch in the middle of the screen works, and clicking
+//     further out brings the mark back toward the centre".
+//   * it is up to a tick old, and a tick of a panning camera is a long way on
+//     the ground.
+//
+// The mouse MESSAGE has neither problem. It carries the client-area pixel the
+// click actually happened at, and it arrives here -- on the main thread, before
+// the client has even been handed it -- with the camera still showing the frame
+// the player was looking at when they pressed. So the ray is cast from that
+// pixel, then and there, and published under a sequence number. The addon's
+// OnMouseDown runs afterwards by construction and reads the answer to its own
+// press.
+//
+// THE RAY IS PUBLISHED TOO, not only the point. The server has the map and is
+// the authority on the ground; asking it with THIS ray -- rather than with one
+// Lua rebuilds from its own fov, aspect and calibration -- makes the two sides
+// answer the same question. Where they then differ is real terrain
+// disagreement, not a projection mismatch.
+void PublishClick(int button, int px, int py) {
+    if (!lua::StateReady()) return;
+
+    HWND hwnd = static_cast<HWND>(mainthread::Window());
+    if (!hwnd) return;
+
+    RECT rc;
+    if (!GetClientRect(hwnd, &rc)) return;
+
+    cursorray::Shot shot;
+    bool ok = false;
+    __try {
+        camera::Camera cam;
+        if (camera::Get(&cam)) {
+            ok = cursorray::At(cam, static_cast<float>(px), static_cast<float>(py),
+                               static_cast<float>(rc.right - rc.left),
+                               static_cast<float>(rc.bottom - rc.top), &shot);
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        ok = false;
+    }
+    if (!ok) return;
+
+    // The sequence is what lets the addon tell "this press was seen" from "this
+    // press was not". A client that does not deliver mouse input through the
+    // window procedure simply never advances it, and the addon falls back to the
+    // path it had before -- so the worst case is today's behaviour, not a
+    // broken one.
+    ++g_clickSeq;
+
+    char code[512];
+    int n = _snprintf_s(code, sizeof(code), _TRUNCATE,
+        "RTS_ClkSeq=%u;RTS_ClkBtn=%d;RTS_ClkPx=%d;RTS_ClkPy=%d;RTS_ClkHit=%d;"
+        "RTS_ClkX=%.3f;RTS_ClkY=%.3f;RTS_ClkZ=%.3f;"
+        "RTS_ClkOX=%.3f;RTS_ClkOY=%.3f;RTS_ClkOZ=%.3f;"
+        "RTS_ClkDX=%.5f;RTS_ClkDY=%.5f;RTS_ClkDZ=%.5f",
+        g_clickSeq, button, px, py, shot.hitOk ? 1 : 0,
+        shot.hit.x, shot.hit.y, shot.hit.z,
+        shot.origin.x, shot.origin.y, shot.origin.z,
+        shot.dir.x, shot.dir.y, shot.dir.z);
+    if (n <= 0) return;
+
+    __try {
+        lua::Execute(code);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return;
+    }
+
+    if (!g_announcedClick) {
+        g_announcedClick = true;
+        RTS_LOG("first click published (btn=%d at %d,%d hit=%d) -- "
+                "mouse messages do reach the WndProc", button, px, py,
+                shot.hitOk ? 1 : 0);
+    }
 }
 
 void Publish() {
