@@ -127,6 +127,11 @@
 	through every turn he takes -- and if you pivot round to his flank, you keep
 	the flank, turn after turn, instead of the camera drifting back behind him.
 
+	THROUGH EVERY TURN HE *WALKS*, to say it exactly. A turn you ORDER is the
+	other half of this file: it is absorbed and then slowly returned, and the
+	return goes to his BACK -- so a flank survives him rounding a corner, and
+	does not survive you sending him somewhere new.
+
 	AND THE MOUSE IS SPLIT IN TWO HERE, which is the only trick in the mode.
 	Everywhere else in this file the CLIENT owns the orientation and we only carry
 	the position (see `AdoptLook`): both live angles are adopted and written
@@ -181,6 +186,15 @@
 	means -- so it cannot tell the start of one from the middle of one. Between
 	two readings, running a curve at full speed is some three degrees and a spin
 	is a hundred and eighty.
+
+	AND THE LINE IS DRAWN LOW, AT TWELVE DEGREES, because what it has to catch is
+	AN ORDER and not a big angle. Clicking a waypoint a little off to one side
+	turns the hero twenty degrees in one tick, and at forty that was followed as
+	a turn of the camera's own -- which is the whole of "the camera turns with
+	him too directly", and the reason the pause seemed to need you to have swung
+	the camera round first: swinging it round to look at the ground you are about
+	to click is what used to make the click a wide one. Twelve is still four
+	readings of the sharpest curve, so travelling does not reach it.
 
 	AND THE RETURN WAITS FOR HIM TO WALK, at the player request: the point of the
 	pause is to see him set off in the new direction, so what starts the drift is
@@ -332,17 +346,31 @@ local D = {
 	-- from `lockSmooth` on purpose: the position can be chased at 25 because its
 	-- lag is a constant offset nobody sees, and the angle cannot -- a turn in
 	-- this client is instantaneous, so at 25 a bot changing his mind is a
-	-- whip-pan. At 6 that same turn takes about half a second to settle, which
-	-- is what a camera on a rail behind someone looks like.
-	eyeTurn = 6.0,    -- k of the chase of his facing (1/s); higher is sharper
+	-- whip-pan. AND AT 6 IT WAS STILL TOO DIRECT, which is half of what this
+	-- round came to fix: now that the snap catches every ordered turn, what is
+	-- LEFT for this chase is a hero leaning into a curve, and there the camera is
+	-- not meant to hold his line -- it is meant to trail it. At 2.5 a curve drags
+	-- it round over a second and a bit, which is a camera on a rail and not a
+	-- camera bolted to his neck.
+	eyeTurn = 2.5,    -- k of the chase of his facing (1/s); higher is sharper
 	-- AND THE SPIN, WHICH IS TWO NUMBERS: what counts as one, and how slowly the
 	-- camera comes back behind him afterwards.
 	--
-	-- `eyeSnap` is generous on purpose. Running a curve at full tilt moves the
-	-- facing some three degrees between readings and a click-to-move spins it up
-	-- to a hundred and eighty, so anywhere in the middle works; what it must not
-	-- do is fire while simply travelling, because the symptom of that would be
-	-- the camera drifting off a hero who never did anything sudden.
+	-- `eyeSnap` IS NOT A SIZE OF TURN, IT IS THE LINE BETWEEN AN ORDER AND A
+	-- WALK, and forty was drawing it in the wrong place. A waypoint clicked a
+	-- little off to one side turns the hero twenty degrees in ONE tick, forty
+	-- never fired, and the camera followed that as a turn of its own -- which is
+	-- where "demasiado directa" came from. It also explains why the pause looked
+	-- like it only worked when you had swung the camera round first: swinging it
+	-- round to see the ground you were about to click is what made the next click
+	-- a wide one.
+	--
+	-- Twelve is still four readings of the sharpest curve -- running one at full
+	-- tilt moves the facing some three degrees between readings -- so travelling
+	-- does not reach it. And if a hairpin ever does, it no longer costs what the
+	-- forty was guarding against: he is WALKING when it happens, which is the one
+	-- condition the slow return waits for, so the absorption is already being
+	-- undone in the same breath it was taken.
 	--
 	-- `eyeBack` IS MEANT TO BE TOO SLOW. It was asked for as "muy MUY lento", and
 	-- a constant speed is what delivers that: an exponential would start at
@@ -350,7 +378,7 @@ local D = {
 	-- exists to avoid. At twenty degrees a second, coming back from a click
 	-- behind you takes nine seconds and reads as the camera settling rather than
 	-- as the camera moving. Zero means it never comes back on its own.
-	eyeSnap = 40.0,   -- degrees between two readings that count as a SPIN
+	eyeSnap = 12.0,   -- degrees between two readings that count as a SPIN
 	eyeBack = 20.0,   -- deg/s of the slow return behind him (0 = it never does)
 }
 
@@ -400,29 +428,57 @@ local EYE_AIM = 1.5
 -- already entered the hero view once -- that is, of the only person using it --
 -- and the symptom would have been "I changed it and it is still just as low".
 --
--- A stamp for THIS KEY ALONE, not a new `GEN` for the whole table: a generation
--- throws away `speed`, `height`, `ease` and the other fifteen, and what changed
--- its mind here is one number. That one moves, it is announced, and nothing
--- else is touched.
+-- A stamp for THE HERO VIEW ALONE, not a new `GEN` for the whole table: a
+-- generation throws away `speed`, `height`, `ease` and the other fifteen, and
+-- what changes its mind here is one dial at a time. That one moves, it is
+-- announced, and nothing else is touched.
 --
 -- 3 -> 4: from five to four, with the camera moving from over the hero to behind
 -- him. The stamp goes up for the same reason every time: anyone with 5.0 written
 -- down would never see the 4.0.
-local EYE_GEN = 4
+--
+-- 4 -> 5: the camera stops turning with the hero so closely -- `eyeSnap` from 40
+-- to 12 and `eyeTurn` from 6 to 2.5. AND THIS ONE HAD TO HAVE A STAMP EVEN
+-- THOUGH NOBODY EVER TYPED THE TWO KEYS, which is the rock in a new disguise:
+-- `Cfg` FILLS the saved table with every default it is missing, so the moment
+-- the hero view existed at all, 40 and 6 were written down -- and from then on
+-- they are saved values, and saved beats default like everything else.
+--
+-- AND THE STAMP IS READ PER GENERATION, not as one "is it current". Sending
+-- `eyeH` back to the default because `eyeSnap` moved would undo a height the
+-- player measured himself, and this file has three paragraphs about not doing
+-- to somebody's settings what was not asked for.
+local EYE_GEN = 5
 
 local function MigrateEye(c)
-	if c.eyeGen == EYE_GEN then return end
-	local was = c.eyeH
+	local gen = c.eyeGen
+	if gen == EYE_GEN then return end
+	if type(gen) ~= "number" then gen = 0 end
 	c.eyeGen = EYE_GEN
-	c.eyeH = D.eyeH
-	-- It is ALWAYS said when there was a different value, even the old default:
-	-- from outside "I changed it myself" and "the addon changed it" look
-	-- identical, and keeping quiet turns an announced change into a surprise.
-	if type(was) == "number" and math.abs(was - c.eyeH) > 0.01 then
-		ns.Print(("|cffffd100RTS camera:|r the hero view height goes from %.1f to " ..
-			"|cffffff00%.1f|r yd (the camera now rides BEHIND your hero, not over " ..
-			"him). |cffffff00/rts fc eyeH %.1f|r puts it back."):format(
-			was, c.eyeH, was))
+	if gen < 4 then
+		local was = c.eyeH
+		c.eyeH = D.eyeH
+		-- It is ALWAYS said when there was a different value, even the old default:
+		-- from outside "I changed it myself" and "the addon changed it" look
+		-- identical, and keeping quiet turns an announced change into a surprise.
+		if type(was) == "number" and math.abs(was - c.eyeH) > 0.01 then
+			ns.Print(("|cffffd100RTS camera:|r the hero view height goes from %.1f to " ..
+				"|cffffff00%.1f|r yd (the camera now rides BEHIND your hero, not over " ..
+				"him). |cffffff00/rts fc eyeH %.1f|r puts it back."):format(
+				was, c.eyeH, was))
+		end
+	end
+	if gen < 5 then
+		local wasS, wasT = c.eyeSnap, c.eyeTurn
+		c.eyeSnap, c.eyeTurn = D.eyeSnap, D.eyeTurn
+		if (type(wasS) == "number" and math.abs(wasS - c.eyeSnap) > 0.01) or
+			(type(wasT) == "number" and math.abs(wasT - c.eyeTurn) > 0.01) then
+			ns.Print(("|cffffd100RTS camera:|r the hero view stops following his turns " ..
+				"so closely: |cffffff00eyeSnap %.0f|r (was %.0f) and " ..
+				"|cffffff00eyeTurn %.1f|r (was %.1f). Now ANY turn you order is watched " ..
+				"from where you stand and comes home slowly."):format(
+				c.eyeSnap, wasS, c.eyeTurn, wasT))
+		end
 	end
 end
 
@@ -515,10 +571,12 @@ local function Cfg()
 	-- exactly when the hero turns; above 200 it is the raw 33 Hz staircase back
 	-- again. Out of range is garbage and goes back to the default.
 	if c.eyeTurn <= 0 or c.eyeTurn > 200 then c.eyeTurn = D.eyeTurn end
-	-- Under ten degrees a hard curve would count as a spin and the camera would
-	-- let go of a hero who is only running; over 180 nothing can ever reach it
-	-- and the pause would never happen at all.
-	if c.eyeSnap < 10 or c.eyeSnap > 180 then c.eyeSnap = D.eyeSnap end
+	-- THE FLOOR CAME DOWN WITH THE DEFAULT, from ten to five, because a cap that
+	-- sits two degrees under the default is a dial that only turns one way. Under
+	-- five it is the facing NOISE of a straight run that counts as a spin, and the
+	-- mode would spend the whole walk absorbing and returning; over 180 nothing
+	-- can ever reach it and the pause would never happen at all.
+	if c.eyeSnap < 5 or c.eyeSnap > 180 then c.eyeSnap = D.eyeSnap end
 	-- Zero is allowed here (see `D`): it is "it never comes back by itself", the
 	-- sticky framing of the very first version, and not a broken value.
 	if c.eyeBack < 0 or c.eyeBack > 360 then c.eyeBack = D.eyeBack end
@@ -1194,8 +1252,10 @@ local function Follow(c, dt)
 				-- chase error it could not be measured: the error is large for a
 				-- whole second after every spin, so the start of one and the middle
 				-- of one look identical. Here they do not -- an advance moves this
-				-- by about three degrees and a click-to-move by a hundred and
-				-- eighty.
+				-- by about three degrees and a click-to-move by anything from ten
+				-- to a hundred and eighty, and `eyeSnap` sits at twelve so that the
+				-- SMALL orders are caught too: they are the ones that used to be
+				-- followed round, and the ones that read as "too direct".
 				local jump = st.rawf and math.abs(Wrap180(face - st.rawf)) or 0
 				st.rawf = face
 				if jump >= c.eyeSnap then

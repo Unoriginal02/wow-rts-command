@@ -206,9 +206,14 @@ sensitivity and with your own inversion.
   `/rts fc eyeD <n>` the same again — so the spot you back off to is the spot you
   get next time. The orbit resets to zero on the way in, **and that is what makes
   the button worth pressing**: one click always puts you at his back.
-- **`/rts fc eyeSnap <deg>`** is what counts as a spin (40° between two readings)
+- **`/rts fc eyeSnap <deg>`** is what counts as a spin (12° between two readings)
   and **`/rts fc eyeBack <deg/s>`** how slowly it comes home. `eyeBack 0` never
   comes home on its own, which is the sticky framing of the first version.
+  The line is low because what it has to catch is **an order, not a big
+  angle**: a waypoint clicked slightly off to one side turns him twenty
+  degrees in one tick, and following that round is what read as the camera
+  turning with him too directly. What is left under it — a hero leaning into a
+  curve — is trailed at `eyeTurn`, and that trails lazily too (2.5, was 6).
 
 Known and not fixed: **there is no ground under this camera**, the same as the
 lock. Going downhill the terrain behind it sits higher than it does and, with
