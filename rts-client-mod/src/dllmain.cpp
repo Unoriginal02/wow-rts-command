@@ -7,6 +7,7 @@
 #include <windows.h>
 
 #include "Circle.h"
+#include "Plates.h"
 #include "SelfShow.h"
 #include "Log.h"
 #include "MainThreadHook.h"
@@ -72,6 +73,7 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID) {
             // be rewritten under it.
             mainthread::Remove();
             selfshow::Shutdown();
+            plates::Shutdown();
             circle::Remove();
             rtslog::Shutdown();
             break;

@@ -614,6 +614,7 @@ local function Initialise()
 
 	ns.Markers:Create()
 	ns.SelectionRing:Create()
+	ns.Plates:Create()
 	ns.Flare:Create()
 	ns.Route:Create()
 	ns.Marks:Create()
@@ -1019,6 +1020,7 @@ local HELP = {
 	"|cffffff00/rts turn|r - why a click got eaten: measures camera turn against the threshold",
 	"|cffffff00/rts halo <0-2>|r - cursor halo style, |cffffff00/rts halo size <yards>|r",
 	"|cffffff00/rts ring|r - native ring under the selection; |cffffff00tint|r adds the model glow, |cffffff00test|r checks the hook",
+	"|cffffff00/rts plates|r - health bars over heads: |cffffff00friends|r for your bots, |cffffff00enemies|r (the V key), |cffffff00<yards>|r for the range",
 	"|cffffff00/rts cam|r - detached RTS camera (WASD on the plane, SPACE/C up and down, Q/E pivot, right-drag turns)",
 	"|cffffff00/rts cam save|r - frame it how you want, then save; |cffffff00show|r reprints the values",
 	"|cffffff00/rts cam frame|r - re-apply it; |cffffff00tilt|r / |cffffff00zoom|r / |cffffff00fov <deg>|r nudge; |cffffff00clear|r forgets it",
@@ -1252,6 +1254,20 @@ SlashCmdList["RTSCOMMAND"] = function(msg)
 			cfg:Toggle()
 		end
 
+
+	elseif cmd == "plates" or cmd == "rotulos" then
+		local sub = (rest or ""):match("^(%S*)"):lower()
+		if sub == "probe" or sub == "sonda" then
+			ns.Plates:Probe()
+		elseif sub == "friends" or sub == "amigos" then
+			ns.Plates:ToggleFriends()
+		elseif sub == "enemies" or sub == "enemigos" then
+			ns.Plates:ToggleEnemies()
+		elseif sub == "" or sub == "status" or sub == "?" then
+			ns.Plates:Status()
+		else
+			ns.Plates:SetRange(sub)
+		end
 
 	elseif cmd == "cam" or cmd == "camera" then
 		local sub, arg = rest:match("^(%S*)%s*(%S*)$")

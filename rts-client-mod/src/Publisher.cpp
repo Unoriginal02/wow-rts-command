@@ -8,6 +8,7 @@
 #include "Camera.h"
 #include "MainThreadHook.h"
 #include "Circle.h"
+#include "Plates.h"
 #include "SelfShow.h"
 #include "CursorRay.h"
 #include "Highlight.h"
@@ -25,12 +26,13 @@ namespace {
 // is that the function no longer exists. You do not go back, you go forward by
 // removing.
 //
+// 0.31.0 = nameplates under the free camera: the gate gets its own reference.
 // 0.30.0 = the click ray: cast from the mouse MESSAGE's pixel, at the press.
 // 0.28.0 = the DLL writes bit 19: the server cannot carry it set.
 // 0.27.0 = "I can attack" comes back armed with the flags: one of the two gates.
 // 0.26.0 = the switch that gives "I can attack" back (the bit 19 veto).
 // 0.25.0 = the camera's ground is published TWICE, with and without buildings.
-constexpr const char* kVersion = "0.30.0";
+constexpr const char* kVersion = "0.31.0";
 constexpr int kProtocol = 3;
 
 // Every published unit costs ~110 bytes of Lua source that the client parses on
@@ -501,6 +503,15 @@ void Publish() {
         selfshow::Tick();
     } __except (EXCEPTION_EXECUTE_HANDLER) {
         RTS_LOG("body: tick faulted -- sonda desactivada este tick");
+    }
+
+    // Los rotulos del cliente: la barra de la V y la de los amigos. Se arma
+    // solo cuando la camara se queda sin unidad -- o sea, en modo RTS -- y se
+    // devuelve solo al salir. Ver Plates.h.
+    __try {
+        plates::Tick();
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        RTS_LOG("plates: tick faulted -- rotulos sin tocar este tick");
     }
 
     // Virtual-vs-raw position check. This used to run once a SECOND, forever,

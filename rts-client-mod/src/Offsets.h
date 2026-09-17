@@ -621,4 +621,115 @@ constexpr uint32_t kPlayerFields_Flags = 0x08;
 constexpr uint32_t kPlayerFlagUber        = 0x00080000;  // bit 19, obligatorio
 constexpr uint32_t kPlayerFlagCommentator = 0x00400000;  // bit 22, salta la arena
 
+// ---------------------------------------------------------------------------
+// NAMEPLATES -- why the V bar disappears the moment the RTS camera comes up.
+//
+// Read out of Wow.exe, not guessed. The gate that decides whether a unit gets a
+// nameplate is 0x0072B060, __thiscall(unit, out Vec3), and it OPENS like this:
+//
+//   0072B0A9  call 0x004F5960          ; cam = *(0x00B7436C) -> [+0x7E20]
+//   0072B0AE  test eax, eax / je       ; no camera -> no plate
+//   0072B0B2  mov  ecx, [eax + 0x8C]   ; \ the GUID of the unit the camera
+//   0072B0B8  mov  edx, [eax + 0x88]   ; / is ATTACHED to
+//   0072B0CC  call 0x004D4DB0          ; look it up (typemask 8 = unit)
+//   0072B0D9  jne  ...                 ; NOT FOUND -> returns 0 FOR EVERY UNIT
+//
+// and it CLOSES with a squared distance from that same unit:
+//
+//   0072B331  fcomp dword ptr [0x00ADAA7C]   ; 1681.0 = 41 yards, squared
+//
+// Now the other half. `CGWorldFrame::UpdateCamera` (0x004FA5F0) asks
+// 0x006DE980 "am I a spectator?" -- call site [0] of the eighteen listed above,
+// 0x004FA69D -- and when the answer is yes it CLEARS the camera's target:
+//
+//   004FA6B8  je 0x4FA6C3              ; already empty, nothing to do
+//   004FA6BA  push 0 / push 0
+//   004FA6BE  call 0x006066E0          ; cam->targetGuid = 0
+//   004FA6C3  ...                      ; then the commentator camera update
+//
+// That clearing is not a bug and must NOT be undone: `CGCamera::Update`
+// (0x00607B00) follows cam+0x88 every frame when it is set (0x00607B47), so
+// putting the hero's GUID back there would drag the free camera onto him.
+// The commentator camera is free precisely BECAUSE that field is empty.
+//
+// So the camera is left alone and the NAMEPLATE GATE is given a reference of
+// its own: two instructions, six bytes each, rewritten to read the GUID from a
+// slot inside this DLL instead of from the camera. Same length, same registers,
+// one call site, and nothing else in the client reads those two instructions.
+//
+//   8B 88 8C 00 00 00   mov ecx, [eax+0x8C]  ->  8B 0D <addr>   mov ecx, [addr]
+//   8B 90 88 00 00 00   mov edx, [eax+0x88]  ->  8B 15 <addr>   mov edx, [addr]
+//
+// The 41 yards go with it: measured from the hero they cover the middle of the
+// screen and nothing else, and the client only ever holds objects the server
+// sent (visibility range), so widening this cannot conjure plates for units
+// that are not there.
+constexpr uint32_t kPlateGateFn  = 0x0072B060;   // for context, never written
+constexpr uint32_t kPlateRefHi   = 0x0072B0B2;   // mov ecx, [eax+0x8C]
+constexpr uint32_t kPlateRefLo   = 0x0072B0B8;   // mov edx, [eax+0x88]
+constexpr uint8_t  kPlateRefHiBytes[6] = {0x8B, 0x88, 0x8C, 0x00, 0x00, 0x00};
+constexpr uint8_t  kPlateRefLoBytes[6] = {0x8B, 0x90, 0x88, 0x00, 0x00, 0x00};
+
+// THE HERO'S OWN BAR IS NOT WANTED, AND THE TWO ADDRESSES BELOW ARE NOT
+// PATCHED. They were, for one round, and they worked; the player then said he
+// does not need a bar over his own head, so they came out again -- fewer bytes
+// of someone else's client rewritten for something nobody uses. What is kept is
+// the READING, because it cost a session and the next person to wonder "why is
+// the hero the only one without a bar" deserves the answer and not the hunt.
+//
+// FIRST: the unit the reference points at gets no plate of its own.
+//
+//   0072B0E5  cmp eax, esi             ; the reference IS this unit?
+//   0072B0E7  je  0x0072B0DB           ; -> no plate
+//
+// In ordinary play that is "no nameplate over your own head", and it is right:
+// the reference is you. With the reference handed to the gate above it is still
+// you -- so the hero was the ONE unit on screen without a bar, name showing and
+// nothing under it (seen in game, 2026-09-17). Two bytes, armed and given back
+// with the other two: `je rel8` (74 F2) -> two nops.
+constexpr uint32_t kPlateSelfJe       = 0x0072B0E7;   // NOT patched, on purpose
+constexpr uint8_t  kPlateSelfJeBytes[2] = {0x74, 0xF2};  // je -14, verified
+
+// SECOND, and this is the one that actually decides it, found by walking the
+// doors (2026-09-17). With the patches above in place the hero STILL had no
+// bar, so the doors were not guessed at: `Plates.cpp` nulls the gate's refusals one more at a time and
+// calls the gate after each. The answer turned to yes at 0x0072B2AC -- the
+// predicate 0x00729740 -- and the chain behind it is this:
+//
+//   0072B107  call 0x00729B30      ; "is this unit friendly?", for players
+//   0072B11A  test bl,bl           ; the answer decides friend or foe below
+//   ...
+//   0072B29F  jne 0x0072B2AE       ; friendly -> straight through
+//   0072B2A5  call 0x00729740      ; NOT friendly -> ask if you may touch it
+//   0072B2AC  je  0x0072B247       ; no -> no plate
+//
+// and 0x00729B30 OPENS with:
+//
+//   00729B36  cmp edx, ecx         ; the subject and the object are the same?
+//   00729B38  jne 0x00729B40
+//   00729B3A  xor al, al / ret 4   ; YES -> "not friendly"
+//
+// The subject is your own character (0x004038F0 looks up the active player), so
+// asked about himself the client answers **you are not friendly to yourself**,
+// your hero goes down the hostile path, and there the bit-19 predicate refuses
+// him. Every bot is friendly, skips that branch, and wears its bar -- which is
+// exactly the picture: everyone but the hero.
+//
+// So the cure is that degenerate case and nothing else: `xor al,al` -> `mov al,1`,
+// two bytes, same length. A unit IS friendly to itself; the client just never
+// had to answer it before, because you never see your own nameplate. The other
+// twelve callers of that predicate only reach this line with subject == object,
+// which is to say only ever about you.
+constexpr uint32_t kFriendSelfRet         = 0x00729B3A;   // NOT patched either
+constexpr uint8_t  kFriendSelfRetBytes[2] = {0x32, 0xC0};  // xor al,al, verified
+
+// The distance ceiling, squared, in .data -- writable, and read from exactly
+// one instruction (0x0072B331), which is what makes it safe to move.
+constexpr uint32_t kPlateRangeSq      = 0x00ADAA7C;
+constexpr float    kPlateRangeSqStock = 1681.0f;   // 41 yards
+
+// The camera's attached-unit GUID, read to tell "the camera is free" from
+// "ordinary play". Same camera chain as kWorldFrameBase/kCameraPtrOffset.
+constexpr uint32_t kCam_TargetGuid = 0x88;
+
 }  // namespace off

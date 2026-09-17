@@ -239,6 +239,7 @@ lock), or with `/rts fc home`.
 | Control groups (4) | Alt+key saves, key recalls | `addon/Selection.lua` |
 | **Native ground ring under the selection** — the client's own circle, correctly depth-tested | `/rts ring` | `addon/SelectionRing.lua` + `rts-client-mod/src/Circle.cpp` |
 | **Model glow by state** — blue standing by, green walking, red fighting, orange interacting | `/rts state`, `/rts ring tint` | `addon/State.lua` + `rts-client-mod/src/Highlight.cpp` |
+| **Health bars over heads** — the client's own nameplates, for enemies and for your bots, kept working under the free camera | `V`, `/rts plates friends` | `addon/Plates.lua` + `rts-client-mod/src/Plates.cpp` |
 | The game's own unit frames select when clicked | click the frame | `addon/Portraits.lua` |
 
 ### 3.3 Orders and movement
@@ -463,6 +464,7 @@ for them.
 | **Selection ring** | the client keeps **two** GUID slots on the scene context and drains them once a frame. We hook that drain (`0x004F6F90`), let it run once as usual, then hand it our units **one at a time**: each call draws one more ring, through its own code | `rts-client-mod/src/Circle.cpp` |
 | **Model glow** | `CGUnit_SetHighlight` / `ClearHighlight` with its three "reasons", plus colour and intensity written into the render object (`+0x18C`, `+0x1B8`) | `rts-client-mod/src/Highlight.cpp` |
 | **Attack chain numbers** | they are the client's **raid target icons**. It places them in its own loop from the world position, exactly like nameplates: they track perfectly because nothing is being tracked. The price is that there are eight | `addon/Chain.lua` |
+| **Nameplates** | the client draws them, but its gate measures everything from the unit the **camera** is attached to — and the free camera is free precisely because that field is empty, so in RTS mode it refused every unit. Two instructions in the gate are rewritten to read the GUID from a slot in the DLL (the hero) instead of from the camera, the camera is left alone, and the 41-yard ceiling is widened while the free camera is up. Your own hero wears no bar, on purpose: the two further doors that would give him one were found (`/rts plates probe` nulls the gate's refusals one at a time until it says yes) and deliberately left unpatched — the reading is in `Offsets.h` | `rts-client-mod/src/Plates.cpp` |
 | **Waypoint ground marker** | a `DynamicObject` carrying a spell's persistent-area visual — the same thing a Consecration patch is — placed in the world and drawn by the client with correct depth. The candidate list is **built from the loaded spell store** (every spell with a persistent-area-aura effect), not from IDs written from memory | `mod-rts/src/RtsMarks.cpp` |
 
 A ring drawn by us did exist once, firing twelve rays down per unit to sample
