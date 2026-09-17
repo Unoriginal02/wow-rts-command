@@ -144,6 +144,18 @@ namespace rts
         bool Add(Player* master, ObjectGuid guid);
         bool Remove(Player* master, ObjectGuid guid);
 
+        // TU PROPIO PERSONAJE, CON IA O SIN ELLA. Es lo que hace
+        // `.playerbots bot self` (`PlayerbotMgr.cpp:1059`), hecho desde aqui
+        // para poder atarlo al modo RTS: con IA tu heroe pelea solo -- rota,
+        // responde cuando atacan al grupo -- y tiene rol como los demas;
+        // sin ella lo mueves tu y el rol vuelve a ser la postura.
+        //
+        // LA POLITICA ES DEL SERVIDOR, NO NUESTRA: `AiPlayerbot.SelfBotLevel`
+        // decide si esta permitido (0 no, 1 solo GM, 2 cualquiera), y aqui se
+        // respeta la misma puerta que el comando. `why` recoge el motivo para
+        // poder decirlo en vez de no hacer nada.
+        bool SelfDrive(Player* master, bool on, std::string* why = nullptr);
+
         // --- posicion --------------------------------------------------------
 
         // HASTA DONDE LLEGA EL BRAZO DE SU IA, en yardas.

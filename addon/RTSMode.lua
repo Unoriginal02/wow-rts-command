@@ -1428,6 +1428,23 @@ local function SelfSoloStrategies(on)
 end
 
 function R:SelfBotSet(want, quiet)
+    -- CON mod-rts NO SE LLEVA LA CUENTA: SE DICE EL ESTADO.
+    --
+    -- `AUTO <0|1>` pide el estado que quieres, no "lo contrario de lo que
+    -- haya", y contesta con el que ha quedado. Eso mata el fallo que el
+    -- comentario de arriba describe y que la cuenta a mano no podia evitar:
+    -- despues de un `/reload` `on` vuelve a false con la IA TODAVIA enganchada,
+    -- asi que el siguiente encendido mandaba el toggle y la QUITABA -- tu heroe
+    -- dejaba de pelear solo justo al entrar en el modo que lo pide.
+    --
+    -- El susurro sigue de respaldo para cuando no hay mod-rts delante, que es
+    -- donde era la unica forma.
+    if ns.Link:HasServer() then
+        self.selfBot.quiet = quiet and true or false
+        ns.SendServer("AUTO " .. (want and "1" or "0"))
+        return
+    end
+
     if self.selfBot.on == want then return end
     SelfBotCommand()
     self.selfBot.on = want
@@ -1456,8 +1473,12 @@ function R:SelfBotStatus()
     ns.Print(("selfbot: %s   automatico: %s"):format(
         self.selfBot.on and "|cff00ff00encendido|r" or "|cffff0000apagado|r",
         self.selfBot.auto and "si" or "no"))
-    ns.Print("Se lleva la cuenta a mano porque el comando no devuelve estado.")
-    ns.Print("Si no cuadra con lo que ves, |cffffff00/rts self|r lo realinea.")
+    if ns.Link:HasServer() then
+        ns.Print("Lo dice el servidor (|cffffff00AUTO|r), no una cuenta nuestra.")
+    else
+        ns.Print("Sin mod-rts se lleva la cuenta a mano: el comando no devuelve estado.")
+        ns.Print("Si no cuadra con lo que ves, |cffffff00/rts self|r lo realinea.")
+    end
 end
 
 --- Toggle ------------------------------------------------------------------
@@ -1726,5 +1747,38 @@ end
 ns.Link:On("WHAT", function(rest)
 	local guid, kind = rest:match("^(%S+) (%d)$")
 	if guid then R:OnKind(guid, tonumber(kind)) end
+end)
+
+-- EL SELFBOT, DICHO POR EL SERVIDOR. Otro verbo de doble sentido: la peticion
+-- es `AUTO <0|1>` y la respuesta `AUTO <0|1> ok`, o sea que el discriminante es
+-- el numero de campos -- mismo truco que `BAGS` y por el mismo motivo, que nos
+-- oimos a nosotros mismos.
+--
+-- Y MANDA LO QUE CONTESTA, NO LO QUE PEDIMOS: el servidor puede negarse (su
+-- `SelfBotLevel` decide), y en ese caso la cuenta tiene que quedarse en lo que
+-- de verdad hay, no en lo que quisimos.
+ns.Link:On("AUTO", function(rest)
+	local state = rest:match("^([01])%s+%S+$")
+	if not state then return end
+
+	local on = (state == "1")
+	local changed = (R.selfBot.on ~= on)
+	R.selfBot.on = on
+
+	-- LAS ESTRATEGIAS, DESPUES Y NO ANTES: la IA acaba de nacer con las suyas
+	-- por defecto puestas, y lo que hay que quitarle (botin, misiones, el
+	-- manejador de paquetes) solo existe una vez esta enganchada.
+	SelfSoloStrategies(not on)
+
+	if changed and not R.selfBot.quiet then
+		ns.Print("selfbot " .. (on and "|cff00ff00ON|r - tu personaje pelea solo"
+		                          or "|cffff0000OFF|r - vuelves a llevarlo tu"))
+	end
+	R.selfBot.quiet = nil
+
+	-- Y LA FILA DE ROL CAMBIA DE CAMINO CON ESTO: con IA el rol es el de su
+	-- motor de combate y con ella fuera vuelve a ser la postura. Lo que
+	-- supieramos de tu heroe ya no vale.
+	if ns.Roles then ns.Roles:Recheck() end
 end)
 

@@ -138,6 +138,60 @@ bool rts::bots::Remove(Player* master, ObjectGuid guid)
     return true;
 }
 
+bool rts::bots::SelfDrive(Player* master, bool on, std::string* why)
+{
+    auto fail = [why](char const* reason)
+    {
+        if (why)
+            *why = reason;
+        return false;
+    };
+
+    if (!master)
+        return fail("no hay jugador");
+
+    PlayerbotAI* ai = AiFor(master);
+
+    if (!on)
+    {
+        if (!ai)
+            return true;   // ya estaba fuera
+
+        // EL `delete` ES EL CAMINO DE PLAYERBOTS, no un atajo: su destructor se
+        // borra a si mismo del registro (`PlayerbotAI.cpp`, `RemovePlayerBotData`),
+        // que es justo lo que hace su propio comando al apagarlo.
+        delete ai;
+        return true;
+    }
+
+    if (ai)
+        return true;   // ya la lleva
+
+    // LA MISMA PUERTA QUE EL COMANDO, y por eso se lee de su config y no de la
+    // nuestra: si el servidor tiene el selfbot cerrado, atarlo al modo RTS no
+    // es motivo para saltarselo.
+    if (sPlayerbotAIConfig.selfBotLevel == 0)
+        return fail("el selfbot esta apagado (AiPlayerbot.SelfBotLevel = 0)");
+    if (sPlayerbotAIConfig.selfBotLevel == 1 && !master->CanBeGameMaster())
+        return fail("el selfbot esta reservado a GM (AiPlayerbot.SelfBotLevel = 1)");
+
+    PlayerbotsMgr::instance().AddPlayerbotData(master, true);
+
+    PlayerbotAI* fresh = AiFor(master);
+    if (!fresh)
+        return fail("playerbots no engancho la IA");
+
+    // TU AMO ERES TU, que es literalmente lo que `IsRealPlayer()` comprueba
+    // (`PlayerbotAI.h:541`) para no hacer por ti lo que le toca a tu cliente:
+    // confirmar teleports, disparar tus area triggers, soltarte el espiritu.
+    fresh->SetMaster(master);
+
+    // Y SUS ESTRATEGIAS GUARDADAS, que es lo que hace que el rol que pusiste
+    // ayer siga puesto hoy. Mismo orden que el comando.
+    PlayerbotRepository::instance().Load(fresh);
+    return true;
+}
+
 bool rts::bots::Reset(Player* bot)
 {
     PlayerbotAI* ai = AiFor(bot);

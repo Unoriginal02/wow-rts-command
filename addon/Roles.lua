@@ -369,6 +369,17 @@ function R:Current(name)
 	return nil
 end
 
+-- YOUR HERO HAS JUST CHANGED ROAD -- the AI came or went (`RTSMode`, the AUTO
+-- verb) -- so whatever we knew about him is from the other side of it. Thrown
+-- away rather than refreshed in place: the answer does not change, the QUESTION
+-- does, and a stale list would keep the row on the wrong road for `STALE`
+-- seconds, which is most of the time you would spend looking at it.
+function R:Recheck()
+	local me = ns.MyName and ns.MyName()
+	if me then who[me] = nil end
+	if self.active then self:Refresh() end
+end
+
 function R:Pending(name)
 	local e = who[name or ""]
 	return (e and e.pending) or false

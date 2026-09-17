@@ -1151,6 +1151,39 @@ namespace
             return true;
         }
 
+        // "AUTO <0|1>" -- tu propio personaje con IA de playerbots, o sin ella.
+        //
+        // Lo manda el addon al ENTRAR y al SALIR del modo RTS, que es lo que
+        // pidio el jugador el 2026-09-17: *"en modo normal EVIDENTEMENTE no
+        // quiero que se comporte como un bot, porque estoy moviendo yo al
+        // personaje. PERO EN MODO RTS si debe comportarse como un bot"*.
+        //
+        // Con IA tu heroe pelea solo y tiene rol como los demas; sin ella lo
+        // llevas tu y su rol vuelve a ser la postura. La IA vive en memoria del
+        // worldserver, asi que un reinicio la borra -- y por eso esto va atado
+        // al modo y no a un comando que hay que acordarse de escribir.
+        //
+        // LA RESPUESTA LLEVA TRES CAMPOS Y LA PETICION DOS, que es como se
+        // distingue del eco: el canal nos devuelve lo que mandamos (ver
+        // `Link.lua`), y un "AUTO 1" nuestro no puede leerse como la
+        // confirmacion del servidor. Y dice el estado REAL, no el pedido: si la
+        // config del servidor lo prohibe, el addon tiene que enterarse.
+        if (verb == "AUTO")
+        {
+            int want = 0;
+            std::istringstream in(rest);
+            if (!(in >> want))
+                return false;
+
+            std::string why;
+            if (!rts::bots::SelfDrive(player, want != 0, &why))
+                Reply(player, "RTS: " + why + ".");
+
+            SendAddon(player, std::string("AUTO ") +
+                      (rts::bots::Driven(player) ? "1" : "0") + " ok");
+            return true;
+        }
+
         // "ROLES <bot>" -- which of the five roles that bot's CLASS actually
         // has, and which are on. Asked, never assumed: see RtsCommandMode.h.
         //
