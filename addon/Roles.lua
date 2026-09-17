@@ -565,7 +565,15 @@ end
 
 function R:Layout()
 	if not self.active then return end
-	if ns.Dock:State() == "A" then
+	local st = ns.Dock:State()
+	if st == "0" then
+		-- The row hangs off a bar that is not there. Nothing to place, and
+		-- nothing to ask the server for either.
+		if mainTag then mainTag:Hide() end
+		for _, t in pairs(colTag) do t:Hide() end
+		return
+	end
+	if st == "A" then
 		self:LayoutA()
 	else
 		self:LayoutB()
@@ -720,7 +728,7 @@ function R:Report()
 			"there are no roles to ask for.")
 	end
 
-	local tag = (ns.Dock:State() == "A") and mainTag or colTag[1]
+	local tag = (ns.Dock:State() == "B") and colTag[1] or mainTag
 	if not tag then
 		ns.Print("  the label: |cffff8800not built|r -- `Layout` has not run.")
 	else
@@ -730,11 +738,15 @@ function R:Report()
 			tostring(tag.owner or "nobody")))
 	end
 
+	-- WITH NOBODY PICKED THE REPORT STILL SAYS SOMETHING, and it says it about
+	-- YOU: the row is not drawn, but the four links it checks are the same
+	-- ones, and a diagnostic that answers "nobody" helps nobody.
 	local names = {}
-	if not self.active or ns.Dock:State() == "A" then
-		table.insert(names, ns.Dock:Subject())
-	else
+	if self.active and ns.Dock:State() == "B" then
 		for _, m in ipairs(ns.Dock:Columns()) do table.insert(names, m.name) end
+	else
+		local subj = ns.Dock:Subject() or ns.MyName()
+		if subj then table.insert(names, subj) end
 	end
 
 	for _, n in ipairs(names) do

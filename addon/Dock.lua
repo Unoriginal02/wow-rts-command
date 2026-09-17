@@ -26,9 +26,10 @@
 	changes width lays itself out again around the same axis, and what does not
 	change stays nailed to its corner.
 
-	=== TWO STATES, AND THE SELECTION DECIDES THEM ==========================
+	=== THREE STATES, AND THE SELECTION DECIDES THEM ========================
 
-	  A  none or one      the name and TEN slots
+	  0  nobody           NOTHING: the centre is empty
+	  A  one              the name and TEN slots
 	  B  two or more      one column per head: name and a 2x2 of FOUR
 
 	THE NAME ABOVE AND THE ROLE BELOW, and both of them are SMALL. The caption
@@ -53,12 +54,16 @@
 	the alternative is a bar that changes height as you click from a bot to
 	yourself and back.
 
-	WITH NOTHING SELECTED IT IS YOU WHO SHOWS UP, and this is the opposite of
-	what the hall did. There the centre emptied when the selection was let go,
-	because drawing somebody's slots without having them picked read as if they
-	were still picked. Here there is no such ambiguity: with no selection the
-	owner is YOU, with your name written above it, which is exactly what an
-	ordinary action bar shows when you are not commanding anyone.
+	WITH NOTHING SELECTED THE CENTRE IS EMPTY -- no name, no slots, no role
+	row. The centre answers one question, WHOSE ORDERS THESE ARE, and with
+	nobody picked there is no answer to draw: a bar standing there with a name
+	on it reads as if that character were still picked, and the keys 1..0 would
+	be firing spells at somebody the player has already let go of. So they do
+	nothing either.
+
+	Your own hero is not an exception. He gets a bar when he is PICKED, like
+	anybody else; when he is not, what is on screen is the game's own action
+	bar, which is where your spells have always been.
 
 	=== THE FOUR OF STATE B ARE NOT THE FIRST FOUR OF THE TEN ===============
 
@@ -219,13 +224,17 @@ end
 --- The state --------------------------------------------------------------
 
 function D:State()
-	return (ns.Selection:Count() >= 2) and "B" or "A"
+	local n = ns.Selection:Count()
+	if n == 0 then return "0" end
+	if n >= 2 then return "B" end
+	return "A"
 end
 
--- Whose the row of slots is in state A. The only one selected, and if there is
--- none, YOU: see the header.
+-- Whose the row of slots is in state A: the only one selected. NIL WITH NOBODY
+-- PICKED, and that nil is half the empty state -- everyone who draws reads the
+-- owner from here and stops when there is none.
 function D:Subject()
-	return ns.Selection:Single() or ns.MyName()
+	return ns.Selection:Single()
 end
 
 -- The characters whose columns get drawn in state B, in party order with the
@@ -253,7 +262,13 @@ local function Recompute()
 	D.slot = s
 
 	--- LEFT --------------------------------------------------------------
-	if D:State() == "A" then
+	local st = D:State()
+	if st == "0" then
+		-- NOT ONE AREA. `Layout` hides every frame this pass did not produce,
+		-- so leaving the table empty is what takes the bar off the screen.
+		D.leftW, D.leftH = 0, 0
+		D.cols = 0
+	elseif st == "A" then
 		local w = MAIN_N * s + GAP * (MAIN_N - 1)
 		local h = MAIN_ROWS * s + GAP * (MAIN_ROWS - 1)
 		D.leftW = w
@@ -508,7 +523,9 @@ function D:Report()
 	end
 	ns.Print(("|cffffff00dock|r state |cff33ccff%s|r, %d px slot (one action button)"):format(
 		self:State(), self.slot or 0))
-	if self:State() == "A" then
+	if self:State() == "0" then
+		ns.Print("  |cff888888nobody picked: the centre draws nothing.|r")
+	elseif self:State() == "A" then
 		ns.Print(("  %s: %d slots (%d x %d)"):format(
 			tostring(self:Subject()), MAIN_TOTAL, MAIN_ROWS, MAIN_N))
 	else

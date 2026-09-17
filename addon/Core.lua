@@ -960,7 +960,8 @@ end
 -- van sobre ti.
 -- LAS TECLAS VAN SOBRE LO QUE HAY DELANTE, que no es siempre lo mismo:
 --
---   con uno cogido (o ninguno)  los DIEZ huecos del dueno de la barra
+--   sin nada cogido             NADA: no hay barra delante
+--   con uno cogido              los DIEZ huecos del dueno de la barra
 --   con dos o mas               los CUATRO de grupo, a TODOS los cogidos
 --
 -- La segunda mitad es la que no es obvia y es la que hace util la tecla: con
@@ -969,6 +970,10 @@ end
 -- quinto hueco de grupo, y mandar el quinto de OTRO juego seria lanzar un
 -- hechizo que el jugador no esta viendo.
 function RTSCommand_Skill(i)
+	-- Y LA PRIMERA ES LA QUE SE CALLA: sin nada cogido no hay huecos en
+	-- pantalla, asi que la tecla no lanza nada ni dice nada.
+	if ns.Dock:State() == "0" then return end
+
 	if ns.Dock:State() == "B" then
 		if i > ns.Dock.B_SLOTS then
 			ns.Print(("|cff888888con varios cogidos solo hay %d huecos.|r"):format(ns.Dock.B_SLOTS))

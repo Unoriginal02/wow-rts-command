@@ -603,7 +603,12 @@ local function KeyButton(i)
 		-- EL DUENO SE LEE AHORA, no cuando se ato la tecla. La consola cambia
 		-- de sujeto cada vez que cambias la seleccion, y un dueno capturado al
 		-- atar lanzaria el hechizo del bot de hace diez minutos.
-		if ns.Dock:State() == "A" then
+		-- Y SIN NADA COGIDO, NADA. No hay barra delante: la tecla caeria sobre
+		-- un hueco que el jugador no esta viendo.
+		local st = ns.Dock:State()
+		if st == "0" then return end
+
+		if st == "A" then
 			local owner = ns.Dock:Subject()
 			if not owner then return end
 			ns.Skills:Use(owner, i, "main")
@@ -657,12 +662,31 @@ end
 
 function C:Layout()
 	if not self.active then return end
-	if ns.Dock:State() == "A" then
+	local st = ns.Dock:State()
+	if st == "0" then
+		-- SIN NADA COGIDO no hay estado que dibujar: se quita todo y se sale
+		-- antes de repintar, que es lo unico que podria volver a encenderlo.
+		self:Blank()
+		return
+	end
+	if st == "A" then
 		self:LayoutA()
 	else
 		self:LayoutB()
 	end
 	self:Refresh()
+end
+
+-- Todo quitado, sin soltar las teclas ni el gesto armado. Lo usan el estado
+-- vacio y `Leave`, que ademas suelta esas dos cosas.
+function C:Blank()
+	self:HidePicker()
+	HideAll(spellBtn)
+	if headName then headName:Hide() end
+	for _, col in pairs(colBtn) do
+		if col.head then col.head:Hide() end
+		HideAll(col.spells)
+	end
 end
 
 function C:LayoutA()
@@ -882,17 +906,16 @@ function C:Leave()
 	self.active = false
 	self:ReleaseKeys()
 	self.pendingFocus = nil
-	self:HidePicker()
-	HideAll(spellBtn)
-	if headName then headName:Hide() end
-	for _, col in pairs(colBtn) do
-		if col.head then col.head:Hide() end
-		HideAll(col.spells)
-	end
+	self:Blank()
 end
 
 function C:Report()
 	local owner = ns.Dock:Subject()
+	if not owner then
+		ns.Print("|cffffff00slots|r -- |cff888888nobody picked: no bar is drawn.|r")
+		ns.Print("  the spell list: |cffffff00/rts skills|r")
+		return
+	end
 	ns.Print(("|cffffff00slots of|r |cff33ccff%s|r"):format(tostring(owner)))
 	ns.Print(("  looks after: %s"):format(self.focus[owner] or "|cff888888nobody|r"))
 	ns.Print("  the spell list: |cffffff00/rts skills|r")
