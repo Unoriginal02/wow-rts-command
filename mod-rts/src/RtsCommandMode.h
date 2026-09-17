@@ -148,16 +148,22 @@ namespace rts
         // === roles ==========================================================
         //
         // A role is a playerbots COMBAT STRATEGY, not something this module
-        // invents: `tank`, `dps`, `heal` and `cc` are registered per class in
-        // mod-playerbots' own class contexts (DruidAiObjectContext.cpp:34,
-        // PaladinAiObjectContext.cpp:93-95, and so on), and `passive` is the
-        // one the borrow-a-bot path above already uses to stand a bot down.
+        // invents, and `passive` is the one the borrow-a-bot path above already
+        // uses to stand a bot down.
         //
-        // WHICH ONES A BOT HAS IS ASKED, NOT ASSUMED. A warrior has no `heal`
-        // and a mage no `tank`, and writing that table by class in the addon
-        // would be fifty names from memory -- the mistake this project keeps
-        // paying for. `AiObjectContext::GetSupportedStrategies()` answers it
-        // for the bot in front of us, so the addon draws what exists.
+        // BUT A ROLE IS NOT ONE STRATEGY: IT IS A HANDFUL OF NAMES. Each class
+        // context registers its own combat vocabulary -- a warrior's dps is
+        // `arms` or `fury`, a shaman's heal is `resto`, a holy priest's is
+        // `holy heal` -- and on top of that the engine stores a strategy under
+        // the name it gives ITSELF, which is not always the name you asked for.
+        // The table in the .cpp holds every name each role goes by, with the
+        // evidence written next to it.
+        //
+        // WHICH ONES A BOT HAS IS ASKED, NOT ASSUMED. A warrior has no heal and
+        // a mage no tank, and writing that table by class in the addon would be
+        // fifty names from memory -- the mistake this project keeps paying for.
+        // `AiObjectContext::GetSupportedStrategies()` answers it for the bot in
+        // front of us, so the addon draws what exists.
         struct Role
         {
             std::string name;      // the playerbots strategy name
@@ -167,9 +173,12 @@ namespace rts
         std::vector<Role> Roles(Player* master, std::string const& botName);
 
         // Turn one on or off. `tank`, `dps` and `heal` are mutually exclusive --
-        // they are the class's combat stance and playerbots' own `co` command
+        // they are what the bot does in a fight and playerbots' own `co` command
         // treats them the same way -- while `cc` and `passive` are independent
         // toggles that ride on top.
+        //
+        // Switching away from a role remembers the exact strategy that was on,
+        // so switching back restores it rather than the first name that fits.
         bool SetRole(Player* master, std::string const& botName,
                      std::string const& role, bool on);
 

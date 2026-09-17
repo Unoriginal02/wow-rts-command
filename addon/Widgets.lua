@@ -25,7 +25,16 @@ local W = {}
 ns.W = W
 
 -- Tamanos de fuente en pixeles de DIBUJO. ~2x lo que se quiere ver.
-W.FONT = { tiny = 18, small = 22, normal = 26, big = 32 }
+-- `mini` ES EL DE LOS ROTULOS, no el de nada que se pulse: los nombres de la
+-- barra de abajo y la palabra del rol. A escala de pixel son pixeles de
+-- pantalla, asi que 17 es poco mas que el texto normal del cliente (doce) --
+-- que es lo que se pedia el 2026-09-17: el nombre estaba dibujado mas grande
+-- que nada y lo que se usa son los huecos, no el rotulo.
+--
+-- Empezo en 15 esa misma tarde y subio a 17 en la vuelta siguiente ("un poco
+-- mas grande"). Se queda el numero, no dos: el rotulo del rol es hermano del
+-- nombre y tienen que leerse como una sola voz.
+W.FONT = { mini = 17, tiny = 18, small = 22, normal = 26, big = 32 }
 
 -- La textura de barra del propio cliente. Lisa, con un brillo suave arriba, y
 -- es la que el jugador ya tiene en la retina de los marcos de objetivo.

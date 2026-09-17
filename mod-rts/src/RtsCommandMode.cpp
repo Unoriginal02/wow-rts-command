@@ -607,33 +607,134 @@ bool rts::command::Aim(Player* master, std::string const& botName, ObjectGuid ta
 
 namespace
 {
-    // The five that mean something as a role. Every one of them is a strategy
-    // name taken from mod-playerbots' own source, not invented here:
+    // A ROLE IS A WORD FOR THE PLAYER. A STRATEGY IS A WORD FOR PLAYERBOTS.
+    // THEY ARE ONLY THE SAME WORD FOR SOME CLASSES, and this file used to
+    // assume they always were -- which is why a level 9 priest read as having
+    // no role at all while she was standing there healing.
     //
-    //   tank/dps/heal  the class combat stances (PaladinAiObjectContext.cpp:93)
-    //   cc             crowd control (DruidAiObjectContext.cpp:34)
-    //   passive        stand down -- the same one Suppress() uses above
+    // Every class context registers its own combat vocabulary and
+    // `AiFactory::AddDefaultCombatStrategies` switches on the spec tab to pick
+    // one of them. Only the paladin uses the three generic words throughout:
     //
-    // The list being a constant is fine BECAUSE nothing is assumed from it:
-    // each name is checked against the bot's own supported set before it is
-    // offered, so a class that lacks one simply does not get the button. A
-    // sixth can be added here and it appears wherever it exists.
-    char const* const kRoleNames[] = { "tank", "dps", "heal", "cc", "passive" };
+    //     warrior   prot -> tank      arms -> arms        fury -> fury
+    //     paladin   prot -> tank      holy -> heal        ret  -> dps
+    //     priest    disc -> heal      holy -> holy heal   shadow -> see below
+    //     druid     feral-> bear/cat  balance -> balance  resto -> resto
+    //     shaman    resto-> resto     ele  -> ele         enh  -> enh
+    //     dk        blood-> blood     frost-> frost       unholy -> unholy
+    //     mage      arcane/fire/frostfire/frost      hunter   bm/mm/surv
+    //     rogue     melee/dps                        warlock  affli/demo/destro
+    //
+    // AND THE STORED NAME IS NOT ALWAYS THE NAME YOU ASK FOR. Engine::addStrategy
+    // keys the engine by `strategy->getName()` (Engine.cpp:353-364), while
+    // HasStrategy and removeStrategy are exact lookups on that key. So asking a
+    // priest for `+dps` builds ShadowPriestStrategy, which calls itself
+    // `shadow` -- and `HasStrategy("dps")` is then FALSE on a bot that is
+    // running the dps strategy you just switched on. The same aliasing is in
+    // the shaman (`dps` -> `enh`, `heal` -> `resto`, `caster` -> `ele`), the
+    // druid (`dps` -> `cat`, `tank` -> `bear`) and the dk (`tank` -> `blood`).
+    //
+    // So each role carries EVERY name it can go by -- the ones you can ask for
+    // and the ones it ends up stored under -- and the three uses of that list
+    // are three different questions:
+    //
+    //     CAN IT      any of the names is in GetSupportedStrategies()
+    //     IS IT ON    any of the names answers HasStrategy (the stored one)
+    //     TURN IT ON  the first SUPPORTED name, which is an alias by definition
+    //
+    // The order inside a role only matters for the last one, and it puts the
+    // generic word first so that a class which has it uses it.
+    struct RoleDef
+    {
+        char const* role;
+        std::vector<char const*> names;
+    };
 
-    // Turning one of these on turns the other two off. They are the class's
-    // combat stance -- bear or cat, holy or ret -- and having two at once is
-    // not a configuration, it is a bug you would spend a fight diagnosing.
+    std::vector<RoleDef> const& RoleTable()
+    {
+        static std::vector<RoleDef> const table = {
+            { "tank", { "tank", "bear", "blood" } },
+            { "dps",  { "dps", "arms", "fury", "shadow", "holy dps",
+                        "cat", "balance", "melee", "caster", "ele", "enh",
+                        "bm", "mm", "surv", "arcane", "fire", "frostfire",
+                        "frost", "affli", "demo", "destro", "unholy" } },
+            { "heal", { "heal", "holy heal", "resto" } },
+            // These two are exact: one name each, registered generically, and
+            // they mean the same thing for every class.
+            { "cc",      { "cc" } },
+            { "passive", { "passive" } },
+        };
+        return table;
+    }
+
+    RoleDef const* FindRole(std::string const& role)
+    {
+        for (RoleDef const& d : RoleTable())
+            if (role == d.role)
+                return &d;
+        return nullptr;
+    }
+
+    // Turning one of these on turns the other two off. They are what the bot
+    // does in a fight -- hold the line, deal damage, keep people up -- and
+    // having two at once is not a configuration, it is a bug you would spend a
+    // fight diagnosing.
     bool IsStance(std::string const& name)
     {
         return name == "tank" || name == "dps" || name == "heal";
     }
+
+    // WHICH NAME OF A ROLE THIS BOT IS ACTUALLY RUNNING, or empty. It is also
+    // the only name that can switch it OFF: removeStrategy is an exact lookup
+    // on the stored name, so `-dps` on a priest running `shadow` removes
+    // nothing at all and leaves her doing two jobs at once.
+    std::string RunningName(Player* bot, RoleDef const& def)
+    {
+        for (char const* n : def.names)
+            if (rts::bots::Has(bot, n, rts::bots::COMBAT))
+                return n;
+        return std::string();
+    }
+
+    // WHAT WE TOOK OFF, SO THAT IT CAN GO BACK ON AS IT WAS. bot -> role -> name.
+    //
+    // Without it, cycling away from a holy priest and back turns her into a
+    // discipline one: both are `heal`, and "the first supported name" cannot
+    // tell them apart. It is the capture-and-restore rule `Suppress` above
+    // already follows with `passive`, for the same reason -- an explicit
+    // setting undone as a side effect of another is the kind of change nobody
+    // connects back to what they pressed.
+    //
+    // Session-lived and tiny: one entry per bot actually cycled. It is not
+    // persistence -- playerbots saves the strategies themselves.
+    std::unordered_map<ObjectGuid, std::unordered_map<std::string, std::string>> g_lastOf;
+}
+
+// TU PROPIO PERSONAJE CUENTA AQUI, y es la excepcion de `SpellSubject` otra vez.
+//
+// `ResolveBot` rechaza a proposito que te resuelvas a ti mismo, para que nadie
+// se mande ordenes de bot a su propio personaje -- y ahi esta bien. Pero un ROL
+// no es una orden que se le da a otro: es leer y escribir el motor de combate de
+// quien lo tenga, y con el selfbot puesto (`.playerbots bot self`) el tuyo tiene
+// uno igual que los demas. Rechazarlo era decir "tu heroe no puede tener rol"
+// cuando lo que pasaba es que no se le preguntaba.
+//
+// SIN SELFBOT NO CAMBIA NADA: `Driven` es falso dos lineas mas abajo y la
+// respuesta sigue siendo la lista vacia.
+static Player* RoleSubject(Player* master, std::string const& name)
+{
+    if (!master)
+        return nullptr;
+    if (name.empty() || name == master->GetName())
+        return master;
+    return rts::bots::Resolve(master, name);
 }
 
 std::vector<rts::command::Role> rts::command::Roles(Player* master, std::string const& botName)
 {
     std::vector<Role> out;
 
-    Player* bot = ResolveBot(master, botName);
+    Player* bot = RoleSubject(master, botName);
     if (!rts::bots::Driven(bot))
         return out;
 
@@ -641,19 +742,36 @@ std::vector<rts::command::Role> rts::command::Roles(Player* master, std::string 
     if (supported.empty())
         return out;
 
-    for (char const* name : kRoleNames)
+    for (RoleDef const& def : RoleTable())
     {
-        if (!supported.count(name))
-            continue;
+        bool can = false;
+        for (char const* n : def.names)
+            if (supported.count(n))
+            {
+                can = true;
+                break;
+            }
 
-        Role r;
-        r.name = name;
+        std::string const running = RunningName(bot, def);
+
         // `passive` cuenta como puesto si lo esta en CUALQUIERA de los dos
         // estados: es lo que hace que un bot dejado pasivo por `Hold` se vea
         // encendido en la fila y se pueda apagar desde ahi.
-        r.active = rts::bots::Has(bot, name, rts::bots::COMBAT)
-                || (std::string(name) == "passive"
-                    && rts::bots::Has(bot, name, rts::bots::IDLE));
+        bool on = !running.empty();
+        if (!on && std::string(def.role) == "passive")
+            on = rts::bots::Has(bot, "passive", rts::bots::IDLE);
+
+        // ON BUT NOT LISTED IS STILL ON, and it gets reported. The two answers
+        // come from different places -- what the class can build against what
+        // the engine is holding right now -- and dropping a role the bot is
+        // visibly running because the other list did not mention it is the
+        // exact failure this whole table exists to undo.
+        if (!can && !on)
+            continue;
+
+        Role r;
+        r.name = def.role;
+        r.active = on;
         out.push_back(r);
     }
 
@@ -663,26 +781,72 @@ std::vector<rts::command::Role> rts::command::Roles(Player* master, std::string 
 bool rts::command::SetRole(Player* master, std::string const& botName,
                            std::string const& role, bool on)
 {
-    Player* bot = ResolveBot(master, botName);
+    Player* bot = RoleSubject(master, botName);
     if (!rts::bots::Driven(bot) || role.empty())
         return false;
 
-    if (!rts::bots::Supported(bot).count(role))
+    RoleDef const* def = FindRole(role);
+    if (!def)
         return false;
 
-    // The stance goes first and alone: drop the other two before adding this
-    // one, so there is never an instant with two of them on.
+    std::set<std::string> const supported = rts::bots::Supported(bot);
+
+    // The other two go first, and by their RUNNING name: see `RunningName`.
     if (on && IsStance(role))
     {
-        for (char const* other : kRoleNames)
+        for (RoleDef const& other : RoleTable())
         {
-            if (role != other && IsStance(other)
-                && rts::bots::Has(bot, other, rts::bots::COMBAT))
-                rts::bots::Change(bot, std::string("-") + other, rts::bots::COMBAT);
+            if (role == other.role || !IsStance(other.role))
+                continue;
+
+            std::string const running = RunningName(bot, other);
+            if (running.empty())
+                continue;
+
+            g_lastOf[bot->GetGUID()][other.role] = running;
+            rts::bots::Change(bot, "-" + running, rts::bots::COMBAT);
         }
     }
 
-    rts::bots::Change(bot, (on ? "+" : "-") + role, rts::bots::COMBAT);
+    if (on)
+    {
+        // Already running it: re-assert the very same name instead of picking
+        // another of its aliases, which would swap the spec for no reason.
+        std::string wanted = RunningName(bot, *def);
+
+        if (wanted.empty())
+        {
+            auto const bank = g_lastOf.find(bot->GetGUID());
+            if (bank != g_lastOf.end())
+            {
+                auto const seen = bank->second.find(role);
+                if (seen != bank->second.end() && supported.count(seen->second))
+                    wanted = seen->second;
+            }
+        }
+
+        if (wanted.empty())
+            for (char const* n : def->names)
+                if (supported.count(n))
+                {
+                    wanted = n;
+                    break;
+                }
+
+        if (wanted.empty())
+            return false;
+
+        rts::bots::Change(bot, "+" + wanted, rts::bots::COMBAT);
+    }
+    else
+    {
+        std::string const running = RunningName(bot, *def);
+        if (!running.empty())
+        {
+            g_lastOf[bot->GetGUID()][role] = running;
+            rts::bots::Change(bot, "-" + running, rts::bots::COMBAT);
+        }
+    }
 
     // `passive` VA EN LOS DOS ESTADOS, y las demas no. Las tres posturas
     // (tank/dps/heal) solo significan algo en combate, pero "esperar" significa

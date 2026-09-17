@@ -1050,6 +1050,7 @@ local HELP = {
 	"|cffffff00/rts win|r - the floating windows; |cffffff00/rts win reset|r recentres them",
 	"|cffffff00/rts skin|r - WC3 or flat look; |cffffff00/rts skin wall <path>|r swaps one piece",
 	"|cffffff00/rts dock|r - the bottom bar: state, slot size, columns",
+	"|cffffff00/rts roles|r - what tank/dps/heal each one has, and which is on",
 	"|cffffff00/rts bring|r - teleports them to your side AND they follow you",
 	"|cffffff00/rts chat|r - the bots' gossip dump; |cffffff00show|r brings it back, |cffffff00off|r lets it through",
 	"|cffffff00/rts invite|r - puts your bots in the party; |cffffff00list|r shows or changes them",
@@ -1346,6 +1347,13 @@ SlashCmdList["RTSCOMMAND"] = function(msg)
 
 	elseif cmd == "dock" or cmd == "barra" then
 		ns.Dock:Report()
+
+	-- LOS ROLES, QUE SE MIRAN CUANDO LA FILA NO DICE LO ESPERADO. Es la unica
+	-- forma de ver la lista ENTERA que contesta el servidor -- la fila solo
+	-- dibuja las tres que se pueden rotar, y `cc` o `passive` puestos explican
+	-- comportamientos que desde la fila no se ven.
+	elseif cmd == "roles" or cmd == "rol" then
+		ns.Roles:Report()
 
 	elseif cmd == "tray" or cmd == "bandeja" then
 		local sub = (rest or ""):lower():match("^(%S*)") or ""

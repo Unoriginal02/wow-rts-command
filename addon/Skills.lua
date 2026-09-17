@@ -554,6 +554,19 @@ end
 -- una cura; para el tercer golpe sobre el mismo bicho es una pulsacion de mas
 -- por cada uno, y el objetivo lleva ahi desde el primero.
 
+-- UN HECHIZO A TU PROPIO HEROE, SIEMPRE SOBRE SI MISMO. Lo usa la fila de roles
+-- (`Roles.lua`) para las posturas, que son hechizos y no estrategias.
+--
+-- EL GUID PROPIO VA PUESTO A PROPOSITO, y no es de adorno: `SELFCAST` sin
+-- objetivo usa EL QUE TENGAS APUNTADO, y el servidor rechaza un hechizo
+-- positivo lanzado sobre un enemigo (`RtsOrders.cpp`, "ese hechizo no va contra
+-- ese objetivo"). Como en modo RTS lo normal es tener algo apuntado, sin esto
+-- la postura defensiva fallaria justo cuando hace falta -- en combate.
+function K:SelfCast(spellId)
+	if not spellId then return end
+	Fire(ns.MyName(), spellId, UnitGUID("player"))
+end
+
 function K:Use(name, i, set)
 	name = name or ns.Selection:GetPrimary()
 	local s = self:Slots(name, nil, set)[i]

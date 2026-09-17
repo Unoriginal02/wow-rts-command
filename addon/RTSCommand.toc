@@ -28,6 +28,7 @@ Standby.lua
 Pixels.lua
 Dock.lua
 Cast.lua
+Roles.lua
 Actions.lua
 Tray.lua
 Portraits.lua

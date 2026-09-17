@@ -9,10 +9,10 @@
 
 	  +---------------------------------------------------------------+
 	  |                                                               |
-	  |              Bob  (dps)                                       |
+	  |              Bob                                              |
 	  |        [1][2][3][4][5][6][7][8][9][0]    [M][M][M][M]         |
-	  |                                          [M][M][M][M]         |
-	  |                                          [bags]               |
+	  |        [ ][ ][ ][ ][ ][ ][ ][ ][ ][ ]    [M][M][M][M]         |
+	  |        [  TANK  ]                        [bags]               |
 	  |                                          [char][talents]...   |
 	  +---------------------------------------------------------------+
 
@@ -31,20 +31,27 @@
 	  A  none or one      the name and TEN slots
 	  B  two or more      one column per head: name and a 2x2 of FOUR
 
-	AND ONLY THE NAME. There was a STANCE label next to it, which showed the
-	playerbots role (tank/dps/heal) and let you change it. It was deleted whole
-	the same day it was born, for two reasons that go together:
+	THE NAME ABOVE AND THE ROLE BELOW, and both of them are SMALL. The caption
+	used to be 32 pixels tall -- wider, on a long name, than half the row of
+	slots underneath it -- which put the most weight on the screen on the one
+	thing you already know. The slots are what gets used; the name is only there
+	to say whose they are.
 
-	  - It was not what was asked for. A warrior's "combat stance" is battle,
-	    defensive or berserker; the playerbots role is another thing and putting
-	    it there under that name was answering a different question.
-	  - And what was being asked for NEEDS NO INTERFACE. A stance is a SPELL:
-	    yours fits in a macro (`/cast Defensive Stance`) that gets dragged onto
-	    the tray, and a bot's shows up in its spell list, so it goes into one of
-	    its ten slots with a right-click. A button of its own for that would be
-	    a third way of doing what two already do.
+	THE ROLE ROW IS NOT THE STANCE LABEL THAT WAS DELETED ON 2026-09-13, and
+	the difference is the whole reason it can come back:
 
-	The bots' role is decided by playerbots, whose it is.
+	  - That one was called STANCE and showed the playerbots role, which is
+	    answering a different question: a warrior's combat stance is battle,
+	    defensive or berserker, and that is a SPELL -- a macro for your hero, a
+	    spell slot for a bot. It still is, and this row does not touch it.
+	  - This one says what it is: the playerbots ROLE (tank/dps/heal), which is
+	    a combat strategy of its own and has no spell to cast. `Roles.lua` has
+	    the long version, including why cycling it is one click and not a menu.
+
+	Only the AREA is decided here. It is reserved in both states and it is
+	reserved even for a character that has no roles -- your own hero -- because
+	the alternative is a bar that changes height as you click from a bot to
+	yourself and back.
 
 	WITH NOTHING SELECTED IT IS YOU WHO SHOWS UP, and this is the opposite of
 	what the hall did. There the centre emptied when the selection was let go,
@@ -133,11 +140,23 @@ local MAIN_TOTAL = MAIN_N * MAIN_ROWS
 local B_SLOTS = 4       -- the 2x2 of state B
 local B_COLS, B_ROWS = 2, 2
 
-local HEAD_H   = 32     -- the header of state A: the name
-local HEAD_GAP = 8
-local B_HEAD_H = 26
-local B_HEAD_GAP = 6
+-- THE CAPTIONS, CUT DOWN ON 2026-09-17. They were 32 and 26 -- the name drawn
+-- bigger than anything else down here, which is backwards: the slots are what
+-- gets used and the name only says whose they are. Both are now one line of
+-- `FONT.mini` plus a little air, which is what `Cast` draws them at.
+local HEAD_H   = 20     -- the header of state A: the name
+local HEAD_GAP = 6
+local B_HEAD_H = 18
+local B_HEAD_GAP = 4
 local COL_GAP  = 30     -- between columns of state B
+
+-- THE ROLE ROW, UNDER THE SLOTS. `Roles.lua` draws it; what is decided here is
+-- that the room is ALWAYS there -- in both states, and for a character that has
+-- no roles to show as well. Reserving it only when there is something to draw
+-- would move the whole bar up and down as you click from a bot to your own
+-- hero, and a bar that jumps is worse than a gap that does not.
+local ROLE_H   = 20
+local ROLE_GAP = 5
 
 -- FIVE BY TWO, TEN SQUARES. It started at four by two and fell short as soon
 -- as it was used: eight orders do not cover the basic command set (follow,
@@ -238,14 +257,16 @@ local function Recompute()
 		local w = MAIN_N * s + GAP * (MAIN_N - 1)
 		local h = MAIN_ROWS * s + GAP * (MAIN_ROWS - 1)
 		D.leftW = w
-		D.leftH = HEAD_H + HEAD_GAP + h
+		D.leftH = HEAD_H + HEAD_GAP + h + ROLE_GAP + ROLE_H
 		Rect("head",   0, 0, w, HEAD_H)
 		Rect("spells", 0, HEAD_H + HEAD_GAP, w, h)
+		Rect("role",   0, HEAD_H + HEAD_GAP + h + ROLE_GAP, w, ROLE_H)
 		D.cols = 0
 	else
 		local cols = #D:Columns()
 		local colW = B_COLS * s + GAP * (B_COLS - 1)
-		local colH = B_HEAD_H + B_HEAD_GAP + B_ROWS * s + GAP * (B_ROWS - 1)
+		local slots = B_ROWS * s + GAP * (B_ROWS - 1)
+		local colH = B_HEAD_H + B_HEAD_GAP + slots + ROLE_GAP + ROLE_H
 		D.colW, D.colH = colW, colH
 		D.cols = cols
 		D.leftW = cols * colW + COL_GAP * math.max(cols - 1, 0)
@@ -356,8 +377,25 @@ function D:MacroCells()
 	return out
 end
 
+-- THE ROLE CELL OF A STATE B COLUMN, in coordinates of that column's frame --
+-- the same shape `ColumnSpellCells` returns, and for the same reason: the
+-- column's contents are drawn by two files now (`Cast` the slots, `Roles` the
+-- row underneath) and neither of them should be redoing this sum.
+--
+-- In state A it is not a cell but an area of its own (`Dock:Host("role")`),
+-- because there the row hangs off the whole bar and not off a column.
+function D:RoleCell()
+	local s = self.slot or 0
+	if s <= 0 then return nil end
+	local y = B_HEAD_H + B_HEAD_GAP + B_ROWS * s + GAP * (B_ROWS - 1) + ROLE_GAP
+	return { x = 0, y = y, w = self.colW or 0, h = ROLE_H }
+end
+
 function D:HeadHeight()  return HEAD_H end
 function D:BHeadHeight() return B_HEAD_H end
+function D:RoleHeight()  return ROLE_H end
+function D:SlotSize()    return self.slot or 0 end
+function D:Gap()         return GAP end
 function D:ColWidth()    return self.colW or 0 end
 function D:Margin()      return MARGIN end
 function D:FootPad()     return FOOT_PAD end

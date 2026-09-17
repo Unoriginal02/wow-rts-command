@@ -123,23 +123,32 @@ local colBtn = {}         -- ci -> { head, spells = {} }
 local headName
 local flyout
 
---- The names, clipped by length --------------------------------------------
+--- The names, small, and clipped by length ---------------------------------
 --
--- A name on this client runs to twelve letters, and at size 32 that is a label
--- wider than half a row of slots: the caption weighed more than what is below
--- it, which is what actually gets used. So it gets cut.
+-- SMALL SINCE 2026-09-17, and that is the whole point of them. A name on this
+-- client runs to twelve letters, and at size 32 that was a label wider than
+-- half the row of slots underneath it: the caption weighed more on the screen
+-- than the thing that actually gets used. Both states now draw it at
+-- `FONT.mini`, which is a shade over the size the client writes its own text
+-- at -- a caption, not a headline.
+--
+-- AND THE CUT COMES BACK ALMOST TO NOTHING. It was there because the label was
+-- huge, not because names are long: at this size twelve letters fit in the ten
+-- slots with room to spare, and they nearly fit in one state B column. So the
+-- big caption is not cut at all (twelve is the client's own ceiling) and the
+-- column one only gives up its last letters.
 --
 -- NO ELLIPSIS, on purpose: the three dots give back nearly all the width you
 -- just took away, so they would be the same problem written another way. And a
 -- cut name is just as recognisable: they are the five in your group, not a list
 -- of strangers.
 --
--- The state B column is cut shorter than the big caption because it is
--- narrower -- there was already a `SetWidth` there so that a long name would
--- not draw on top of the one next to it, but a `SetWidth` does not clip: IT
--- BREAKS INTO TWO LINES, and the second one spills out of the header's height.
-local NAME_A = 10         -- the big caption, above the ten slots
-local NAME_B = 8          -- the one on each column
+-- The `SetWidth` on the column caption stays and is NOT what clips: a
+-- FontString with a width BREAKS INTO TWO LINES, and the second one spills out
+-- of the header's height. It is there so a long name does not draw on top of
+-- the column next to it.
+local NAME_A = 12         -- the caption above the ten slots
+local NAME_B = 11         -- the one on each column
 
 local function Clip(name, max)
 	name = tostring(name or "")
@@ -667,7 +676,7 @@ function C:LayoutA()
 	if not (hHost and sHost) then return end
 
 	if not headName then
-		headName = ns.W:Text(hHost, ns.W.FONT.big)
+		headName = ns.W:Text(hHost, ns.W.FONT.mini)
 		headName:SetJustifyH("LEFT")
 	end
 	headName:SetParent(hHost)
@@ -698,7 +707,7 @@ function C:LayoutB()
 		local col = colBtn[ci]
 		if not col then
 			col = { spells = {} }
-			col.head = ns.W:Text(h, ns.W.FONT.normal)
+			col.head = ns.W:Text(h, ns.W.FONT.mini)
 			col.head:SetJustifyH("LEFT")
 			colBtn[ci] = col
 		end
