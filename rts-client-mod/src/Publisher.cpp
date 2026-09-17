@@ -9,6 +9,7 @@
 #include "MainThreadHook.h"
 #include "Circle.h"
 #include "Plates.h"
+#include "Steady.h"
 #include "SelfShow.h"
 #include "CursorRay.h"
 #include "Highlight.h"
@@ -26,13 +27,14 @@ namespace {
 // is that the function no longer exists. You do not go back, you go forward by
 // removing.
 //
+// 0.32.0 = the AFK loop is cut at the client, and the camera stops blinking.
 // 0.31.0 = nameplates under the free camera: the gate gets its own reference.
 // 0.30.0 = the click ray: cast from the mouse MESSAGE's pixel, at the press.
 // 0.28.0 = the DLL writes bit 19: the server cannot carry it set.
 // 0.27.0 = "I can attack" comes back armed with the flags: one of the two gates.
 // 0.26.0 = the switch that gives "I can attack" back (the bit 19 veto).
 // 0.25.0 = the camera's ground is published TWICE, with and without buildings.
-constexpr const char* kVersion = "0.31.0";
+constexpr const char* kVersion = "0.32.0";
 constexpr int kProtocol = 3;
 
 // Every published unit costs ~110 bytes of Lua source that the client parses on
@@ -512,6 +514,14 @@ void Publish() {
         plates::Tick();
     } __except (EXCEPTION_EXECUTE_HANDLER) {
         RTS_LOG("plates: tick faulted -- rotulos sin tocar este tick");
+    }
+
+    // El AFK en bucle y la camara que lo acompañaba. Se arma con el bit 22 y se
+    // devuelve al salir del modo RTS. Ver Steady.h.
+    __try {
+        steady::Tick();
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        RTS_LOG("steady: tick faulted -- sin tocar nada este tick");
     }
 
     // Virtual-vs-raw position check. This used to run once a SECOND, forever,

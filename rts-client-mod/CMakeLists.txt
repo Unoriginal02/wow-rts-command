@@ -33,6 +33,7 @@ add_library(rts_core SHARED
     src/Circle.cpp
     src/SelfShow.cpp
     src/Plates.cpp
+    src/Steady.cpp
 )
 target_include_directories(rts_core PRIVATE src)
 target_compile_definitions(rts_core PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)

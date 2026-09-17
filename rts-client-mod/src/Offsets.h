@@ -732,4 +732,50 @@ constexpr float    kPlateRangeSqStock = 1681.0f;   // 41 yards
 // "ordinary play". Same camera chain as kWorldFrameBase/kCameraPtrOffset.
 constexpr uint32_t kCam_TargetGuid = 0x88;
 
+// ---------------------------------------------------------------------------
+// THE AFK PING-PONG, and why it shook the camera. (2026-09-17)
+//
+// Symptom: after a while idle in RTS mode, "now you are away" spams the chat
+// and the camera jumps in and out of the mode many times a second.
+//
+// It is ONE loop with two halves, and neither half is in this addon:
+//
+//   1. THE CLIENT. After five minutes with no input it calls its auto-AFK
+//      EVERY FRAME (0x0052B24C reads the last-input stamp and compares it with
+//      0x493E0 = 300000 ms; 0x1B7740 = 30 min is the idle logout further on).
+//      The only thing stopping it from firing every frame is a latch,
+//      0x00BCEFEC, which `MarkAFK` (0x006DC640) sets when it prints the message
+//      and sends CHAT_MSG_AFK, and which `ClearAFK` (0x006D52D0) clears from
+//      every input handler.
+//
+//   2. PLAYERBOTS. `PlayerbotAI::DoNextAction` ends with
+//      `else if (bot->isAFK()) bot->ToggleAFK();` -- with the selfbot on, your
+//      own hero has the flag taken off him on every AI pass. The client, moved
+//      by the bot, clears its latch too; still idle, it marks AFK again on the
+//      next frame. Round and round.
+//
+// AND THE CAMERA RIDES ON IT. `Player::ToggleAFK` is `ToggleFlag(PLAYER_FLAGS)`,
+// so every turn of the loop sends a PLAYER_FLAGS update -- which overwrites the
+// client's copy, and with it BIT 19, which exists ONLY in the client's memory
+// (see the block above; the core forbids attacking to whoever carries it, so
+// the server cannot send it). For the frames between the update and the DLL's
+// next tick, `0x006DE980` answers "not a spectator", and
+// `CGWorldFrame::UpdateCamera` re-attaches the camera to the hero -- the free
+// camera collapses and comes back. That is the "battle of titans".
+//
+// Two cures, both in `Steady.cpp`, both armed by BIT 22 (which the server does
+// send, so no update can wipe it) and both given back on the way out:
+//
+//   * the last-input stamp is kept fresh, so the client never thinks it is
+//     idle and the loop never starts. It is the truth, too: commanding an army
+//     is not being away from the keyboard.
+//   * call site [0] of the spectator predicate -- the camera's own, and only
+//     that one -- is made to answer "yes" without asking, so a PLAYER_FLAGS
+//     update landing between two ticks can no longer pull the camera back.
+//     `call rel32` (5 bytes) -> `mov al,1` + three nops: same length, and the
+//     other seventeen callers keep asking the real question.
+constexpr uint32_t kIdleInputStamp = 0x00B499A4;  // ms, the client's own clock
+constexpr uint32_t kClientTimeMs   = 0x0086AE20;  // uint32 __cdecl(void), ms
+constexpr uint32_t kCamSpecCall    = 0x004FA69D;  // == kSpecCallSites[0]
+
 }  // namespace off

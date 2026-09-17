@@ -411,6 +411,26 @@ the camera flew off into the distance and under the floor. Now the addon polls
 `CommentatorGetCamera()` — which returns six numbers only once the door is open
 — and **only then** asks to arm.
 
+**Bit 19 is written every tick, and that is not belt-and-braces.** Any
+`PLAYER_FLAGS` update from the server overwrites the client's copy of the field
+and takes bit 19 with it, because the server does not have it — rested, group
+leader, PvP, and above all **AFK** resend that field. For the frames between
+the update and the DLL's next tick the predicate answers "not a spectator" and
+`CGWorldFrame::UpdateCamera` re-attaches the camera to the hero: the free camera
+collapses and comes back. So since 0.32.0 the camera's own call to that
+predicate (`0x004FA69D`, call site [0] of eighteen) is made to answer yes while
+bit 22 is on, and the answer can no longer blink. `Steady.cpp`.
+
+**The AFK ping-pong, cut on the client side.** Five minutes idle and the client
+marks you away *every frame it is allowed to* (`0x0052B24C`; the only brake is a
+latch, `0x00BCEFEC`). With the selfbot on, `PlayerbotAI::DoNextAction` takes the
+AFK flag off your hero on every AI pass — so the latch clears, the client marks
+again, and each turn resends `PLAYER_FLAGS` and spams one chat line. Playerbots
+is not ours to edit, so the loop is cut at its other end: while RTS mode is on,
+the DLL keeps the last-input stamp (`0x00B499A4`) fresh, and the client never
+believes it is idle. The cost is that there is no auto-AFK and no idle logout
+while RTS mode is on. `Steady.cpp`.
+
 **How control is divided:**
 
 - **We own POSITION.** One write per frame,

@@ -8,6 +8,7 @@
 
 #include "Circle.h"
 #include "Plates.h"
+#include "Steady.h"
 #include "SelfShow.h"
 #include "Log.h"
 #include "MainThreadHook.h"
@@ -74,6 +75,7 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID) {
             mainthread::Remove();
             selfshow::Shutdown();
             plates::Shutdown();
+            steady::Shutdown();
             circle::Remove();
             rtslog::Shutdown();
             break;
