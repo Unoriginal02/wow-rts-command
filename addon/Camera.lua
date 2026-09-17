@@ -94,7 +94,7 @@ local FOV_CVAR = "rtsFov"
 
 local CVARS = {
 	"cameraSmoothStyle", "cameraDistanceMaxFactor", "cameraDistanceMax",
-	FOV_CVAR, "shadowLevel",
+	FOV_CVAR, "shadowLevel", "farclip", "farClipOverride",
 }
 -- A CVAR OF OUR OWN, NOT A BORROWED ONE -- and the borrowed one NEVER EXISTED.
 --
@@ -589,6 +589,36 @@ C.DEFAULTS = {
 	-- 2 enciende la sombra proyectada, que es lo que hace que un personaje se
 	-- despegue del suelo a vista de pajaro; este Config.wtf la trae a 0.
 	shadow = 2,
+
+	-- LA DISTANCIA DE VISION, Y EL TOPE NO ES 777. -1 = no tocarla.
+	--
+	-- El deslizador de opciones para en 777, pero eso es la INTERFAZ. El tope de
+	-- verdad esta en el recorte del cliente (`0x00780770`, leido en el binario,
+	-- que es como se comprueba un numero en este proyecto):
+	--
+	--     minimo            183.33   (0x00A3E708)
+	--     maximo            791.67   (0x00A3E70C)
+	--     maximo "override" 1583.33  (0x00A3E710)
+	--
+	-- y el grande solo se concede si `farClipOverride` vale 1 o mas -- CVar que
+	-- existe en este cliente y que el propio `/rts cam geo` ya inventariaba.
+	-- POR ESO SE ESCRIBEN EN ESE ORDEN cuando se piden: el recorte corre cuando
+	-- se escribe `farclip`, asi que ponerlo primero se queda en 791 y el
+	-- override llegaria tarde.
+	--
+	-- Y EL TOPE GRANDE ES DEL VIEJO MUNDO. El recorte mira el mapa: por debajo
+	-- de 530 (Kalimdor, Reinos del Este) da 1583; Terrallende y Rasganorte se
+	-- quedan en 791 hagamos lo que hagamos. No se avisa por pantalla porque el
+	-- cliente no rechaza nada -- recorta y sigue -- y `/rts cam show` imprime lo
+	-- que se quedo, que es la unica cifra que vale.
+	--
+	-- DE SERIE NO SE TOCA, y eso es lo que decide el modo RTS: el MUNDO se
+	-- dibuja a la distancia que el jugador tenga puesta en las opciones, como
+	-- fuera del modo. Lo que hace falta ver de lejos son los BICHOS, y esos no
+	-- salen de aqui: los manda el servidor (la visibilidad de mod-rts), que es
+	-- otra cifra y no se toca. `/rts cam dist <yardas>` sigue estando para
+	-- pedir la vista larga a mano.
+	dist = -1,
 }
 
 -- EL ENCUADRE VIVO. Lo que `C:Frame()` aplica al entrar en modo RTS.
@@ -617,6 +647,7 @@ C.frame = {
 	zoom = C.DEFAULTS.zoom,
 	fov = C.DEFAULTS.fov,
 	shadow = C.DEFAULTS.shadow,
+	dist = C.DEFAULTS.dist,
 	maxFactor = "4",     -- cameraDistanceMaxFactor: the multiplier cap
 	distanceMax = "50",  -- cameraDistanceMax: the absolute cap, in yards
 }
@@ -716,10 +747,10 @@ function C:Report()
 	local a = C.applied
 	if a then
 		ns.Print(("cvars aplicados: |cff00ff00fov=%s|r (pedido %d) zoomFactor=%s zoomMax=%s " ..
-		          "sombra=%s suavizado=%s")
+		          "sombra=%s suavizado=%s vision=%s")
 			:format(tostring(a.fov), math.floor(fov * 10),
 			        tostring(a.maxFactor), tostring(a.distanceMax),
-			        tostring(a.shadow), tostring(a.smooth)))
+			        tostring(a.shadow), tostring(a.smooth), tostring(a.dist)))
 		-- LA VUELTA COMPLETA, que es lo unico que prueba que el canal esta vivo:
 		-- lo que se pide, lo que se quedo en el CVar, y el angulo con el que el
 		-- DLL dibuja DESPUES de escribirlo. Si los tres no cuadran se sabe en
@@ -787,6 +818,14 @@ function C:Frame()
 	local sh = tonumber(cfg.shadow)
 	if sh and sh >= 0 then SetCVar("shadowLevel", tostring(math.floor(sh))) end
 
+	-- La vista larga, y el override PRIMERO (ver DEFAULTS.dist). Misma regla que
+	-- la sombra: -1 no toca nada, y la captura ya la hizo `HoldCamera`.
+	local di = tonumber(cfg.dist)
+	if di and di >= 0 then
+		SetCVar("farClipOverride", "1")
+		SetCVar("farclip", tostring(math.floor(di)))
+	end
+
 	-- LO QUE EL CLIENTE SE QUEDO, no lo que le pedimos.
 	--
 	-- Un CVar puede recortarse (cameraDistanceMaxFactor tiene tope propio) o no
@@ -800,6 +839,7 @@ function C:Frame()
 		maxFactor   = GetCVar("cameraDistanceMaxFactor"),
 		distanceMax = GetCVar("cameraDistanceMax"),
 		shadow      = GetCVar("shadowLevel"),
+		dist        = GetCVar("farclip"),
 	}
 
 	if RTSCommandDB.camPreset then
@@ -911,6 +951,40 @@ function C:SetFrame(key, value)
 				"No hay mando de tamano ni de dureza en 3.3.5a."):format(cfg.shadow))
 		end
 
+	elseif key == "dist" and n then
+		-- Mismo trato que la sombra: negativo = devolver el mando al cliente.
+		-- El cliente RECORTA en silencio (183..791, o 183..1583 en el
+		-- viejo mundo con el override), asi que se vuelve a leer y se imprime lo
+		-- que se quedo, nunca lo que se pidio.
+		cfg.dist = (n < 0) and -1 or math.floor(n)
+		if cfg.dist < 0 then
+			-- Y DEVOLVER EL MANDO ES APAGAR EL OVERRIDE, no callarse. Ese CVar
+			-- es NUESTRO y se queda escrito en Config.wtf de una sesion para
+			-- otra: restaurando "lo que habia" se devolveria el 1 que dejo la
+			-- sesion anterior, y el mundo seguiria dibujandose a 1583 sin que
+			-- nadie lo haya pedido. Apagado y REESCRITO `farclip`, que es lo que
+			-- vuelve a pasar el recorte (791 sin override); de ahi para abajo
+			-- manda el deslizador de las opciones.
+			SetCVar("farClipOverride", "0")
+			local was = (cvarWas and cvarWas.farclip) or GetCVar("farclip")
+			if was then SetCVar("farclip", was) end
+			if cvarWas then
+				-- Ni se restauran al salir del modo: no eran del jugador.
+				cvarWas.farclip, cvarWas.farClipOverride = nil, nil
+			end
+			ns.Print(("distancia de vision: |cffff0000la del cliente|r, %s yardas " ..
+				"(manda el deslizador de Opciones)"):format(tostring(GetCVar("farclip"))))
+		else
+			HoldCamera({})     -- captura las originales si aun no lo estaban
+			SetCVar("farClipOverride", "1")
+			SetCVar("farclip", tostring(cfg.dist))
+			ns.Print(("distancia de vision: pedidas |cffffff00%d|r, el cliente se " ..
+				"quedo con |cff00ff00%s|r yardas."):format(cfg.dist,
+				tostring(GetCVar("farclip"))))
+			ns.Print("|cff888888Tope 1583 en Kalimdor y Reinos del Este; 791 en " ..
+			         "Terrallende y Rasganorte, y eso no lo decide el addon.|r")
+		end
+
 	elseif key == "zoom" and n then
 		cfg.zoom = math.max(1, math.min(50, n))
 		HoldCamera({ cameraDistanceMaxFactor = cfg.maxFactor })
@@ -926,6 +1000,7 @@ function C:SetFrame(key, value)
 		ns.Print("|cff888888El fov es DIAGONAL, como el del cliente: los 90 de " ..
 		         "siempre son 90 diagonales. 0 = no tocarlo.|r")
 		ns.Print("|cffffff00/rts cam shadow <0-5>|r - sombra bajo los personajes, -1 no tocarla")
+		ns.Print("|cffffff00/rts cam dist <yardas>|r - distancia de vision, -1 no tocarla")
 		return
 	end
 
@@ -939,7 +1014,7 @@ end
 function C:SaveFrame()
 	local f = self.frame
 	RTSCommandDB.camFrame = { tilt = f.tilt, zoom = f.zoom, fov = f.fov,
-	                          shadow = f.shadow }
+	                          shadow = f.shadow, dist = f.dist }
 end
 
 --- EL SONDEO DE LA CAMARA LIBRE DEL CLIENTE ---------------------------------
@@ -1570,6 +1645,8 @@ function C:Create()
 		-- la version que las escribio (la leccion del `grow = 688`).
 		local sh = tonumber(saved.shadow)
 		if sh then self.frame.shadow = (sh < 0) and -1 or math.min(5, math.floor(sh)) end
+		local di = tonumber(saved.dist)
+		if di then self.frame.dist = (di < 0) and -1 or math.floor(di) end
 	end
 
 	-- EL FRAME DE LA CAMARA, que ya no es el del canal. Se queda con sus dos

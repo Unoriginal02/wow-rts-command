@@ -1031,6 +1031,7 @@ local HELP = {
 	"|cffffff00/rts cam collision|r - the camera passes through geometry (caves); |cffffff00geo|r inventories the rest",
 	"|cffffff00/rts cam speed <n>|r - how fast it flies",
 	"|cffffff00/rts cam shadow <0-5>|r - shadow under characters (-1 leaves it alone)",
+	"|cffffff00/rts cam dist <yards>|r - view distance while in RTS mode (-1 leaves it alone)",
 	"|cffffff00/rts channel|r - what the DLL is being told about your selection",
 	"|cffffff00/rts state|r - the tint colour each selected unit is being given",
 	"|cffffff00/rts cal|r - measure the projection (fixes rings that sit short)",
@@ -1267,7 +1268,8 @@ SlashCmdList["RTSCOMMAND"] = function(msg)
 			ns.Camera:Report()
 		elseif sub == "clear" then
 			ns.Camera:ClearPreset()
-		elseif sub == "tilt" or sub == "zoom" or sub == "fov" or sub == "shadow" then
+		elseif sub == "tilt" or sub == "zoom" or sub == "fov" or sub == "shadow"
+		    or sub == "dist" then
 			ns.Camera:SetFrame(sub, arg)
 		-- El sondeo de la camara libre del cliente. Son comandos de diagnostico,
 		-- no funciones: ver el final de `Camera.lua`.
