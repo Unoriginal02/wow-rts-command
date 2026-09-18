@@ -127,3 +127,26 @@ RTS.CatchUp.Train = 1
 #
 
 RTS.CatchUp.ClassQuest = 1
+
+#
+#    RTS.Pet.Happy
+#        Dejar la felicidad de las mascotas de cazador clavada en el maximo.
+#
+#        La felicidad es una correa que aqui no ata a nadie. Baja sola (670
+#        cada 7,5 segundos, y mas rapido en combate), morir cuesta 333.000 de
+#        golpe -- un tercio entero de la barra -- y solo sube dandole de comer,
+#        que es un hechizo del dueno: a la mascota de un bot no le da de comer
+#        nadie, porque el bot no sabe y tu no puedes. Una mascota infeliz pega
+#        menos y acaba desobedeciendo, asi que lo que la correa produce no es
+#        una decision del jugador, es un impuesto que se cobra solo.
+#
+#        Vale para TODOS los cazadores conectados, los tuyos y los bots. Se
+#        aplica en el tick del mundo, una vez por segundo, y no cuesta nada
+#        mientras no haya bajado: escribir el valor que ya hay no manda paquete.
+#
+#        0 devuelve el comportamiento del juego, con su hambre y su comida.
+#
+#        Por defecto: 1
+#
+
+RTS.Pet.Happy = 1

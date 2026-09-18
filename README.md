@@ -328,6 +328,7 @@ cancels.**
 | **Swap characters without logging out** — the one you leave stays behind as a bot | `/rts swap <name>` | `mod-rts/src/RtsSwap.cpp` |
 | Free-for-all party loot / make the bots pick up everything | `/rts loot`, `/rts lootall` | `addon/RTSMode.lua`, `addon/Loot.lua` |
 | **Hide the bots' gossip dump** (and keep it) | `/rts chat`, `/rts chat ver` | `addon/Chatter.lua` |
+| **Hunter pet happiness pinned at the top** — it decays on its own and only food raises it, and nobody feeds a bot's pet | automatic, `RTS.Pet.Happy` | `mod-rts/src/RtsPets.cpp` |
 
 ### 3.6 The UI
 

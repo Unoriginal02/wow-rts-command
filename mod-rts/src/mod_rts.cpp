@@ -43,6 +43,7 @@
 #include "RtsMarks.h"
 #include "RtsNpc.h"
 #include "RtsOrders.h"
+#include "RtsPets.h"
 #include "ScriptMgr.h"
 #include "SharedDefines.h"
 #include "WorldPacket.h"
@@ -68,6 +69,11 @@ namespace
     // pieces in this project -- the DLL, this module, and the addon -- and only
     // the DLL had a version you could see, which made a server-side fix look
     // like nothing had happened. All three now report.
+    // 0.56.0 = la felicidad de las mascotas de cazador se queda en el maximo
+    // (`RtsPets`, `RTS.Pet.Happy`). Era una correa que no ata a nadie: baja
+    // sola, morir cuesta un tercio de la barra de golpe, y solo la sube dar de
+    // comer -- que es un hechizo del duenno, asi que a la mascota de un bot no
+    // se la sube nadie. Sin verbo nuevo: el addon no tiene que preguntar nada.
     // 0.52.0 = `HOLD` y `SUMMON`. Quieto y traer eran las dos ultimas ordenes
     // de uso diario que viajaban como texto por el chat del grupo: se las comia
     // la cola del cliente si mandabas varias seguidas, y el bot no las veia
@@ -102,7 +108,7 @@ namespace
     // tercera condicion de `MoveSelf`. El addon debe pedir `ServerAtLeast(46)`
     // antes de usar esos verbos: un verbo que el servidor no conoce NO da error,
     // no contesta, asi que un worldserver sin reiniciar se lee como un addon roto.
-    constexpr char const* kModVersion = "0.55.0";
+    constexpr char const* kModVersion = "0.56.0";
 
     std::string Upper(std::string s)
     {
@@ -2671,6 +2677,7 @@ public:
                       std::to_string(swapped->GetGUID().GetRawValue()));
         rts::orders::UpdatePending(diff);
         rts::camera::Update(diff);
+        rts::pets::Update(diff);
     }
 };
 
