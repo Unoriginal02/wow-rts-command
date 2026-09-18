@@ -71,6 +71,10 @@ namespace
     // pieces in this project -- the DLL, this module, and the addon -- and only
     // the DLL had a version you could see, which made a server-side fix look
     // like nothing had happened. All three now report.
+    // 0.59.0 = `BAGSELL` y `EQUIP`, y un objeto que entra en la bolsa de un bot
+    // por `BAGMOVE` le dispara `equip upgrade` en el acto -- el bot ya se lo
+    // ponia, pero en su siguiente vuelta de pensamiento, y desde fuera eso se
+    // ve como que darle una espada no sirve de nada.
     // 0.58.0 = `UNTALENT <pestana> <fila> <columna>`: quitar UN punto de
     // talento, que el juego no deja -- en 3.3.5 solo existe el reseteo entero y
     // pagado. Por dentro es un reseteo gratis y volver a aprender la build
@@ -121,7 +125,7 @@ namespace
     // tercera condicion de `MoveSelf`. El addon debe pedir `ServerAtLeast(46)`
     // antes de usar esos verbos: un verbo que el servidor no conoce NO da error,
     // no contesta, asi que un worldserver sin reiniciar se lee como un addon roto.
-    constexpr char const* kModVersion = "0.58.0";
+    constexpr char const* kModVersion = "0.59.0";
 
     std::string Upper(std::string s)
     {
@@ -357,6 +361,25 @@ namespace
         return done > 0;
     }
 
+    // QUE EL BOT SE PONGA LO QUE ACABA DE RECIBIR.
+    //
+    // `equip upgrade` es una accion de playerbots, no nuestra: recorre sus
+    // bolsas y se pone lo que su propia valoracion (`item upgrade`) considera
+    // mejor que lo que lleva. Nosotros solo la disparamos en el momento en que
+    // el objeto ENTRA, que es lo que faltaba -- el bot ya lo hacia, pero en su
+    // siguiente vuelta de pensamiento, y eso desde fuera se ve como que darle
+    // una espada no sirve de nada.
+    //
+    // EN COMBATE NO. Cambiarse de arma peleando es lo que el juego no deja y lo
+    // que a un bot le costaria el golpe que estaba a medias; el objeto sigue en
+    // la bolsa y `/rts equip` esta ahi para cuando acabe.
+    void AskToEquip(Player* bot)
+    {
+        if (!bot || !rts::bots::Driven(bot) || bot->IsInCombat())
+            return;
+        rts::bots::DoAction(bot, "equip upgrade");
+    }
+
     bool Dispatch(Player* player, std::string const& body)
     {
         std::string verb, rest;
@@ -451,9 +474,63 @@ namespace
 
             std::string why;
             if (rts::bags::Move(player, from, to, ObjectGuid(raw), &why))
+            {
+                // El objeto ya esta dentro: que mire si le sirve AHORA.
+                AskToEquip(rts::bots::Resolve(player, to));
                 SendAddon(player, "BAGOK " + from + " " + to);
+            }
             else
                 SendAddon(player, "BAGERR " + from + " " + to + " " + why);
+            return true;
+        }
+
+        // "BAGSELL <quien> <objetoHex> <npcHex>" -- vender UN objeto de las
+        // bolsas de cualquiera de los tuyos al vendedor que tengas abierto.
+        //
+        // El objeto viaja por GUID y no por bolsa/hueco, igual que en
+        // `BAGMOVE`: entre que el cliente dibujo la casilla y llega esto, el
+        // bot ha podido recoger algo y correrlo todo un hueco.
+        if (verb == "BAGSELL")
+        {
+            std::istringstream in(rest);
+            std::string who, itemHex, npcHex;
+            if (!(in >> who >> itemHex >> npcHex))
+                return false;
+
+            uint64 rawItem = 0, rawNpc = 0;
+            { std::istringstream hx(itemHex); hx >> std::hex >> rawItem; }
+            { std::istringstream hx(npcHex);  hx >> std::hex >> rawNpc; }
+            if (!rawItem || !rawNpc)
+                return false;
+
+            uint32 itemId = 0, count = 0, earned = 0;
+            std::string why;
+            if (!rts::npc::SellItem(player, who, ObjectGuid(rawNpc), ObjectGuid(rawItem),
+                                    itemId, count, earned, &why))
+                SendAddon(player, "NPCERR " + why);
+            else
+                SendAddon(player, "SOLDONE " + who + " " + std::to_string(itemId) + " " +
+                                  std::to_string(count) + " " + std::to_string(earned));
+            return true;
+        }
+
+        // "EQUIP <nombre;nombre>" -- que revisen sus bolsas y se pongan lo que
+        // sea mejor. Existe porque un objeto llega de mas sitios que de esta
+        // ventana: botin, un intercambio, la recompensa de una mision.
+        if (verb == "EQUIP")
+        {
+            int told = 0;
+            for (std::string const& name : SplitList(rest, ';'))
+            {
+                Player* bot = rts::bots::Resolve(player, name);
+                if (!bot || !rts::bots::Driven(bot))
+                    continue;
+                if (bot->IsInCombat())
+                    continue;
+                rts::bots::DoAction(bot, "equip upgrade");
+                ++told;
+            }
+            SendAddon(player, "EQUIPPED " + std::to_string(told));
             return true;
         }
 

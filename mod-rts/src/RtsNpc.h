@@ -122,6 +122,25 @@ namespace rts
 
         bool Repair(Player* master, std::string const& botName, ObjectGuid npcGuid,
                     uint32& cost, std::string* why = nullptr);
+
+        // VENDER UN OBJETO SUELTO de las bolsas de cualquiera de los tuyos, que
+        // es lo que `SellJunk` no cubre: esa solo toca lo gris, y lo que llena
+        // las bolsas de un bot despues de una tarde son blancos y verdes que no
+        // se va a poner nunca.
+        //
+        // EL DINERO ES DEL DUENNO DEL OBJETO, igual que en `SellJunk`. No es
+        // descuido: los bots pagan su propio entrenador y sus propias
+        // reparaciones en este modulo, asi que la moneda que sale de su bolsa
+        // tiene que volver a su bolsa o la cuenta no cuadra sola.
+        //
+        // NO HAY RECOMPRA, tambien igual que en `SellJunk`: el objeto se
+        // destruye. La lista de recompra es del vendedor -- del BOT -- y el
+        // jugador no tiene ventana para verla, asi que fingirla seria prometer
+        // una vuelta atras que no existe. Quien llame a esto tiene que decir
+        // QUE se vendio y por cuanto, que es la unica red que queda.
+        bool SellItem(Player* master, std::string const& who, ObjectGuid npcGuid,
+                      ObjectGuid itemGuid, uint32& itemId, uint32& count, uint32& earned,
+                      std::string* why = nullptr);
     }
 }
 

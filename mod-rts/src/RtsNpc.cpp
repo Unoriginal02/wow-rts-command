@@ -356,3 +356,58 @@ bool rts::npc::Repair(Player* master, std::string const& botName, ObjectGuid npc
     cost = before > bot->GetMoney() ? before - bot->GetMoney() : 0;
     return true;
 }
+
+bool rts::npc::SellItem(Player* master, std::string const& who, ObjectGuid npcGuid,
+                        ObjectGuid itemGuid, uint32& itemId, uint32& count, uint32& earned,
+                        std::string* why)
+{
+    itemId = 0;
+    count = 0;
+    earned = 0;
+    auto fail = [why](char const* reason) { if (why) *why = reason; return false; };
+
+    Player* owner = Who(master, who);
+    if (!owner)
+        return fail("ese personaje no es de los tuyos");
+
+    Creature* npc = NpcOf(master, npcGuid);
+    if (!npc)
+        return fail("ya no veo a ese vendedor");
+
+    if (!npc->HasNpcFlag(UNIT_NPC_FLAG_VENDOR))
+        return fail("ese personaje no compra nada");
+
+    // LA DISTANCIA ES LA DEL DUENNO, no la tuya. Vender es un trato entre el
+    // vendedor y quien tiene el objeto, y el resto del fichero mide igual: tu
+    // puedes estar pegado al tendero y el bot haberse quedado atras.
+    if (!owner->IsWithinDistInMap(npc, INTERACTION_DISTANCE))
+        return fail("ese personaje esta demasiado lejos del vendedor");
+
+    Item* item = owner->GetItemByGuid(itemGuid);
+    if (!item)
+        return fail("ya no tiene ese objeto");
+
+    if (item->IsEquipped())
+        return fail("lo lleva puesto");
+
+    ItemTemplate const* proto = item->GetTemplate();
+    if (!proto)
+        return fail("no reconozco ese objeto");
+
+    if (proto->SellPrice == 0)
+        return fail("el vendedor no lo quiere");
+
+    // Una bolsa con cosas dentro se venderia con las cosas dentro, igual que en
+    // `SellJunk`.
+    if (Bag const* asBag = item->ToBag())
+        if (!asBag->IsEmpty())
+            return fail("es una bolsa con cosas dentro");
+
+    itemId = item->GetEntry();
+    count = item->GetCount();
+    earned = proto->SellPrice * count;
+
+    owner->DestroyItem(item->GetBagSlot(), item->GetSlot(), true);
+    owner->ModifyMoney(int32(earned));
+    return true;
+}

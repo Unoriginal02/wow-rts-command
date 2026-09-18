@@ -1,5 +1,6 @@
 --[[
-	Bags.lua -- las bolsas de todo el grupo en una ventana, y pasar objetos.
+	Bags.lua -- las bolsas de todo el grupo en una ventana, pasar objetos y
+	venderlos.
 
 	=== EL GESTO NO ES ARRASTRAR, Y NO ES UN CAPRICHO ========================
 
@@ -13,6 +14,13 @@
 	Asi que se coge con un click y se suelta con otro, y el objeto cogido va
 	pegado al raton en un frame nuestro. Ademas de ser lo unico posible, es el
 	gesto de WC3, que es la interfaz que este proyecto imita.
+
+	EL DERECHO HACE DOS COSAS Y NO SE PISAN: con algo cogido lo suelta, y con
+	las manos vacias VENDE lo que haya en esa casilla -- pero solo con un
+	vendedor abierto, porque vender aqui destruye el objeto y le da el dinero a
+	su duenno, sin recompra (la lista de recompra seria la del bot y no hay
+	ventana para abrirla). Exigir el tendero delante es lo que hace que un click
+	perdido en el campo no cueste un objeto.
 
 	=== `GetItemInfo` DEVUELVE nil Y NO DA ERROR ============================
 
@@ -196,6 +204,13 @@ local function ItemTip(cell)
 	if not cell.item then return end
 	GameTooltip:SetOwner(cell, "ANCHOR_RIGHT")
 	GameTooltip:SetHyperlink("item:" .. cell.item.itemId)
+	-- EL GESTO SE ANUNCIA DONDE SE USA, y solo cuando se puede usar: con un
+	-- tendero abierto. Un gesto que no dice nada de si es un gesto que no
+	-- existe, y uno que se anuncia cuando no funciona es peor.
+	if MerchantFrame and MerchantFrame:IsShown() then
+		GameTooltip:AddLine(" ")
+		GameTooltip:AddLine("|cffffff00Click derecho:|r venderlo aqui", 1, 1, 1)
+	end
 	GameTooltip:Show()
 end
 
@@ -302,6 +317,16 @@ function B:Drop()
 	ShowHeld()
 end
 
+-- EL VENDEDOR QUE TENGAS ABIERTO, o nil. `UnitGUID("npc")` solo contesta
+-- mientras hay una conversacion abierta con un PNJ, asi que esto es a la vez
+-- "hay tendero" y "cual".
+local function OpenVendor()
+	if not (MerchantFrame and MerchantFrame:IsShown()) then return nil end
+	local guid = UnitGUID("npc")
+	if not guid then return nil end
+	return (tostring(guid):gsub("^0[xX]", ""))
+end
+
 function B:Clicked(cell, button)
 	if button == "RightButton" then
 		-- Soltar lo que llevas sin moverlo. Tiene que existir: sin cancelar, un
@@ -310,7 +335,24 @@ function B:Clicked(cell, button)
 		if held then
 			self:Drop()
 			ns.Print("bolsas: soltado.")
+			return
 		end
+
+		-- CON LAS MANOS VACIAS, EL DERECHO VENDE. Los dos significados no se
+		-- pisan nunca porque no pueden coincidir: o llevas algo cogido o no.
+		--
+		-- Y SOLO CON UN TENDERO DELANTE, que es la unica red que hay: esto
+		-- DESTRUYE el objeto y le da el dinero a su duenno, sin recompra -- la
+		-- lista de recompra seria la del bot y no la puedes abrir. Exigir el
+		-- vendedor abierto significa que un click perdido en esta ventana no
+		-- vende nada mientras estas en el campo.
+		if not cell.item then return end
+		local npc = OpenVendor()
+		if not npc then
+			ns.Print("|cffff8800bolsas:|r para vender, abre primero un vendedor.")
+			return
+		end
+		ns.SendServer(("BAGSELL %s %s %s"):format(cell.owner, cell.item.guid, npc))
 		return
 	end
 
@@ -566,11 +608,63 @@ function B:Create()
 		B:Request(to)
 	end)
 
+	ns.Link:On("EQUIPPED", function(rest)
+		local n = tonumber(rest)
+		if not n then return end
+		if n == 0 then
+			ns.Print("|cff888888equipo:|r nadie a quien decirselo -- " ..
+				"en combate no se cambian de arma.")
+		else
+			ns.Print(("|cffffff00equipo:|r %d %s revisando sus bolsas."):format(
+				n, n == 1 and "esta" or "estan"))
+		end
+	end)
+
+	ns.Link:On("SOLDONE", function(rest)
+		local who, itemId, count, copper = rest:match("^(%S+)%s+(%d+)%s+(%d+)%s+(%d+)$")
+		if not who then return end
+
+		-- El nombre puede no estar en la cache del cliente (la trampa de este
+		-- fichero), asi que se escribe lo que se sepa y no se calla la linea:
+		-- lo que importa es que ALGO se vendio y por cuanto.
+		local name = GetItemInfo(tonumber(itemId)) or ("objeto " .. itemId)
+		local n = tonumber(count)
+		ns.Print(("|cffffff00bolsas:|r vendido %s%s de %s por %s"):format(
+			name, n > 1 and (" x" .. n) or "", who, Money(copper)))
+		B:Request(who)
+	end)
+
 	ns.Link:On("BAGERR", function(rest)
 		local from, to, why = rest:match("^(%S+)%s+(%S+)%s+(.+)$")
 		if not from then return end
 		ns.Print("|cffff8800bolsas:|r de " .. from .. " a " .. to .. " -- " .. why)
 	end)
+end
+
+--- Que se pongan lo que les sirva ------------------------------------------
+--
+-- UN OBJETO LLEGA DE MAS SITIOS QUE DE ESTA VENTANA -- botin, un intercambio,
+-- la recompensa de una mision -- y el bot solo lo mira en su siguiente vuelta
+-- de pensamiento. Lo que entra por `BAGMOVE` ya se revisa en el acto desde el
+-- servidor; esto es el mismo empujon a mano para todo lo demas.
+--
+-- A LOS SELECCIONADOS, o a todos si no hay nadie seleccionado, que es la regla
+-- de las demas ordenes de este addon.
+function B:Equip()
+	local names = ns.Selection:Get()
+	if #names == 0 then
+		names = {}
+		for _, m in ipairs(ns.Selection:GetRoster()) do
+			table.insert(names, m.name)
+		end
+	end
+
+	if #names == 0 then
+		ns.Print("|cff888888equipo:|r no hay nadie en el grupo.")
+		return
+	end
+
+	ns.SendServer("EQUIP " .. table.concat(names, ";"))
 end
 
 function B:Toggle()

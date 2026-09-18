@@ -319,6 +319,8 @@ cancels.**
 | Feature | How you use it | Where it lives |
 |---|---|---|
 | **Every party member's bags**, and moving items without a trade window | `/rts bags`, Bolsas slot | `addon/Bags.lua` + `mod-rts/src/RtsBags.cpp` |
+| **Sell out of anybody's bags** — right-click an item in the party bags with a vendor open. The money goes to whoever owned it, like the trainer and the repairs | right-click, `/rts bags` | `addon/Bags.lua` + `mod-rts/src/RtsNpc.cpp` |
+| **They put on what you hand them, at once** — an item moved into a bot's bags fires playerbots' own `equip upgrade` there and then, instead of on its next think | automatic, `/rts equip` | `mod-rts/src/mod_rts.cpp` (`AskToEquip`) |
 | **The whole party's quest log** | `/rts quests`, Misiones slot | `addon/QuestBook.lua` + `mod-rts/src/RtsQuests.cpp` |
 | **Quest sharing that actually works** — the server *gives* it to them rather than offering | the native quest log's Share button | `addon/Quests.lua` |
 | **When you turn in, the party completes and gets paid too** | `/rts quests force` | `mod-rts/src/RtsQuests.cpp` |
