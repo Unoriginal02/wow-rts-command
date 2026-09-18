@@ -238,7 +238,7 @@ lock), or with `/rts fc home`.
 | Box selection | left-drag | `addon/RTSMode.lua` |
 | Control groups (4) | Alt+key saves, key recalls | `addon/Selection.lua` |
 | **Native ground ring under the selection** — the client's own circle, correctly depth-tested | `/rts ring` | `addon/SelectionRing.lua` + `rts-client-mod/src/Circle.cpp` |
-| **Model glow by state** — blue standing by, green walking, red fighting, orange interacting. **On by default**: the ground circle is the client's own grey and from an RTS camera it is down among the grass, so the glow is what actually marks who is yours | `/rts state`, `/rts ring tint` | `addon/State.lua` + `rts-client-mod/src/Highlight.cpp` |
+| **Model glow** — white on everything you have selected, whatever it is doing (the four states still travel; today they share one colour). **On by default**: the ground circle is the client's own grey and from an RTS camera it is down among the grass, so the glow is what actually marks who is yours | `/rts state`, `/rts ring tint` | `addon/State.lua` + `rts-client-mod/src/Highlight.cpp` |
 | **Health bars over heads** — the client's own nameplates, for enemies and for your bots, kept working under the free camera | `V`, `/rts plates friends` | `addon/Plates.lua` + `rts-client-mod/src/Plates.cpp` |
 | The game's own unit frames select when clicked | click the frame | `addon/Portraits.lua` |
 

@@ -176,13 +176,26 @@ enum TintState : uint32_t {
 // Indexed by TintState. The client's own highlight colour is RGB(78,78,95),
 // dark enough to pass for nothing at all, so every one of these is written over
 // it after the call -- see Highlight.cpp.
+//
+// ALL FOUR ARE WHITE since 2026-09-18, asked for in game twice -- first *"the
+// highlight color for selected heroes be white, not green"* and then, once the
+// resting ones were white, *"todo blanco ya sea moviendo, atacando o en
+// espera"*. So the glow answers ONE question, WHICH ONES ARE MINE, and answers
+// it the same way always.
+//
+// THE FOUR CODES STAY APART ON PURPOSE. What is the same is the paint, not the
+// state: the addon still classifies every order, the wire still carries three
+// bits per unit, and `/rts state` still reports them. Collapsing the states
+// themselves would be throwing away the machinery that tells them apart, and
+// getting it back would mean writing it again -- while giving a state its own
+// colour again is this table and nothing else.
 struct StateColour { float r, g, b; };
 constexpr StateColour kStateColours[kStateMax + 1] = {
     {0.00f, 0.00f, 0.00f},   // none -- never painted
-    {0.15f, 0.45f, 1.00f},   // selected
-    {0.10f, 1.00f, 0.25f},   // moving
-    {1.00f, 0.10f, 0.10f},   // combat
-    {1.00f, 0.55f, 0.05f},   // interact
+    {1.00f, 1.00f, 1.00f},   // selected
+    {1.00f, 1.00f, 1.00f},   // moving
+    {1.00f, 1.00f, 1.00f},   // combat
+    {1.00f, 1.00f, 1.00f},   // interact
 };
 
 // Reason 2, which the client itself never uses. Reason 0 is the client's OWN

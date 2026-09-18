@@ -6,10 +6,20 @@
 	DLL can see WHERE units are but has no idea what you asked them to do, so the
 	meaning has to come from here and go out over the CVar channel (Channel.lua).
 
-	  blue    selected, standing by
-	  green   walking to an ordered point, and for as long as they keep walking
-	  red     sent to fight, and for as long as they are fighting
-	  orange  interacting
+	  white   selected, standing by
+	  white   walking to an ordered point, and for as long as they keep walking
+	  white   sent to fight, and for as long as they are fighting
+	  white   interacting
+
+	ALL FOUR ARE WHITE since 2026-09-18, asked for in game: the glow answers one
+	question -- WHICH ONES ARE MINE -- and answers it the same way always.
+
+	THE FOUR CODES STAY APART, and that is not leftovers. What the colour change
+	took away is the PAINT, not the state: every order is still classified here,
+	the wire still carries three bits per unit and `/rts state` still reports
+	them. Collapsing the states themselves would throw away the machinery that
+	tells them apart; giving one its own colour again is one line in the DLL's
+	`kStateColours` and nothing else.
 
 	=== how a state is decided =============================================
 
@@ -146,7 +156,7 @@ function S:Code(name, unit, guid)
 			if age < INTERACT_HOLD then return self.INTERACT end
 		elseif o.kind == "move" then
 			-- The grace covers the trip from keypress to first step; after that
-			-- the bot's own movement is what keeps it green.
+			-- the bot's own movement is what keeps it in the moving state.
 			if age < MOVE_GRACE or Moving(guid) then return self.MOVING end
 		end
 		self.orders[name] = nil

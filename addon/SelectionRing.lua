@@ -30,8 +30,8 @@
 	called by anything. It solved by hand -- twelve raycasts per unit per tick --
 	the one problem the native circle does not have.
 
-	Colours come from State.lua, unchanged:
-	  blue selected . green moving . red combat . orange interacting
+	Colours come from State.lua, and today all four of them are WHITE: the glow
+	says whose the unit is, not what it is doing.
 ]]
 
 local ADDON, ns = ...
