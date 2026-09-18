@@ -44,6 +44,7 @@
 #include "RtsNpc.h"
 #include "RtsOrders.h"
 #include "RtsPets.h"
+#include "RtsTalents.h"
 #include "RtsXp.h"
 #include "ScriptMgr.h"
 #include "SharedDefines.h"
@@ -70,6 +71,11 @@ namespace
     // pieces in this project -- the DLL, this module, and the addon -- and only
     // the DLL had a version you could see, which made a server-side fix look
     // like nothing had happened. All three now report.
+    // 0.58.0 = `UNTALENT <pestana> <fila> <columna>`: quitar UN punto de
+    // talento, que el juego no deja -- en 3.3.5 solo existe el reseteo entero y
+    // pagado. Por dentro es un reseteo gratis y volver a aprender la build
+    // menos ese punto, que es lo unico que deja bien `m_usedTalentCount`; la
+    // razon larga esta en `RtsTalents.h`.
     // 0.57.0 = `XP UP|DOWN|?`, el dial de experiencia del mundo en tantos por
     // ciento, de cincuenta en cincuenta. Es un MULTIPLICADOR sobre lo que diga `worldserver.conf`, no un
     // valor que lo pise, y se guarda en `worldstates` para que un reinicio no
@@ -115,7 +121,7 @@ namespace
     // tercera condicion de `MoveSelf`. El addon debe pedir `ServerAtLeast(46)`
     // antes de usar esos verbos: un verbo que el servidor no conoce NO da error,
     // no contesta, asi que un worldserver sin reiniciar se lee como un addon roto.
-    constexpr char const* kModVersion = "0.57.0";
+    constexpr char const* kModVersion = "0.58.0";
 
     std::string Upper(std::string s)
     {
@@ -1342,6 +1348,32 @@ namespace
         if (verb == "VERSION")
         {
             SendAddon(player, std::string("VER ") + kModVersion);
+            return true;
+        }
+
+        // "UNTALENT <pestana> <fila> <columna>", los tres en base 1 -- que es
+        // como los cuenta `GetTalentInfo` en el cliente.
+        //
+        // SE MANDA EL SITIO, NO EL IDENTIFICADOR. El addon tiene a mano el
+        // numero de talento (`GetTalentLink` lo lleva dentro), y aun asi viaja
+        // la casilla: fila y columna son lo que el jugador esta mirando y
+        // significan lo mismo en las dos puntas, mientras que un identificador
+        // del cliente obliga a que las dos listas esten ordenadas igual -- que
+        // hoy lo estan y no hay nada que lo garantice.
+        if (verb == "UNTALENT")
+        {
+            std::string tab, rest2, row, col;
+            Split(rest, tab, rest2);
+            Split(rest2, row, col);
+
+            std::string code, detail;
+            rts::talents::Remove(player,
+                                 uint32(std::atoi(tab.c_str())),
+                                 uint32(std::atoi(row.c_str())),
+                                 uint32(std::atoi(col.c_str())),
+                                 code, detail);
+
+            SendAddon(player, "TALENT " + code + (detail.empty() ? "" : (" " + detail)));
             return true;
         }
 

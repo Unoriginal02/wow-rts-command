@@ -650,6 +650,9 @@ local function Initialise()
 	-- El dial de experiencia. Solo registra su manejador de respuesta: sin
 	-- pulsar un boton no manda nada ni dibuja nada.
 	ns.Xp:Create()
+	-- El boton derecho de la ventana de talentos. Solo engancha; sin pulsar
+	-- nada no manda ni dibuja nada.
+	ns.Talents:Create()
 	if type(RTSCommandDB.selfBotAuto) == "boolean" then
 		ns.RTSMode.selfBot.auto = RTSCommandDB.selfBotAuto
 	end
@@ -1024,6 +1027,7 @@ local HELP = {
 	"|cffffff00/rts halo <0-2>|r - cursor halo style, |cffffff00/rts halo size <yards>|r",
 	"|cffffff00/rts ring|r - native ring under the selection; |cffffff00tint|r the model glow (on by default), |cffffff00test|r checks the hook",
 	"|cffffff00/rts xp +|r / |cffffff00-|r - world experience, 50% at a time (bots included, it is saved)",
+	"|cffffff00/rts talents|r - right-click a talent to take a point back; this says what the window is",
 	"|cffffff00/rts plates|r - health bars over heads: |cffffff00friends|r for your bots, |cffffff00enemies|r (the V key), |cffffff00<yards>|r for the range",
 	"|cffffff00/rts cam|r - detached RTS camera (WASD on the plane, SPACE/C up and down, Q/E pivot, right-drag turns)",
 	"|cffffff00/rts cam save|r - frame it how you want, then save; |cffffff00show|r reprints the values",
@@ -1261,6 +1265,9 @@ SlashCmdList["RTSCOMMAND"] = function(msg)
 
 	elseif cmd == "xp" then
 		ns.Xp:Command(rest)
+
+	elseif cmd == "talents" or cmd == "talentos" then
+		ns.Talents:Report()
 
 	elseif cmd == "plates" or cmd == "rotulos" then
 		local sub = (rest or ""):match("^(%S*)"):lower()
