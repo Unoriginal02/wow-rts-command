@@ -1019,7 +1019,7 @@ local HELP = {
 	"|cffffff00/rts tri|r - green triangle over heads (parked; |cffffff00/rts tri help|r)",
 	"|cffffff00/rts turn|r - why a click got eaten: measures camera turn against the threshold",
 	"|cffffff00/rts halo <0-2>|r - cursor halo style, |cffffff00/rts halo size <yards>|r",
-	"|cffffff00/rts ring|r - native ring under the selection; |cffffff00tint|r adds the model glow, |cffffff00test|r checks the hook",
+	"|cffffff00/rts ring|r - native ring under the selection; |cffffff00tint|r the model glow (on by default), |cffffff00test|r checks the hook",
 	"|cffffff00/rts plates|r - health bars over heads: |cffffff00friends|r for your bots, |cffffff00enemies|r (the V key), |cffffff00<yards>|r for the range",
 	"|cffffff00/rts cam|r - detached RTS camera (WASD on the plane, SPACE/C up and down, Q/E pivot, right-drag turns)",
 	"|cffffff00/rts cam save|r - frame it how you want, then save; |cffffff00show|r reprints the values",

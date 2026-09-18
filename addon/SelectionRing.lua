@@ -42,9 +42,22 @@ ns.SelectionRing = R
 -- Bumping `version` discards settings saved under the old defaults. Done here
 -- because `enabled` flips meaning: it used to turn on a Lua dot ring that was
 -- off for good reason, and now turns on the native circle, which is the point.
-R.version = 3
+--
+-- TO 4 ON 2026-09-18, AND THIS TIME IT IS `modelTint` THAT CHANGES DEFAULT: the
+-- glow goes ON. It was born off because the circle was meant to be the marker
+-- and the glow the extra, and in game that is backwards -- the circle is under
+-- the unit, which from an RTS camera is exactly where the grass and the slope
+-- are, and it is the same grey the client puts under your target. The glow is
+-- on the model, in the state's own colour, and it is what actually answers
+-- "which ones are mine" at a glance.
+--
+-- The bump is not decoration. `Create` only reads the saved table when the
+-- version matches, so without it anybody who has ever entered RTS mode carries
+-- the old `modelTint = false` saved and would never see this change, looking
+-- for the fault in code that is already doing what it says.
+R.version = 4
 R.enabled = true
-R.modelTint = false
+R.modelTint = true
 
 -- UNA PASADA POR UNIDAD, Y NO HAY MANDO PARA CAMBIARLO. Duro una tarde y lo
 -- desmintio el juego en el primer vistazo.
@@ -117,7 +130,8 @@ function R:ToggleTint()
 	self.modelTint = not self.modelTint
 	self:Save()
 	ns.Print("model glow " .. (self.modelTint and "|cff00ff00ON|r" or "|cffff0000OFF|r")
-		.. " - the circle already marks them; this paints the character too.")
+		.. " - the character painted in the colour of what he is doing. ON by " ..
+		"default; switching it off leaves only the circle on the ground.")
 end
 
 function R:ToggleTest()

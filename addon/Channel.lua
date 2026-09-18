@@ -141,9 +141,10 @@ function C:Value()
 	end
 
 	-- Bit 27 asks for the native ground circle under each selected unit; bit 28
-	-- additionally glows the models. The circle is the primary marker and is on
-	-- by default; the glow stays off, because it paints the character rather
-	-- than marking the ground it stands on.
+	-- additionally glows the models. BOTH ARE ON BY DEFAULT since 2026-09-18:
+	-- the circle marks the ground and the glow marks the character, and from an
+	-- RTS camera the ground is the half that competes with the grass. Either one
+	-- can be switched off on its own (`/rts ring`, `/rts ring tint`).
 	local ring = ns.SelectionRing
 	local circle = (ring and ring.enabled) and CIRCLE_STEP or 0
 	local tint   = (ring and ring.modelTint) and TINT_STEP or 0
