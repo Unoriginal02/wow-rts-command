@@ -188,6 +188,24 @@ local LIST = {
 	{ id = "mode",   g = "Windows", name = "RTS mode", raw = true,
 	  icon = "Spell_ChargeNegative",
 	  cmd = { "/rts mode" },     d = "enter and leave RTS mode" },
+
+	-- --- THE WORLD DIAL -------------------------------------------------
+	--
+	-- The only two orders in the catalogue that change the SERVER rather than
+	-- the party, which is why they are a group of their own: everything above
+	-- ends when you log out and this does not -- the percentage is saved and
+	-- the next session starts where you left it.
+	--
+	-- They live in the fixed row above the tray (`Tray.lua`, `TOOLS`) and they
+	-- are in the catalogue as well, like everything else, so they can be put in
+	-- a slot too. Nothing says they have to be in both places -- that is what
+	-- the catalogue is for.
+	{ id = "xpup",   g = "World", name = "XP +50%", raw = true,
+	  icon = "Spell_ChargePositive",
+	  cmd = { "/rts xp +" },     d = "world experience up 50%, everyone's" },
+	{ id = "xpdown", g = "World", name = "XP -50%", raw = true,
+	  icon = "Spell_ChargeNegative",
+	  cmd = { "/rts xp -" },     d = "world experience down 50%, everyone's" },
 }
 
 A.LIST = LIST

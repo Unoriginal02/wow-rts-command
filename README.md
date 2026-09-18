@@ -328,6 +328,7 @@ cancels.**
 | **Swap characters without logging out** — the one you leave stays behind as a bot | `/rts swap <name>` | `mod-rts/src/RtsSwap.cpp` |
 | Free-for-all party loot / make the bots pick up everything | `/rts loot`, `/rts lootall` | `addon/RTSMode.lua`, `addon/Loot.lua` |
 | **Hide the bots' gossip dump** (and keep it) | `/rts chat`, `/rts chat ver` | `addon/Chatter.lua` |
+| **World experience dial**, 50% at a time — a multiplier over `worldserver.conf`, so it keeps the rates you configured in proportion, and it is saved in `worldstates` so a restart does not quietly undo it | the `+` and `-` buttons, `/rts xp +` | `addon/Xp.lua` + `mod-rts/src/RtsXp.cpp` |
 | **Hunter pet happiness pinned at the top** — it decays on its own and only food raises it, and nobody feeds a bot's pet | automatic, `RTS.Pet.Happy` | `mod-rts/src/RtsPets.cpp` |
 
 ### 3.6 The UI
@@ -336,6 +337,7 @@ cancels.**
 |---|---|---|
 | Layout of the bottom bar | `/rts dock` | `addon/Dock.lua` |
 | Ten-slot tray + bags + game menu | `/rts tray`, `/rts tray vaciar` | `addon/Tray.lua` |
+| **Fixed row above the tray** — buttons that are always there, not slots you configure | — | `addon/Tray.lua` (`TOOLS`) |
 | Order catalogue with custom icons | `/rts ordenes` | `addon/Actions.lua` |
 | Export the catalogue as **real game macros** (for bars and key binds) | `/rts macros` | `addon/Macros.lua` |
 | Selective hiding on entering RTS mode (by default, only the action bars) | `/rts ui` | `addon/Chrome.lua` |

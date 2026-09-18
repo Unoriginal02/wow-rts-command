@@ -9,15 +9,16 @@
 
 	  +---------------------------------------------------------------+
 	  |                                                               |
-	  |              Bob                                              |
+	  |              Bob                                  [+][-]      |
 	  |        [1][2][3][4][5][6][7][8][9][0]    [M][M][M][M]         |
 	  |        [ ][ ][ ][ ][ ][ ][ ][ ][ ][ ]    [M][M][M][M]         |
 	  |        [  TANK  ]                        [bags]               |
 	  |                                          [char][talents]...   |
 	  +---------------------------------------------------------------+
 
-	IN THE MIDDLE: THE UNIT, or the units. ON THE RIGHT: WHAT IS YOURS -- the
-	command macros, the bags and the game buttons. The division is not
+	IN THE MIDDLE: THE UNIT, or the units. ON THE RIGHT: WHAT IS YOURS -- a row
+	of FIXED buttons on top (the experience dial today), the command macros
+	underneath, then the bags and the game buttons. The division is not
 	aesthetic: what is in the centre CHANGES with every selection click and what
 	is on the right never moves. Mixing them would force the eye to check every
 	time whether the button it is after is still where it was.
@@ -170,6 +171,20 @@ local ROLE_GAP = 5
 -- pushes the bags and the menu off the screen.
 local MACRO_COLS, MACRO_ROWS = 5, 2
 
+-- LA FILA DE ARRIBA, ENCIMA DE LAS MACROS. Son botones FIJOS, no ranuras: no
+-- se configuran, no guardan nada y no cambian con la seleccion. Por eso estan
+-- separados de la rejilla de abajo en vez de ser dos huecos mas de ella --
+-- mezclar "esto lo pones tu" con "esto esta siempre" en la misma cuadricula
+-- obliga a recordar cuales de los doce se pueden tocar.
+--
+-- Va PEGADA A LA DERECHA como el resto del bloque, que es lo que hace que el
+-- canto derecho de todo lo de este lado sea una sola linea recta. Su contenido
+-- lo pone `Tray`; aqui solo se reserva el sitio.
+local TOOL_N   = 2
+local TOOL_GAP = 6      -- el aire entre esta fila y la rejilla de macros
+
+D.TOOL_N = TOOL_N
+
 D.MAIN_N  = MAIN_N
 D.MAIN_ROWS = MAIN_ROWS
 D.MAIN_TOTAL = MAIN_TOTAL
@@ -299,8 +314,14 @@ local function Recompute()
 	-- own size).
 	local mw = MACRO_COLS * s + GAP * (MACRO_COLS - 1)
 	local mh = MACRO_ROWS * s + GAP * (MACRO_ROWS - 1)
-	D.rightW, D.rightH = mw, mh
-	Rect("macros", 0, 0, mw, mh)
+	local tw = TOOL_N * s + GAP * (TOOL_N - 1)
+
+	-- LA FILA DE HERRAMIENTAS VA ARRIBA Y ALINEADA A LA DERECHA. `right` esta
+	-- anclado por su esquina inferior derecha, asi que lo que crece aqui crece
+	-- HACIA ARRIBA: las macros se quedan donde estaban y el bloque entero sube.
+	D.rightW, D.rightH = mw, s + TOOL_GAP + mh
+	Rect("tools",  mw - tw, 0, tw, s)
+	Rect("macros", 0, s + TOOL_GAP, mw, mh)
 end
 
 --- What the content modules use -------------------------------------------
@@ -308,7 +329,7 @@ end
 function D:Get(key) return rects[key] end
 
 local function RootFor(key)
-	if key == "macros" then return right end
+	if key == "macros" or key == "tools" then return right end
 	return left
 end
 
@@ -376,6 +397,19 @@ function D:ColumnSpellCells()
 		local c = (i - 1) % B_COLS
 		local r = math.floor((i - 1) / B_COLS)
 		out[i] = { x = c * (s + GAP), y = y0 + r * (s + GAP), w = s, h = s }
+	end
+	return out
+end
+
+-- LAS CELDAS DE LA FILA DE ARRIBA, en coordenadas de SU frame. Misma forma que
+-- las de las macros y por la misma razon: la suma se hace una vez, aqui, y no
+-- una copia en cada fichero que dibuje algo en esta fila.
+function D:ToolCells()
+	local out = {}
+	local s = self.slot or 0
+	if s <= 0 then return out end
+	for i = 1, TOOL_N do
+		out[i] = { x = (i - 1) * (s + GAP), y = 0, w = s, h = s }
 	end
 	return out
 end

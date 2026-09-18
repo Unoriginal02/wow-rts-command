@@ -1,6 +1,8 @@
 --[[
-	Tray.lua -- the right-hand tray: ten slots, the bags and the game buttons.
+	Tray.lua -- the right-hand tray: the fixed row, ten slots, the bags and the
+	game buttons.
 
+	                          [+][-]
 	  [M][M][M][M][M]
 	  [M][M][M][M][M]
 	  [keyring][bag][bag][bag][bag][backpack]
@@ -383,6 +385,64 @@ local function Slot(i, parent, size)
 	return b
 end
 
+--- LA FILA FIJA DE ARRIBA ------------------------------------------------
+--
+-- Dos botones que NO son ranuras: no se configuran, no se guardan y no aceptan
+-- un macro arrastrado. Son ordenes del catalogo puestas a mano aqui, asi que
+-- llevan el mismo icono y el mismo tooltip que tendrian en una ranura -- y
+-- quien las quiera tambien abajo las tiene en el desplegable como cualquier
+-- otra.
+--
+-- Y POR ESO NO SON BOTONES SEGUROS. Una ranura lo es porque puede acabar
+-- teniendo dentro un macro, que solo el cliente puede disparar; esto no puede,
+-- asi que un `Button` normal con su `OnClick` hace todo lo que hace falta y se
+-- ahorra la maquinaria de atributos -- que es la que obliga a no tocar nada en
+-- combate.
+local TOOLS = { "xpup", "xpdown" }
+
+local toolBtn = {}
+
+local function ToolButton(i, parent, size)
+	local b = toolBtn[i]
+	if not b then
+		b = ns.W:Button(parent, size)
+		b:RegisterForClicks("AnyUp")
+		b.tool = i
+		b:SetScript("OnClick", function(self)
+			local id = TOOLS[self.tool]
+			if id then ns.Actions:Run(id) end
+		end)
+		toolBtn[i] = b
+	end
+	return b
+end
+
+local function LayoutTools()
+	local host = ns.Dock:Host("tools")
+	if not host then return end
+
+	local cells = ns.Dock:ToolCells()
+	for i = 1, ns.Dock.TOOL_N do
+		local c = cells[i]
+		local e = TOOLS[i] and ns.Actions:Find(TOOLS[i]) or nil
+		local b = toolBtn[i]
+		if c and e then
+			b = ToolButton(i, host, c.w)
+			b:SetParent(host)
+			b:SetWidth(c.w)
+			b:SetHeight(c.h)
+			b:ClearAllPoints()
+			b:SetPoint("TOPLEFT", host, "TOPLEFT", c.x, -c.y)
+			ns.Actions:Paint(b.icon, e)
+			b.label:SetText("")
+			ns.W:Tip(b, e.name, e.d or "")
+			b:Show()
+		elseif b then
+			b:Hide()
+		end
+	end
+end
+
 --- THE TWO BORROWED ROWS: the bags and the game buttons ------------------
 --
 -- Both are CLIENT buttons taken on loan and handed back. See the header for why
@@ -594,6 +654,8 @@ function T:Layout()
 			btn[i]:Hide()
 		end
 	end
+
+	LayoutTools()
 
 	-- LAS DOS FILAS PRESTADAS, COLGANDO UNA DE OTRA. Cada una se ancla a lo que
 	-- tiene ENCIMA, asi que si una crece o desaparece la de abajo la sigue sin

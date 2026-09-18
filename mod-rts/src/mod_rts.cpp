@@ -44,6 +44,7 @@
 #include "RtsNpc.h"
 #include "RtsOrders.h"
 #include "RtsPets.h"
+#include "RtsXp.h"
 #include "ScriptMgr.h"
 #include "SharedDefines.h"
 #include "WorldPacket.h"
@@ -69,6 +70,12 @@ namespace
     // pieces in this project -- the DLL, this module, and the addon -- and only
     // the DLL had a version you could see, which made a server-side fix look
     // like nothing had happened. All three now report.
+    // 0.57.0 = `XP UP|DOWN|?`, el dial de experiencia del mundo en tantos por
+    // ciento, de cincuenta en cincuenta. Es un MULTIPLICADOR sobre lo que diga `worldserver.conf`, no un
+    // valor que lo pise, y se guarda en `worldstates` para que un reinicio no
+    // lo devuelva a su sitio en silencio. El addon debe pedir
+    // `ServerAtLeast(57)`: un verbo que el servidor no conoce no da error, no
+    // contesta, y eso se ve como un boton roto.
     // 0.56.0 = la felicidad de las mascotas de cazador se queda en el maximo
     // (`RtsPets`, `RTS.Pet.Happy`). Era una correa que no ata a nadie: baja
     // sola, morir cuesta un tercio de la barra de golpe, y solo la sube dar de
@@ -108,7 +115,7 @@ namespace
     // tercera condicion de `MoveSelf`. El addon debe pedir `ServerAtLeast(46)`
     // antes de usar esos verbos: un verbo que el servidor no conoce NO da error,
     // no contesta, asi que un worldserver sin reiniciar se lee como un addon roto.
-    constexpr char const* kModVersion = "0.56.0";
+    constexpr char const* kModVersion = "0.57.0";
 
     std::string Upper(std::string s)
     {
@@ -1335,6 +1342,39 @@ namespace
         if (verb == "VERSION")
         {
             SendAddon(player, std::string("VER ") + kModVersion);
+            return true;
+        }
+
+        // "XP UP" / "XP DOWN" / "XP" -- el dial de experiencia del mundo.
+        //
+        // EL VERBO LLEVA LA DIRECCION, NO EL NUMERO. Cuanto vale un paso y
+        // hasta donde se puede llegar se deciden aqui, que es donde esta el
+        // dial: un "XP +10" desde el cliente seria un addon editado -- o un
+        // `/rtscmd` a mano -- capaz de dejar el mundo al 0% de experiencia sin
+        // que nada de este lado tenga ocasion de decir que no.
+        //
+        // Siempre contesta con el % que ha quedado, tambien cuando no ha
+        // cambiado nada: quien pregunta necesita el numero para escribirlo, y
+        // "no contesto" ya significa otra cosa (mod-rts viejo).
+        if (verb == "XP")
+        {
+            // DE CINCUENTA EN CINCUENTA. Empezo en diez y con las tasas del
+            // fichero a 1 -- o sea, con el dial leyendose como el multiplicador
+            // entero -- pasar de x1 a x2 costaba diez pulsaciones. Un paso de
+            // cincuenta pone el doble a dos clicks y deja la escalera en
+            // numeros redondos: 50, 100, 150, 200.
+            constexpr int kStep = 50;
+
+            std::string const arg = Upper(rest);
+            int pct;
+            if (arg == "UP")
+                pct = rts::xp::Step(+kStep);
+            else if (arg == "DOWN")
+                pct = rts::xp::Step(-kStep);
+            else
+                pct = rts::xp::Percent();
+
+            SendAddon(player, "XP " + std::to_string(pct));
             return true;
         }
 
@@ -2659,7 +2699,29 @@ public:
 class RtsWorldScript : public WorldScript
 {
 public:
-    RtsWorldScript() : WorldScript("RtsWorldScript", { WORLDHOOK_ON_UPDATE }) { }
+    RtsWorldScript() : WorldScript("RtsWorldScript",
+        { WORLDHOOK_ON_UPDATE, WORLDHOOK_ON_AFTER_CONFIG_LOAD, WORLDHOOK_ON_STARTUP }) { }
+
+    // LA BASE DEL DIAL DE EXPERIENCIA SE ANOTA AQUI Y EN NINGUN OTRO SITIO:
+    // este es el unico instante en que las tasas del nucleo son las del
+    // fichero. Un momento despues ya llevan nuestro multiplicador encima, y
+    // anotarlas entonces guardaria como base lo que ya estaba multiplicado --
+    // o sea que cada recarga subiria la experiencia otra vez.
+    void OnAfterConfigLoad(bool reload) override
+    {
+        rts::xp::CaptureBaseline();
+
+        // Al arrancar NO se aplica todavia: los `worldstates` se leen mas
+        // tarde, asi que aqui el % guardado seria 0 y saldria un 100% que no
+        // es el que el jugador dejo puesto. De eso se encarga `OnStartup`.
+        if (reload)
+            rts::xp::Apply();
+    }
+
+    void OnStartup() override
+    {
+        rts::xp::Apply();
+    }
 
     void OnUpdate(uint32 diff) override
     {
