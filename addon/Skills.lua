@@ -295,7 +295,8 @@ function K:Available(name)
 		local sname, _, icon = GetSpellInfo(e.id)
 		if sname then
 			table.insert(out, { spellId = e.id, name = sname,
-			                    texture = icon, type = e.t or DEFAULT_TYPE })
+			                    texture = icon, type = e.t or DEFAULT_TYPE,
+			                    cd = e.cd })
 		end
 	end
 	return out
@@ -702,14 +703,23 @@ function K:Create()
 		b.staging = b.staging or {}
 		if payload == "-" then return end
 
-		-- `id:letra`, y sin letra vale igual: un mod-rts anterior manda solo el
-		-- numero y entonces todo es del tipo seguro. Que una version vieja del
-		-- servidor deje la consola muda seria peor que perder la clasificacion.
+		-- `id:letra:enfriamiento`, y los dos ultimos campos pueden faltar: un
+		-- mod-rts anterior manda solo el numero y entonces todo es del tipo
+		-- seguro y sin enfriamiento propio. Que una version vieja del servidor
+		-- deje la consola muda seria peor que perder la clasificacion.
+		--
+		-- EL ENFRIAMIENTO VIENE DE ALLI PORQUE AQUI NO SE PUEDE SABER:
+		-- `GetSpellCooldown` lee TU libro, y de un hechizo de un bot el cliente
+		-- solo tiene lo del DBC -- nombre, icono, rango -- que no lo incluye.
+		-- Llega en milisegundos y se guarda en segundos, que es lo que pide la
+		-- rueda.
 		for piece in payload:gmatch("[^%s,]+") do
-			local id, t = piece:match("^(%d+):?(%a?)$")
+			local id, t, cd = piece:match("^(%d+):?(%a?):?(%d*)$")
 			if id then
+				cd = tonumber(cd)
 				table.insert(b.staging, { id = tonumber(id),
-				                          t = (t ~= "" and t) or DEFAULT_TYPE })
+				                          t = (t ~= "" and t) or DEFAULT_TYPE,
+				                          cd = (cd and cd > 0) and (cd / 1000) or nil })
 			end
 		end
 	end)

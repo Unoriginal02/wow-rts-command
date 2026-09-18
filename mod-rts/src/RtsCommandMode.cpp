@@ -248,6 +248,20 @@ std::vector<rts::command::SpellCd> rts::command::Cooldowns(Player* master,
     return out;
 }
 
+namespace
+{
+    // EL ENFRIAMIENTO BASE DE UN HECHIZO. Los dos campos cuentan y se coge el
+    // mayor: hay hechizos cuyo tiempo esta en el de su CATEGORIA y no en el
+    // suyo (las pociones son el ejemplo de manual), y mirar solo `RecoveryTime`
+    // los daria como si no enfriaran.
+    uint32 BaseCooldownMs(SpellInfo const* info)
+    {
+        if (!info)
+            return 0;
+        return std::max(info->RecoveryTime, info->CategoryRecoveryTime);
+    }
+}
+
 std::vector<rts::command::BarSpell> rts::command::ActionBarSpells(Player* master,
                                                                   std::string const& botName)
 {
@@ -294,7 +308,7 @@ std::vector<rts::command::BarSpell> rts::command::ActionBarSpells(Player* master
             continue;
 
         seen.insert(spellId);
-        out.push_back(BarSpell{ spellId, ClassifySpell(info) });
+        out.push_back(BarSpell{ spellId, ClassifySpell(info), BaseCooldownMs(info) });
     }
 
     // Y DETRAS, TODO LO DEMAS QUE SEPA. Es la respuesta a la pregunta de
@@ -355,7 +369,7 @@ std::vector<rts::command::BarSpell> rts::command::ActionBarSpells(Player* master
             continue;
 
         seen.insert(spellId);
-        extra.push_back(BarSpell{ spellId, ClassifySpell(info) });
+        extra.push_back(BarSpell{ spellId, ClassifySpell(info), BaseCooldownMs(info) });
     }
 
     // Por nombre, que es como se busca en una lista larga. La barra de arriba

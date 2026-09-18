@@ -118,6 +118,39 @@ local cdAsked = 0
 -- el mismo nombre se pisan en `_G`.
 local cdSeq = 0
 
+-- LA PULSACION SE TIENE QUE VER, Y EL JUEGO YA TIENE SU FORMA DE ENSENARLA.
+--
+-- Con el raton no hacia falta: un `Button` se hunde solo al pulsarlo, con la
+-- textura que `W:Button` ya le pone. Con las teclas 1..0 no pasaba nada de nada
+-- -- el hueco que dispara esta ahi quieto -- y una tecla que no contesta se lee
+-- como una tecla que no ha entrado, que es la razon por la que se pulsa otra
+-- vez.
+--
+-- EL GOLPE ES UN ENCOGIMIENTO, pedido asi en juego: el hueco se hace un 5%
+-- mas pequeno y vuelve. Encoge por su CENTRO -- se le mueve el ancla la mitad
+-- de lo que se le quita -- porque los huecos estan anclados por la esquina de
+-- arriba a la izquierda, y sin corregirlo el boton no se encogeria: se
+-- desplazaria en diagonal, que es otra cosa y se ve como un salto.
+--
+-- La textura de hundido de `W:Button` se queda donde estaba: es la del raton, y
+-- el raton ya la dispara solo.
+local PRESS_SHRINK = 0.05
+local PRESS_TIME   = 0.12
+local pressed = {}        -- boton -> cuando devolverlo a su tamano
+
+-- LA RUEDA DEL ACUSE DURA LO QUE DURE ESE HECHIZO, no un numero fijo. El
+-- enfriamiento base viaja con el catalogo (`Skills`, tercer campo de `BARS`)
+-- porque el cliente no puede saberlo de un hechizo ajeno, y el hechizo que no
+-- tiene el suyo cae al global, que es lo que de verdad le pasa.
+local GCD_GUESS = 1.5
+
+-- Y VIVE POCO. Si el lanzamiento no sale -- sin maná, fuera de alcance, el bot
+-- todavia andando hacia el bicho -- nadie contesta con un enfriamiento de
+-- verdad, y una rueda de cinco minutos puesta por una pulsacion que no llego a
+-- nada es peor que no poner ninguna. Pasados estos segundos manda la realidad:
+-- si el servidor (o tu cliente) no dice que eso esta enfriando, se quita.
+local GUESS_GRACE = 2.0
+
 local spellBtn = {}       -- i -> square button (state A)
 local colBtn = {}         -- ci -> { head, spells = {} }
 local headName
@@ -306,6 +339,15 @@ function C:ShowPicker(anchor, entries, page)
 	local from = page * PAGE + 1
 	local to   = math.min(total, from + PAGE - 1)
 
+	-- LA LISTA COMPLETA NO SE TOCA, y esto ES el arreglo de las paginas.
+	--
+	-- Aqui habia `entries = shown` antes de dibujar, y las dos filas de navegar
+	-- llevan dentro `C:ShowPicker(anchor, entries, page +- 1)`. En Lua una
+	-- clausura se lleva la VARIABLE, no su valor: al reasignarla, lo que esas
+	-- dos filas volvian a pasar era la PAGINA que se estaba dibujando -- catorce
+	-- entradas -- en vez de la lista entera. O sea que "mas..." te dejaba en una
+	-- lista de catorce sin mas paginas, y desde fuera se ve exactamente como
+	-- que la paginacion no funciona y como que faltan hechizos.
 	local shown = {}
 	if page > 0 then
 		table.insert(shown, {
@@ -325,10 +367,8 @@ function C:ShowPicker(anchor, entries, page)
 			fn = function() C:ShowPicker(anchor, entries, page + 1) end,
 		})
 	end
-	entries = shown
-
 	local n = 0
-	for i, e in ipairs(entries) do
+	for i, e in ipairs(shown) do
 		local b = FlyoutRow(i)
 		b:ClearAllPoints()
 		b:SetPoint("TOPLEFT", flyout, "TOPLEFT", 4, -(6 + (i - 1) * (ROW_H + 2)))
@@ -408,6 +448,7 @@ local function SpellButton(store, i, parent, size, set)
 			end
 			C:HidePicker()
 			if self.spell then
+				C:Fired(self)
 				ns.Skills:Use(self.owner, self.index, self.set)
 			else
 				-- AN EMPTY SLOT DOES NOT KEEP QUIET. A click that does nothing
@@ -432,6 +473,9 @@ end
 
 local function PaintSpell(b, owner, i, s, aiming, set, col)
 	b.owner, b.index, b.set, b.spell = owner, i, set, s and s.spellId or nil
+	-- Lo que dura SU enfriamiento, para la rueda del acuse. Viene del catalogo
+	-- (`Skills`), que a su vez lo trae del servidor.
+	b.cdSecs = s and s.cd or nil
 
 	-- LA TECLA, ESCRITA EN EL HUECO QUE LA TIENE. Un atajo que no esta en
 	-- pantalla es un atajo que no existe: hay que acordarse de el, y nadie se
@@ -492,6 +536,70 @@ local function IsMine(owner)
 	return owner == nil or owner == ns.MyName()
 end
 
+local function Shrink(b)
+	if b.big then return end
+	local w, h = b:GetWidth(), b:GetHeight()
+	local point, rel, relPoint, x, y = b:GetPoint(1)
+	if not point then return end
+
+	b.big = { w = w, h = h, point = point, rel = rel, relPoint = relPoint, x = x, y = y }
+	b:SetWidth(w * (1 - PRESS_SHRINK))
+	b:SetHeight(h * (1 - PRESS_SHRINK))
+	b:ClearAllPoints()
+	b:SetPoint(point, rel, relPoint, x + w * PRESS_SHRINK / 2, y - h * PRESS_SHRINK / 2)
+end
+
+local function Grow(b)
+	local big = b.big
+	if not big then return end
+	b.big = nil
+	b:SetWidth(big.w)
+	b:SetHeight(big.h)
+	b:ClearAllPoints()
+	b:SetPoint(big.point, big.rel, big.relPoint, big.x, big.y)
+end
+
+-- Lo que se ve al disparar un hueco, venga de la tecla o del raton.
+function C:Fired(b)
+	if not b then return end
+
+	Shrink(b)
+	pressed[b] = GetTime() + PRESS_TIME
+
+	if b.cd then
+		local dur = b.cdSecs or GCD_GUESS
+		b.cdGuess = { at = GetTime(), dur = dur }
+		CooldownFrame_SetTimer(b.cd, GetTime(), dur, 1)
+	end
+
+	-- Y QUE EL DE VERDAD LLEGUE YA. `AskCooldowns` pregunta una vez por segundo
+	-- porque lo unico que necesita saber es cuando empieza uno nuevo -- y este
+	-- es exactamente ese momento, asi que se le quita la espera por una vez.
+	cdAsked = 0
+end
+
+-- Todos a la vez, sin mirar el reloj. Para cuando la barra se va.
+function C:UnpressAll()
+	for b in pairs(pressed) do
+		Grow(b)
+		pressed[b] = nil
+	end
+end
+
+-- Devolver a su sitio los que ya han cumplido. Lo llama el mismo tick que
+-- pregunta los enfriamientos: un frame con `OnUpdate` es suficiente para todo
+-- lo que pasa en esta barra, y dos serian dos.
+function C:UnpressDue()
+	if not next(pressed) then return end
+	local now = GetTime()
+	for b, at in pairs(pressed) do
+		if now >= at then
+			Grow(b)
+			pressed[b] = nil
+		end
+	end
+end
+
 function C:PaintCooldown(b, owner, spellId)
 	if not b.cd or not spellId then return end
 
@@ -509,8 +617,16 @@ function C:PaintCooldown(b, owner, spellId)
 	-- la barra entera en una rueda que gira sin parar: mucho movimiento que no
 	-- dice nada. Es lo que hace la propia barra del juego.
 	if start and dur and dur > 1.5 and start > 0 then
+		b.cdGuess = nil
 		CooldownFrame_SetTimer(b.cd, start, dur, 1)
+	elseif b.cdGuess and (GetTime() - b.cdGuess.at) < GUESS_GRACE
+	       and (GetTime() - b.cdGuess.at) < b.cdGuess.dur then
+		-- El provisional de la pulsacion sigue bajando y todavia esta dentro de
+		-- su gracia. NO se vuelve a armar -- eso lo reiniciaria en cada
+		-- repintado y la rueda no avanzaria nunca -- y sobre todo no se
+		-- esconde, que es lo que hacia parpadear el acuse.
 	else
+		b.cdGuess = nil
 		b.cd:Hide()
 	end
 end
@@ -611,6 +727,7 @@ local function KeyButton(i)
 		if st == "A" then
 			local owner = ns.Dock:Subject()
 			if not owner then return end
+			C:Fired(spellBtn[i])
 			ns.Skills:Use(owner, i, "main")
 			return
 		end
@@ -626,6 +743,8 @@ local function KeyButton(i)
 		local slot = (i - 1) % B_KEYS + 1
 		local m = ns.Dock:Columns()[ci]
 		if not m then return end
+		local col = colBtn[ci]
+		C:Fired(col and col.spells[slot])
 		ns.Skills:Use(m.name, slot, "group")
 	end)
 	keyBtn[i] = b
@@ -681,6 +800,11 @@ end
 -- vacio y `Leave`, que ademas suelta esas dos cosas.
 function C:Blank()
 	self:HidePicker()
+	-- UN BOTON HUNDIDO NO SE DESHUNDE SOLO. El tick que los devuelve solo corre
+	-- con la barra puesta, asi que quitarla en mitad de un parpadeo dejaria ese
+	-- hueco hundido para siempre -- y al volver a dibujarlo se veria pulsado sin
+	-- que nadie lo haya tocado.
+	self:UnpressAll()
 	HideAll(spellBtn)
 	if headName then headName:Hide() end
 	for _, col in pairs(colBtn) do
@@ -855,7 +979,19 @@ function C:Enter()
 		local ev = CreateFrame("Frame", "RTSCastKeyEvents")
 		ev:RegisterEvent("PLAYER_REGEN_ENABLED")
 		ev:RegisterEvent("PLAYER_LEAVING_WORLD")
-		ev:SetScript("OnEvent", function()
+		-- EL AVISO DEL CLIENTE DE QUE ALGO EMPIEZA A ENFRIAR, que es el unico
+		-- que hay para TU heroe: sus enfriamientos se leen con
+		-- `GetSpellCooldown`, gratis, pero alguien tiene que volver a mirar. Sin
+		-- esto solo se repintaban cuando pasaba otra cosa (cambiar la seleccion,
+		-- contestar el servidor por un bot), asi que la rueda de tu propia barra
+		-- aparecia tarde o no aparecia. El latido de `AskCooldowns` no cubre
+		-- este caso a proposito: no pregunta por ti.
+		ev:RegisterEvent("SPELL_UPDATE_COOLDOWN")
+		ev:SetScript("OnEvent", function(_, event)
+			if event == "SPELL_UPDATE_COOLDOWN" then
+				if C.active then C:Refresh() end
+				return
+			end
 			if not C.active then C:ReleaseKeys() end
 		end)
 		ns.Dock:OnLayout(function() C:Layout() end)
@@ -885,7 +1021,10 @@ function C:Enter()
 		-- EL LATIDO. Una vez por segundo, y solo mientras la consola mira a un
 		-- bot: `AskCooldowns` se calla sola en cualquier otro caso.
 		local tick = CreateFrame("Frame", "RTSCastCdTick")
-		tick:SetScript("OnUpdate", function() C:AskCooldowns() end)
+		tick:SetScript("OnUpdate", function()
+			C:UnpressDue()
+			C:AskCooldowns()
+		end)
 
 		ns.Link:On("PFOCUS", function(rest)
 			-- TWO DIRECTIONS: we send `PFOCUS <bot> <guid>` and the reply comes

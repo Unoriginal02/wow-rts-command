@@ -265,7 +265,7 @@ lock), or with `/rts fc home`.
 |---|---|---|
 | Twenty configurable slots per character (2 x 10), plus four group ones | right-click a slot, `/rts skills` | `addon/Skills.lua` (data) + `addon/Cast.lua` (drawing) |
 | **1234567890 on the top row** — all ten on one head, or two per head with several picked. Borrowed while the console is open and handed back on close | automatic | `addon/Cast.lua` |
-| **Cooldown swirls** — the client's own, on your hero for free and asked of the server for a bot | automatic | `addon/Cast.lua` + `mod-rts/src/RtsCommandMode.cpp` |
+| **Cooldown swirls** — the client's own, on your hero for free and asked of the server for a bot. Pressing a slot shrinks the square 5% and starts a swirl **as long as that spell's own cooldown** (the base cooldown travels with the catalogue, because the client cannot read it off a spell that is not in your book), and the real remaining wheel replaces it when it lands | automatic | `addon/Cast.lua` + `mod-rts/src/RtsCommandMode.cpp` |
 | **Spell queue** — pressing while the bot is busy leaves it waiting instead of failing | automatic | `mod-rts/src/RtsQueue.cpp` |
 | **Focus** — the selected unit looks after whoever you click | `/rts focus` / `/rts unfocus` | `addon/Cast.lua` |
 | **Casting a spell AS the bot** — the server casts it for him, with his queue and his checks | click a slot | `mod-rts/src/RtsCommandMode.cpp` |

@@ -49,6 +49,19 @@ namespace rts
         {
             uint32 id = 0;
             char type = 'N';
+
+            // SU ENFRIAMIENTO PROPIO, en milisegundos, y 0 si no tiene.
+            //
+            // Viaja con el catalogo y no se pregunta aparte porque el cliente
+            // NO PUEDE saberlo: `GetSpellCooldown` lee TU libro de hechizos, y
+            // de un id ajeno el cliente solo tiene lo del DBC -- nombre, icono,
+            // rango -- que no incluye el enfriamiento. Sin esto, una rueda
+            // dibujada en el momento de pulsar solo puede durar lo mismo para
+            // todos, que es exactamente lo que se veia mal.
+            //
+            // Es el enfriamiento BASE, el del hechizo, no lo que le queda: eso
+            // es `CDQ`, cambia cada segundo y por eso se pregunta aparte.
+            uint32 cooldownMs = 0;
         };
 
         // Que letra le toca a este hechizo. El ORDEN de las comprobaciones es

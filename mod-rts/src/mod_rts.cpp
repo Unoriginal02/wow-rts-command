@@ -71,6 +71,12 @@ namespace
     // pieces in this project -- the DLL, this module, and the addon -- and only
     // the DLL had a version you could see, which made a server-side fix look
     // like nothing had happened. All three now report.
+    // 0.60.0 = el catalogo de hechizos (`BARS`) lleva un tercer campo: el
+    // enfriamiento base de cada uno, en milisegundos. El cliente no puede
+    // saberlo de un hechizo que no esta en TU libro, y sin el la rueda que la
+    // barra dibuja al pulsar solo podia durar lo mismo para todos. Campo
+    // opcional: se manda solo cuando el hechizo tiene enfriamiento propio, y un
+    // addon anterior lo ignora.
     // 0.59.0 = `BAGSELL` y `EQUIP`, y un objeto que entra en la bolsa de un bot
     // por `BAGMOVE` le dispara `equip upgrade` en el acto -- el bot ya se lo
     // ponia, pero en su siguiente vuelta de pensamiento, y desde fuera eso se
@@ -125,7 +131,7 @@ namespace
     // tercera condicion de `MoveSelf`. El addon debe pedir `ServerAtLeast(46)`
     // antes de usar esos verbos: un verbo que el servidor no conoce NO da error,
     // no contesta, asi que un worldserver sin reiniciar se lee como un addon roto.
-    constexpr char const* kModVersion = "0.59.0";
+    constexpr char const* kModVersion = "0.60.0";
 
     std::string Upper(std::string s)
     {
@@ -1090,10 +1096,18 @@ namespace
             // anterior manda solo el numero, que el addon nuevo trata como el
             // tipo seguro. Las dos direcciones degradan a lo de antes en vez de
             // quedarse mudas.
+            // Y DETRAS, SU ENFRIAMIENTO en milisegundos, solo cuando tiene
+            // uno propio: `id:letra` sigue siendo lo que se manda de la mayoria
+            // de los hechizos, que no enfrian por su cuenta. El addon lee el
+            // tercer campo si esta y se queda con el global si no, asi que un
+            // addon anterior -- que corta en el segundo `:` -- no se entera, y
+            // un mod-rts anterior deja al addon nuevo como estaba.
             std::string chunk;
             for (auto const& sp : spells)
             {
-                std::string const piece = std::to_string(sp.id) + ':' + sp.type;
+                std::string piece = std::to_string(sp.id) + ':' + sp.type;
+                if (sp.cooldownMs)
+                    piece += ':' + std::to_string(sp.cooldownMs);
                 if (chunk.size() + piece.size() + 2 > 200)
                 {
                     SendAddon(player, "BARS " + rest + " " + chunk);
