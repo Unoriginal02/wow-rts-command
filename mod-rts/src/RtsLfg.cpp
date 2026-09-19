@@ -5,6 +5,7 @@
 
 #include "Chat.h"
 #include "Group.h"
+#include "InstanceSaveMgr.h"
 #include "LFGMgr.h"
 #include "ObjectAccessor.h"
 #include "ObjectGuid.h"
@@ -56,7 +57,21 @@ namespace
         ObjectGuid group;
         uint8 roles = 0;
         std::string role;
+        bool moved = false;     // le tocaba otra cosa y no cabia
     };
+
+    // UNA MAZMORRA DE CINCO QUIERE 1 TANQUE, 1 SANADOR Y 3 DE DANO, y el nucleo
+    // no admite nada mas (`LFGMgr::CheckGroupRoles`): con dos sanadores la
+    // comprobacion falla entera y lo unico que se lee es *"tu grupo no es
+    // factible"*, sin decir quien sobra.
+    //
+    // Asi que el rol que tu les tienes puesto es la PREFERENCIA, no la ultima
+    // palabra: el segundo tanque y el segundo sanador salen de dano. Es la
+    // unica de las dos que deja jugar -- respetar los dos sanadores es no
+    // entrar -- y no se hace en silencio: la linea del chat dice a quien se le
+    // ha cambiado.
+    constexpr int kMaxTanks = 1;
+    constexpr int kMaxHeals = 1;
 
     // Lo que hay que contestar en el proximo tick: bot -> numero de propuesta.
     std::unordered_map<uint64, uint32> g_proposals;
@@ -88,7 +103,29 @@ void rts::dungeon::Update(uint32_t diff)
     // pedirle a un interbloqueo que aparezca el dia que haya prisa.
     std::vector<Answer> todo;
 
-    sWorldSessionMgr->DoForAllOnlinePlayers([&todo](Player* player)
+    // CUANTOS TANQUES Y SANADORES HAY YA, contando a quien no es bot -- tu. Tu
+    // funcion la eliges en la ventana del buscador y el nucleo ya la tiene
+    // guardada (`GetRoles`), asi que se lee en vez de adivinarse: si tu vas de
+    // tanque, el bot tanque pasa a dano y no al reves.
+    std::unordered_map<uint64, int> tanks, heals;
+
+    sWorldSessionMgr->DoForAllOnlinePlayers([&tanks, &heals](Player* player)
+    {
+        if (!player || rts::bots::Driven(player))
+            return;
+        Group* group = player->GetGroup();
+        if (!group)
+            return;
+
+        uint8 const roles = sLFGMgr->GetRoles(player->GetGUID());
+        uint64 const gg = group->GetGUID().GetRawValue();
+        if (roles & ::lfg::PLAYER_ROLE_TANK)
+            ++tanks[gg];
+        if (roles & ::lfg::PLAYER_ROLE_HEALER)
+            ++heals[gg];
+    });
+
+    sWorldSessionMgr->DoForAllOnlinePlayers([&todo, &tanks, &heals](Player* player)
     {
         if (!player || !rts::bots::Driven(player))
             return;
@@ -124,11 +161,27 @@ void rts::dungeon::Update(uint32_t diff)
         if (role.empty())
             role = "dps";
 
+        // Y AQUI SE REPARTE. El que no cabe baja a dano, que es el unico papel
+        // del que siempre faltan.
+        uint64 const gg = gguid.GetRawValue();
+        bool moved = false;
+        if (role == "tank")
+        {
+            if (tanks[gg] >= kMaxTanks) { role = "dps"; moved = true; }
+            else ++tanks[gg];
+        }
+        else if (role == "heal")
+        {
+            if (heals[gg] >= kMaxHeals) { role = "dps"; moved = true; }
+            else ++heals[gg];
+        }
+
         Answer a;
         a.bot = player;
         a.group = gguid;
         a.roles = RoleBits(role);
         a.role = role;
+        a.moved = moved;
         todo.push_back(a);
     });
 
@@ -149,11 +202,11 @@ void rts::dungeon::Update(uint32_t diff)
             master = rts::bots::MasterOf(a.bot);
         if (!said.empty())
             said += ", ";
-        said += a.bot->GetName() + " " + a.role;
+        said += a.bot->GetName() + " " + a.role + (a.moved ? " (ya habia)" : "");
     }
 
     if (master && master->GetSession() && !said.empty())
-        ChatHandler(master->GetSession()).PSendSysMessage("RTS: funciones -> %s.", said.c_str());
+        ChatHandler(master->GetSession()).PSendSysMessage("RTS: funciones -> {}.", said);
 
     // Y LAS PROPUESTAS QUE HAYAN LLEGADO: que si. Se vacia la lista al mismo
     // tiempo que se recorre una copia, para que una propuesta nueva que llegue
@@ -197,12 +250,18 @@ void rts::dungeon::NoteProposal(Player* bot, WorldPacket const* packet)
     g_proposals[bot->GetGUID().GetRawValue()] = id;
 }
 
-int rts::dungeon::Clear(Player* master, int& deserters, int& queues)
+int rts::dungeon::Clear(Player* master, int& deserters, int& queues, bool& disbanded)
 {
     deserters = 0;
     queues = 0;
+    disbanded = false;
     if (!master)
         return 0;
+
+    // El grupo se apunta ANTES de tocar nada: si hay que deshacerlo, se hace al
+    // final -- deshacerlo primero dejaria la lista de gente a medio recorrer.
+    Group* const lfgGroup = (master->GetGroup() && master->GetGroup()->isLFGGroup())
+        ? master->GetGroup() : nullptr;
 
     std::vector<Player*> people;
     if (Group* group = master->GetGroup())
@@ -232,5 +291,79 @@ int rts::dungeon::Clear(Player* master, int& deserters, int& queues)
         g_answered.erase(member->GetGUID().GetRawValue());
     }
 
+    // Y LA MARCA DE GRUPO DE BUSCADOR, que solo se quita deshaciendo el grupo.
+    // Ver la cabecera: mientras la lleve, ese grupo no puede entrar en ninguna
+    // instancia salvo la que el buscador le diera, y esa ya no existe.
+    if (lfgGroup)
+    {
+        lfgGroup->Disband();
+        disbanded = true;
+    }
+
     return int(people.size());
+}
+
+int rts::dungeon::FreeEntry(Player* master, int& unbound, int& deserters, bool& disbanded)
+{
+    unbound = 0;
+    deserters = 0;
+    disbanded = false;
+    if (!master)
+        return 0;
+
+    // La gente ANTES de nada: `Clear` puede deshacer el grupo, y despues de eso
+    // ya no hay grupo por el que recorrer.
+    std::vector<Player*> people;
+    if (Group* group = master->GetGroup())
+    {
+        for (GroupReference* itr = group->GetFirstMember(); itr; itr = itr->next())
+            if (Player* member = itr->GetSource())
+                people.push_back(member);
+    }
+    else
+        people.push_back(master);
+
+    // LAS ATADURAS, UNA POR UNA. Se recorre `PlayerGetBoundInstances` por cada
+    // dificultad y se vuelve a empezar tras cada suelta: esa lista es la de
+    // verdad y soltar una la modifica, asi que un iterador guardado de antes
+    // apunta a lo que ya no esta. Es lo mismo que hace `.instance unbind`.
+    for (Player* member : people)
+    {
+        for (uint8 d = 0; d < MAX_DIFFICULTY; ++d)
+        {
+            Difficulty const diff = Difficulty(d);
+            bool again = true;
+            while (again)
+            {
+                again = false;
+                BoundInstancesMap const& bound =
+                    sInstanceSaveMgr->PlayerGetBoundInstances(member->GetGUID(), diff);
+
+                for (auto const& it : bound)
+                {
+                    // El mapa en el que esta AHORA no se suelta: soltarlo sin
+                    // sacarlo antes es dejarlo dentro de algo a lo que ya no
+                    // pertenece.
+                    if (it.first == member->GetMapId())
+                        continue;
+
+                    sInstanceSaveMgr->PlayerUnbindInstance(member->GetGUID(), it.first,
+                                                           diff, true, member);
+                    ++unbound;
+                    again = true;
+                    break;
+                }
+            }
+        }
+    }
+
+    int queues = 0;
+    int const touched = Clear(master, deserters, queues, disbanded);
+
+    // Y LOS ENFRIAMIENTOS DEL BUSCADOR, que no son de nadie en particular: el
+    // nucleo los guarda por jugador pero solo los borra todos de golpe. Es lo
+    // que hace `.lfg cooldown`.
+    sLFGMgr->ClearDungeonCooldowns();
+
+    return touched ? touched : int(people.size());
 }

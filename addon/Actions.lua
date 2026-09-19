@@ -206,6 +206,15 @@ local LIST = {
 	{ id = "xpdown", g = "World", name = "XP -50%", raw = true,
 	  icon = "Spell_ChargeNegative",
 	  cmd = { "/rts xp -" },     d = "world experience down 50%, everyone's" },
+	-- SOLTAR LAS PUERTAS. Un grupo puede quedarse sin poder entrar en ninguna
+	-- instancia por cuatro motivos distintos -- atado a una copia de hoy, con
+	-- el castigo de desertor, con la cola a medias, o marcado como grupo de
+	-- buscador -- y ninguno de los cuatro se explica solo en pantalla: la
+	-- puerta contesta lo mismo para todos. Esto los quita los cuatro de una vez.
+	{ id = "instfree", g = "World", name = "Free the doors", raw = true,
+	  icon = "INV_Misc_Key_14",
+	  cmd = { "/rts instance" },
+	  d = "clears every instance lock on the party: saves, deserter, queue and LFG group" },
 }
 
 A.LIST = LIST

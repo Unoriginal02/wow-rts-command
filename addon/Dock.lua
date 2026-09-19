@@ -9,7 +9,7 @@
 
 	  +---------------------------------------------------------------+
 	  |                                                               |
-	  |              Bob                                  [+][-]      |
+	  |              Bob                               [+][-][!]      |
 	  |        [1][2][3][4][5][6][7][8][9][0]    [M][M][M][M]         |
 	  |        [ ][ ][ ][ ][ ][ ][ ][ ][ ][ ]    [M][M][M][M]         |
 	  |        [  TANK  ]                        [bags]               |
@@ -180,7 +180,7 @@ local MACRO_COLS, MACRO_ROWS = 5, 2
 -- Va PEGADA A LA DERECHA como el resto del bloque, que es lo que hace que el
 -- canto derecho de todo lo de este lado sea una sola linea recta. Su contenido
 -- lo pone `Tray`; aqui solo se reserva el sitio.
-local TOOL_N   = 2
+local TOOL_N   = 3
 local TOOL_GAP = 6      -- el aire entre esta fila y la rejilla de macros
 
 D.TOOL_N = TOOL_N

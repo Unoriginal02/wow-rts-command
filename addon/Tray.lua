@@ -2,7 +2,7 @@
 	Tray.lua -- the right-hand tray: the fixed row, ten slots, the bags and the
 	game buttons.
 
-	                          [+][-]
+	                       [+][-][!]
 	  [M][M][M][M][M]
 	  [M][M][M][M][M]
 	  [keyring][bag][bag][bag][bag][backpack]
@@ -398,7 +398,7 @@ end
 -- asi que un `Button` normal con su `OnClick` hace todo lo que hace falta y se
 -- ahorra la maquinaria de atributos -- que es la que obliga a no tocar nada en
 -- combate.
-local TOOLS = { "xpup", "xpdown" }
+local TOOLS = { "xpup", "xpdown", "instfree" }
 
 local toolBtn = {}
 

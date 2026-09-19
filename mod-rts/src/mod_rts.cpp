@@ -44,6 +44,7 @@
 #include "RtsMarks.h"
 #include "RtsNpc.h"
 #include "RtsOrders.h"
+#include "RtsFight.h"
 #include "RtsLfg.h"
 #include "RtsPets.h"
 #include "RtsTalents.h"
@@ -73,6 +74,35 @@ namespace
     // pieces in this project -- the DLL, this module, and the addon -- and only
     // the DLL had a version you could see, which made a server-side fix look
     // like nothing had happened. All three now report.
+    // 0.69.0 = en la comprobacion de funciones se reparte: UN tanque y UN
+    // sanador como mucho, y el que sobra sale de dano. Con dos sanadores el
+    // nucleo tumba la comprobacion entera (*"tu grupo no es factible"*) sin
+    // decir quien sobra. Ademas se cuenta TU funcion, leida de `GetRoles`, y se
+    // arregla la linea del chat, que salia con un `%s` crudo: `PSendSysMessage`
+    // de este nucleo formatea con `{}`, no al estilo printf.
+    // 0.68.0 = `INSTFREE`: un solo mando que le quita a todo el grupo TODO lo
+    // que puede cerrarle la puerta de una instancia -- las ataduras de
+    // `character_instance`, el desertor, el estado de cola, la marca de grupo
+    // de buscador y los enfriamientos del buscador. Es el boton nuevo de la
+    // fila de arriba, al lado de los de experiencia.
+    // 0.67.0 = `/rts lfg` tambien deshace el grupo cuando lleva la marca de
+    // GRUPO DE BUSCADOR. Esa marca no se puede quitar -- el nucleo tiene
+    // `ConvertToLFG` y ningun inverso -- y mientras la lleva, el grupo no puede
+    // entrar en NINGUNA instancia que no sea la que el buscador le asigno: en
+    // cuanto esa asignacion caduca, la puerta contesta "No se puede introducir
+    // el mapa en este momento" y no hay forma de salir de ahi desde el juego.
+    // 0.66.0 = morir dentro de una instancia te deja VIVO en la puerta, fuera
+    // (`RTS.Dungeon.ReviveAtDoor`). El sitio lo da el nucleo -- el mismo
+    // `GetGoBackTrigger` que usa el para sacar a alguien de un mapa que ya no
+    // existe -- asi que no hay tabla de coordenadas que mantener. Vale para los
+    // bots y para tu heroe.
+    // 0.65.0 = dos cosas de pelea, pedidas juntas: NADIE RECOGE BOTIN con el
+    // grupo en combate ni durante los cuatro segundos siguientes (`RtsFight`),
+    // y TODA orden tuya cancela antes lo que el bot estuviera haciendo -- el
+    // lanzamiento en curso y el objetivo de botin (`bots::Preempt`). Recoger
+    // vive en el motor de FUERA de combate y playerbots cambia de motor mirando
+    // SOLO el combate del bot, asi que el sanador al que nadie pega se iba a
+    // por el saco en mitad de la pelea.
     // 0.64.0 = la propuesta de mazmorra se ve por `OnPlayerbotPacketSent` y no
     // por `CanPacketSend`: un bot no tiene socket y `WorldSession::SendPacket`
     // se vuelve antes de llegar al segundo, asi que por ahi no pasa ni un
@@ -153,7 +183,7 @@ namespace
     // tercera condicion de `MoveSelf`. El addon debe pedir `ServerAtLeast(46)`
     // antes de usar esos verbos: un verbo que el servidor no conoce NO da error,
     // no contesta, asi que un worldserver sin reiniciar se lee como un addon roto.
-    constexpr char const* kModVersion = "0.64.0";
+    constexpr char const* kModVersion = "0.69.0";
 
     std::string Upper(std::string s)
     {
@@ -1496,9 +1526,25 @@ namespace
         if (verb == "LFGCLEAR")
         {
             int deserters = 0, queues = 0;
-            int const people = rts::dungeon::Clear(player, deserters, queues);
+            bool disbanded = false;
+            int const people = rts::dungeon::Clear(player, deserters, queues, disbanded);
             SendAddon(player, "LFGCLEAR " + std::to_string(people) + " " +
-                              std::to_string(deserters) + " " + std::to_string(queues));
+                              std::to_string(deserters) + " " + std::to_string(queues) +
+                              " " + (disbanded ? "1" : "0"));
+            return true;
+        }
+
+        // "INSTFREE" -- quitarle a todo el grupo TODO lo que le puede cerrar la
+        // puerta de una instancia: ataduras, desertor, cola, marca de grupo de
+        // buscador y enfriamientos. Ver `RtsLfg.h`.
+        if (verb == "INSTFREE")
+        {
+            int unbound = 0, deserters = 0;
+            bool disbanded = false;
+            int const people = rts::dungeon::FreeEntry(player, unbound, deserters, disbanded);
+            SendAddon(player, "INSTFREE " + std::to_string(people) + " " +
+                              std::to_string(unbound) + " " + std::to_string(deserters) +
+                              " " + (disbanded ? "1" : "0"));
             return true;
         }
 
@@ -2913,6 +2959,7 @@ public:
         rts::camera::Update(diff);
         rts::pets::Update(diff);
         rts::dungeon::Update(diff);
+        rts::fight::Update(diff);
     }
 };
 

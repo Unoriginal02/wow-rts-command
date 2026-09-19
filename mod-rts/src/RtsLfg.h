@@ -78,12 +78,49 @@ namespace rts
         void NoteProposal(Player* bot, WorldPacket const* packet);
 
         // QUITARLES LO QUE LES IMPIDE ENTRAR, a todo tu grupo: el castigo de
-        // desertor y cualquier resto de una cola anterior. Es literalmente
-        // "como si no hubieran estado en cola".
+        // desertor, cualquier resto de una cola anterior y -- si hace falta --
+        // el propio grupo. Es literalmente "como si no hubieran estado en
+        // cola".
+        //
+        // === POR QUE PUEDE DISOLVER EL GRUPO ==============================
+        //
+        // Un grupo formado por el buscador queda marcado como GRUPO DE BUSCADOR
+        // (`GROUPTYPE_LFG`, el 8 de `groups.groupType`) y el nucleo **no tiene
+        // forma de quitarle esa marca**: hay `ConvertToLFG` y no existe el
+        // inverso. Mientras la lleva, `MapMgr::PlayerCannotEnter` le prohibe
+        // entrar en cualquier mapa que no sea la mazmorra que el buscador le
+        // asigno -- y en cuanto esa asignacion caduca, eso es TODAS.
+        //
+        // El sintoma es una puerta que no deja pasar y una linea que no
+        // explica nada: *"No se puede introducir el mapa en este momento"*. Y
+        // no se arregla saliendo y volviendo a entrar al juego, porque la marca
+        // esta guardada.
+        //
+        // Lo unico que la quita es deshacer el grupo. Asi que si el grupo lleva
+        // la marca, este mando lo deshace y lo dice: con los bots, volver a
+        // formarlo es un boton (`Traer bots`).
         //
         // OJO: si el grupo esta encolado AHORA, esto lo saca de la cola. Es lo
         // que se pide -- dejarlo como si nada -- y hay que volver a encolar.
-        int Clear(Player* master, int& deserters, int& queues);
+        int Clear(Player* master, int& deserters, int& queues, bool& disbanded);
+
+        // TODO LO QUE PUEDE CERRARTE UNA PUERTA, QUITADO DE UNA VEZ.
+        //
+        // `Clear` limpia lo de la COLA. Esto ademas borra lo de HABER ESTADO
+        // DENTRO, que es lo otro que deja a un grupo fuera sin explicar nada:
+        //
+        //   * las ATADURAS a instancias (`character_instance`): "ya has estado
+        //     hoy aqui, esta es tu copia guardada". Se quitan todas, a todo el
+        //     grupo, menos la del mapa en el que estes ahora mismo -- esa no se
+        //     puede soltar sin sacarte primero, y es justo la que no estorba.
+        //   * el castigo de DESERTOR.
+        //   * el estado de cola y la marca de grupo de buscador (via `Clear`).
+        //   * y los ENFRIAMIENTOS de mazmorra del buscador, que son globales.
+        //
+        // Es el mando del boton de la fila de arriba: un solo gesto que deja al
+        // grupo como recien llegado al servidor, en lo que a mazmorras se
+        // refiere.
+        int FreeEntry(Player* master, int& unbound, int& deserters, bool& disbanded);
     }
 }
 

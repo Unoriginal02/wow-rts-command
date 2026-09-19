@@ -467,18 +467,52 @@ local function Initialise()
 	-- Es autoridad, no una pista: el servidor es quien acaba de meter ese
 	-- personaje en la sesion.
 	-- LO QUE SE LE HA QUITADO AL GRUPO PARA PODER ENTRAR EN UNA MAZMORRA.
+	-- LO QUE SE LE HA SOLTADO AL GRUPO PARA PODER ENTRAR EN UNA INSTANCIA.
+	ns.Link:On("INSTFREE", function(rest)
+		local people, unbound, deserters, disbanded =
+			rest:match("^(%d+)%s+(%d+)%s+(%d+)%s*(%d*)$")
+		if not people then return end
+		unbound, deserters = tonumber(unbound), tonumber(deserters)
+
+		ns.Print(("|cffffff00instancias:|r %s personaje%s -- %d atadura%s sueltas, " ..
+			"%d desertor%s fuera, enfriamientos a cero."):format(
+			people, people == "1" and "" or "s",
+			unbound, unbound == 1 and "" or "s",
+			deserters, deserters == 1 and "" or "es"))
+
+		if disbanded == "1" then
+			ns.Print("  El grupo era |cffffff00de buscador|r -- esa marca no se puede " ..
+				"quitar de otra forma -- asi que lo he deshecho. Vuelve a formarlo " ..
+				"con |cffffff00Traer bots|r.")
+		end
+	end)
+
 	ns.Link:On("LFGCLEAR", function(rest)
-		local people, deserters, queues = rest:match("^(%d+)%s+(%d+)%s+(%d+)$")
+		local people, deserters, queues, disbanded =
+			rest:match("^(%d+)%s+(%d+)%s+(%d+)%s*(%d*)$")
 		if not people then return end
 		deserters, queues = tonumber(deserters), tonumber(queues)
-		if deserters == 0 and queues == 0 then
+		local broke = (disbanded == "1")
+
+		if deserters == 0 and queues == 0 and not broke then
 			ns.Print(("|cff888888mazmorra:|r los %s estabais limpios, no habia " ..
 				"nada que quitar."):format(people))
+			return
+		end
+
+		ns.Print(("|cffffff00mazmorra:|r %d desertor%s fuera, %d salida%s de la cola."):format(
+			deserters, deserters == 1 and "" or "es",
+			queues, queues == 1 and "" or "s"))
+
+		-- LA MARCA DE GRUPO DE BUSCADOR SOLO SE QUITA DESHACIENDO EL GRUPO, y
+		-- eso hay que decirlo con todas las letras: el jugador acaba de
+		-- quedarse sin grupo por un comando que pidio para otra cosa.
+		if broke then
+			ns.Print("  El grupo era |cffffff00de buscador|r y por eso no os dejaba " ..
+				"entrar en ninguna instancia. Lo he deshecho: vuelve a formarlo " ..
+				"con |cffffff00Traer bots|r (|cffffff00/rts invite|r).")
 		else
-			ns.Print(("|cffffff00mazmorra:|r %d desertor%s fuera, %d salida%s de la cola. " ..
-				"Vuelve a encolar."):format(
-				deserters, deserters == 1 and "" or "es",
-				queues, queues == 1 and "" or "s"))
+			ns.Print("  Vuelve a encolar.")
 		end
 	end)
 
@@ -1045,6 +1079,7 @@ local HELP = {
 	"|cffffff00/rts xp +|r / |cffffff00-|r - world experience, 50% at a time (bots included, it is saved)",
 	"|cffffff00/rts talents|r - right-click a talent to take a point back; this says what the window is",
 	"|cffffff00/rts equip|r - tell the selected ones (or everybody) to put on whatever is better in their bags",
+	"|cffffff00/rts instance|r - free the party of every instance lock: saves, deserter, queue, LFG group",
 	"|cffffff00/rts plates|r - health bars over heads: |cffffff00friends|r for your bots, |cffffff00enemies|r (the V key), |cffffff00<yards>|r for the range",
 	"|cffffff00/rts cam|r - detached RTS camera (WASD on the plane, SPACE/C up and down, Q/E pivot, right-drag turns)",
 	"|cffffff00/rts cam save|r - frame it how you want, then save; |cffffff00show|r reprints the values",
@@ -1288,6 +1323,12 @@ SlashCmdList["RTSCOMMAND"] = function(msg)
 
 	elseif cmd == "equip" or cmd == "equipar" then
 		ns.Bags:Equip()
+
+	elseif cmd == "instance" or cmd == "instancia" then
+		-- SOLTAR TODAS LAS PUERTAS. Ataduras de instancia, desertor, cola,
+		-- marca de grupo de buscador y enfriamientos, de una vez y para todo el
+		-- grupo. Es lo que dispara el boton de la fila de arriba.
+		ns.SendServer("INSTFREE")
 
 	elseif cmd == "lfg" or cmd == "mazmorra" then
 		-- LIMPIAR LO QUE IMPIDE ENTRAR. El servidor le quita a todo el grupo el
