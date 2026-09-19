@@ -2105,6 +2105,45 @@ end
 -- entran las dos que se olvidan solas: el suelo filtrado (`gz`) hay que
 -- borrarlo o el primer frame en el destino ve un escalon gigante, y la
 -- velocidad del plano (`vx`,`vy`) o la camara sale disparada al llegar.
+-- VOLVER A ARMARLA DESPUES DE UNA PANTALLA DE CARGA.
+--
+-- No basta con `Start`: al cambiar de mundo el cliente cierra su camara de
+-- comentarista y los dos flags que la abren se van con el, asi que hay que
+-- rehacer la secuencia entera -- la misma que hace entrar en el modo -- y esa
+-- vive en `RTSMode:CameraOn`.
+--
+-- Y SE ESPERA AL DLL. Justo despues de la carga todavia no publica posicion, y
+-- `Start` coloca la camara sobre el heroe leyendo precisamente eso: armar antes
+-- de tiempo la pondria donde estaba el heroe en el mapa anterior. Se mira cuatro
+-- veces por segundo y se deja de mirar a los quince.
+function F:Regain()
+	if not (ns.RTSMode and ns.RTSMode.active) then return end
+
+	local w = self.regainer or CreateFrame("Frame", "RTSFreeCamRegain")
+	self.regainer = w
+	w.acc, w.waited = 0, 0
+	w:SetScript("OnUpdate", function(self, elapsed)
+		self.acc = self.acc + elapsed
+		self.waited = self.waited + elapsed
+		if self.acc < 0.25 then return end
+		self.acc = 0
+
+		if RTS_Ready == 1 and RTS_HasPos == 1 and RTS_PX then
+			self:SetScript("OnUpdate", nil)
+			if F.active or not (ns.RTSMode and ns.RTSMode.active) then return end
+			ns.Print("|cff33ccffcamara:|r mundo nuevo; vuelvo a armar la camara libre.")
+			ns.RTSMode:CameraOn()
+			return
+		end
+
+		if self.waited > 15 then
+			self:SetScript("OnUpdate", nil)
+			ns.Print("|cffff8800camara:|r no he podido recuperarla al cambiar de mapa. " ..
+				"|cffffff00/rts cam|r la vuelve a poner.")
+		end
+	end)
+end
+
 function F:Home()
 	if not self.active then
 		ns.Print("|cffff8800RTS camera:|r the free camera is not active.")
@@ -2388,11 +2427,42 @@ function F:Create()
 	-- puede hacer ahora se aplaza al momento en que se puede.
 	f:RegisterEvent("PLAYER_REGEN_ENABLED")
 	f:RegisterEvent("PLAYER_LEAVING_WORLD")
+	f:RegisterEvent("PLAYER_ENTERING_WORLD")
 	f:SetScript("OnEvent", function(_, event)
+		-- === CRUZAR UN PORTAL =============================================
+		--
+		-- Aqui habia `F.active = false` y nada mas, y ese "nada mas" es el
+		-- fallo entero: **las teclas se quedaban cogidas**. WASD sigue atado a
+		-- nuestros botones de camara, el controlador ya no corre, y el
+		-- resultado es lo que se ve en juego -- la camara no responde, y si te
+		-- pasas a primera persona tampoco puedes andar. Como los atajos se
+		-- rehacen al recargar la interfaz, un `/reload` lo arreglaba todo, que
+		-- es exactamente la pista que lo delato.
+		--
+		-- `Stop` es lo que habia que llamar desde el principio: devuelve las
+		-- teclas, devuelve la colision y apaga los dos modos.
 		if event == "PLAYER_LEAVING_WORLD" then
-			F.active = false
+			-- Y SE APUNTA QUE ESTABA PUESTA, para volver a armarla al llegar.
+			-- El modo RTS no se apaga al cambiar de mapa -- la barra, la
+			-- seleccion y las ordenes siguen ahi -- asi que quedarse sin camara
+			-- al cruzar un portal es quedarse a medias.
+			F.rearm = F.active
+			F:Stop()
 			return
 		end
+
+		if event == "PLAYER_ENTERING_WORLD" then
+			-- Si las teclas no se pudieron devolver al salir, este es el otro
+			-- momento en que se puede intentar: la pantalla de carga no es
+			-- combate, pero el mundo de antes ya no estaba.
+			if not F.active and F:KeysPending() then F:ReleaseKeysNow() end
+			if F.rearm then
+				F.rearm = nil
+				F:Regain()
+			end
+			return
+		end
+
 		if not F.active and F:KeysPending() then
 			if F:ReleaseKeysNow() then
 				ns.Print("|cff33ccffcamara:|r teclas devueltas al salir del combate.")
