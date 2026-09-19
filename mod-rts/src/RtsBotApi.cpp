@@ -65,6 +65,19 @@ Player* rts::bots::MasterOf(Player* bot)
     return ai ? ai->GetMaster() : nullptr;
 }
 
+std::string rts::bots::SpecRole(Player* bot)
+{
+    if (!bot)
+        return std::string();
+
+    // El `true` es `bySpec`, y es todo el motivo de llamar a esto.
+    if (PlayerbotAI::IsTank(bot, true))
+        return "tank";
+    if (PlayerbotAI::IsHeal(bot, true))
+        return "heal";
+    return "dps";
+}
+
 // === estrategias ============================================================
 
 bool rts::bots::Change(Player* bot, std::string const& changes, Where where)

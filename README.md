@@ -330,6 +330,7 @@ cancels.**
 | **Swap characters without logging out** — the one you leave stays behind as a bot | `/rts swap <name>` | `mod-rts/src/RtsSwap.cpp` |
 | Free-for-all party loot / make the bots pick up everything | `/rts loot`, `/rts lootall` | `addon/RTSMode.lua`, `addon/Loot.lua` |
 | **Hide the bots' gossip dump** (and keep it) | `/rts chat`, `/rts chat ver` | `addon/Chatter.lua` |
+| **The dungeon finder works with a party of bots** — the role check is answered for them with the role you gave them, and the "ready" window is accepted for them; playerbots answered TANK for everyone (a mage included) and refused the dungeon whenever a bot was in combat | automatic, `/rts lfg` clears deserter and queue leftovers | `mod-rts/src/RtsLfg.cpp` |
 | **Take a talent point back** — right-click a talent on the game's own talent page; the game only knows how to reset the whole tree, paid. It refuses if something hanging off that talent still has points, or if a row would be left without the 5 per row it needs | right-click, `/rts talents` | `addon/Talents.lua` + `mod-rts/src/RtsTalents.cpp` |
 | **World experience dial**, 50% at a time — a multiplier over `worldserver.conf`, so it keeps the rates you configured in proportion, and it is saved in `worldstates` so a restart does not quietly undo it | the `+` and `-` buttons, `/rts xp +` | `addon/Xp.lua` + `mod-rts/src/RtsXp.cpp` |
 | **Hunter pet happiness pinned at the top** — it decays on its own and only food raises it, and nobody feeds a bot's pet | automatic, `RTS.Pet.Happy` | `mod-rts/src/RtsPets.cpp` |

@@ -100,6 +100,20 @@ namespace rts
         // los otros quinientos.
         Player* MasterOf(Player* bot);
 
+        // QUE PAPEL LE TOCA POR SU ESPECIALIZACION: "tank", "heal" o "dps".
+        //
+        // Es la pregunta de playerbots, hecha con su propia respuesta
+        // (`IsTank`/`IsHeal` en su modo `bySpec`), que mira la pestana de
+        // talentos y la clase. Se usa como RESPALDO cuando no se puede decir
+        // que esta haciendo el bot por la estrategia que lleva puesta -- y
+        // hace falta uno, porque en la comprobacion del buscador de mazmorras
+        // un bot sin contestar deja al grupo entero esperando.
+        //
+        // No se usa su modo normal a proposito: ese mira las estrategias y
+        // responde que un mago es tanque en cuanto lleve una marcada como tal
+        // en cualquier rincon, que es el fallo que `RtsLfg.h` cuenta entero.
+        std::string SpecRole(Player* bot);
+
         // --- estrategias -----------------------------------------------------
 
         // "+stay,-passive,-move from group" y compania. Devuelve false si el bot

@@ -466,6 +466,22 @@ local function Initialise()
 	--
 	-- Es autoridad, no una pista: el servidor es quien acaba de meter ese
 	-- personaje en la sesion.
+	-- LO QUE SE LE HA QUITADO AL GRUPO PARA PODER ENTRAR EN UNA MAZMORRA.
+	ns.Link:On("LFGCLEAR", function(rest)
+		local people, deserters, queues = rest:match("^(%d+)%s+(%d+)%s+(%d+)$")
+		if not people then return end
+		deserters, queues = tonumber(deserters), tonumber(queues)
+		if deserters == 0 and queues == 0 then
+			ns.Print(("|cff888888mazmorra:|r los %s estabais limpios, no habia " ..
+				"nada que quitar."):format(people))
+		else
+			ns.Print(("|cffffff00mazmorra:|r %d desertor%s fuera, %d salida%s de la cola. " ..
+				"Vuelve a encolar."):format(
+				deserters, deserters == 1 and "" or "es",
+				queues, queues == 1 and "" or "s"))
+		end
+	end)
+
 	ns.Link:On("SWAPPED", function(rest)
 		local name, guid = rest:match("^(%S+)%s+(%d+)$")
 		if not name then return end
@@ -1272,6 +1288,12 @@ SlashCmdList["RTSCOMMAND"] = function(msg)
 
 	elseif cmd == "equip" or cmd == "equipar" then
 		ns.Bags:Equip()
+
+	elseif cmd == "lfg" or cmd == "mazmorra" then
+		-- LIMPIAR LO QUE IMPIDE ENTRAR. El servidor le quita a todo el grupo el
+		-- castigo de desertor y cualquier resto de una cola anterior; hay que
+		-- volver a encolar despues.
+		ns.SendServer("LFGCLEAR")
 
 	elseif cmd == "plates" or cmd == "rotulos" then
 		local sub = (rest or ""):match("^(%S*)"):lower()

@@ -28,6 +28,7 @@
 #include "Group.h"
 #include "ObjectAccessor.h"
 #include "ObjectMgr.h"
+#include "Opcodes.h"
 #include "Player.h"
 #include "PlayerScript.h"
 #include "RBAC.h"
@@ -43,6 +44,7 @@
 #include "RtsMarks.h"
 #include "RtsNpc.h"
 #include "RtsOrders.h"
+#include "RtsLfg.h"
 #include "RtsPets.h"
 #include "RtsTalents.h"
 #include "RtsXp.h"
@@ -71,6 +73,26 @@ namespace
     // pieces in this project -- the DLL, this module, and the addon -- and only
     // the DLL had a version you could see, which made a server-side fix look
     // like nothing had happened. All three now report.
+    // 0.64.0 = la propuesta de mazmorra se ve por `OnPlayerbotPacketSent` y no
+    // por `CanPacketSend`: un bot no tiene socket y `WorldSession::SendPacket`
+    // se vuelve antes de llegar al segundo, asi que por ahi no pasa ni un
+    // paquete suyo. Con el gancho bueno, los dos que se quedaban sin aceptar la
+    // pantalla de "listos" aceptan.
+    // 0.63.0 = en la comprobacion de funciones ya no se calla nadie: si no se
+    // puede decir que esta haciendo un bot por su estrategia, se contesta por
+    // su especializacion. Callarse dejaba su interrogante puesto y el grupo sin
+    // encolar, sin nada en pantalla que lo explicara. Y ahora se escribe en el
+    // chat del jefe que rol se ha mandado por cada uno.
+    // 0.62.0 = la propuesta de mazmorra la aceptamos nosotros por los bots
+    // (playerbots manda un NO si el bot esta en combate o muerto, y un solo NO
+    // deja al grupo entero fuera), y `LFGCLEAR` les quita el castigo de
+    // desertor y los restos de cola.
+    // 0.61.0 = la comprobacion de funciones del buscador de mazmorras la
+    // contestamos nosotros por los bots, con el rol que les tienes puesto. Sin
+    // esto todos elegian TANQUE -- el mago tambien -- y el chat se quedaba en
+    // bucle: playerbots contesta desde un manejador colgado del paquete que el
+    // nucleo manda a TODO el grupo cada vez que alguien contesta. Ver
+    // `RtsLfg.h`.
     // 0.60.0 = el catalogo de hechizos (`BARS`) lleva un tercer campo: el
     // enfriamiento base de cada uno, en milisegundos. El cliente no puede
     // saberlo de un hechizo que no esta en TU libro, y sin el la rueda que la
@@ -131,7 +153,7 @@ namespace
     // tercera condicion de `MoveSelf`. El addon debe pedir `ServerAtLeast(46)`
     // antes de usar esos verbos: un verbo que el servidor no conoce NO da error,
     // no contesta, asi que un worldserver sin reiniciar se lee como un addon roto.
-    constexpr char const* kModVersion = "0.60.0";
+    constexpr char const* kModVersion = "0.64.0";
 
     std::string Upper(std::string s)
     {
@@ -1468,6 +1490,18 @@ namespace
             return true;
         }
 
+        // "LFGCLEAR" -- quitarle a todo el grupo lo que le impide entrar en una
+        // mazmorra: el castigo de desertor y cualquier resto de una cola
+        // anterior. Deja el grupo como si no hubiera pedido nada.
+        if (verb == "LFGCLEAR")
+        {
+            int deserters = 0, queues = 0;
+            int const people = rts::dungeon::Clear(player, deserters, queues);
+            SendAddon(player, "LFGCLEAR " + std::to_string(people) + " " +
+                              std::to_string(deserters) + " " + std::to_string(queues));
+            return true;
+        }
+
         // "XP UP" / "XP DOWN" / "XP" -- el dial de experiencia del mundo.
         //
         // EL VERBO LLEVA LA DIRECCION, NO EL NUMERO. Cuanto vale un paso y
@@ -2527,6 +2561,21 @@ public:
     // lugar (`PORTED`).
 };
 
+// LO QUE LE MANDAN A UN BOT. Es el unico gancho por el que se ve: sus sesiones
+// no tienen socket y `WorldSession::SendPacket` se vuelve antes de llegar al
+// gancho de envio normal. Ver `RtsLfg.h`.
+class RtsBotPacketScript : public PlayerbotScript
+{
+public:
+    RtsBotPacketScript() : PlayerbotScript("RtsBotPacketScript") { }
+
+    void OnPlayerbotPacketSent(Player* player, WorldPacket const* packet) override
+    {
+        if (packet && packet->GetOpcode() == SMSG_LFG_PROPOSAL_UPDATE)
+            rts::dungeon::NoteProposal(player, packet);
+    }
+};
+
 class RtsChannelScript : public PlayerScript
 {
 public:
@@ -2863,6 +2912,7 @@ public:
         rts::orders::UpdatePending(diff);
         rts::camera::Update(diff);
         rts::pets::Update(diff);
+        rts::dungeon::Update(diff);
     }
 };
 
@@ -2878,6 +2928,7 @@ void AddSC_mod_rts()
     });
 
     new RtsPacketScript();
+    new RtsBotPacketScript();
     new RtsChannelScript();
     new RtsProgressScript();
     new RtsCommandScript();

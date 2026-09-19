@@ -792,6 +792,23 @@ std::vector<rts::command::Role> rts::command::Roles(Player* master, std::string 
     return out;
 }
 
+std::string rts::command::ActiveRole(Player* bot)
+{
+    if (!bot)
+        return std::string();
+
+    for (RoleDef const& def : RoleTable())
+    {
+        // Solo las tres posturas. `cc` y `passive` cabalgan encima de ellas y
+        // no son un papel en una mazmorra.
+        if (!IsStance(def.role))
+            continue;
+        if (!RunningName(bot, def).empty())
+            return def.role;
+    }
+    return std::string();
+}
+
 bool rts::command::SetRole(Player* master, std::string const& botName,
                            std::string const& role, bool on)
 {

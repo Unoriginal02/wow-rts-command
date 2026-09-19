@@ -195,6 +195,16 @@ namespace rts
         bool SetRole(Player* master, std::string const& botName,
                      std::string const& role, bool on);
 
+        // QUE PAPEL ESTA JUGANDO ESTE BOT: "tank", "dps", "heal", o vacio si no
+        // se puede decir. Se lee de la estrategia de combate que tiene puesta
+        // AHORA -- la misma que dibuja la fila de roles -- y no de su clase ni
+        // de su especializacion, que son otra pregunta: un guerrero de
+        // proteccion al que le has puesto `dps` esta haciendo de dps.
+        //
+        // Lo usa `RtsLfg` para contestar la comprobacion de funciones del
+        // buscador de mazmorras en su nombre.
+        std::string ActiveRole(Player* bot);
+
         // === persistent focus ===============================================
         //
         // The other half of the right-click gesture: this target is what the
