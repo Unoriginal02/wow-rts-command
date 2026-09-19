@@ -490,6 +490,12 @@ bool rts::command::CastAs(Player* master, std::string const& botName, uint32 spe
     bot->GetMotionMaster()->Clear();
     rts::bots::ForgetLastMove(bot);
 
+    // Y LO QUE TUVIERA EN MENTE, CANCELADO: un hechizo que mandas tu manda
+    // sobre lo que el bot estuviera rumiando, igual que las ordenes del raton.
+    // Va justo antes del lanzamiento y no antes de las comprobaciones, para no
+    // interrumpirle nada si la orden iba a fallar de todas formas.
+    rts::bots::Preempt(bot);
+
     // Routed through the bot's own AI rather than Unit::CastSpell, so range,
     // facing, cooldowns and the global cooldown are all respected exactly as
     // they are when the bot casts for itself.

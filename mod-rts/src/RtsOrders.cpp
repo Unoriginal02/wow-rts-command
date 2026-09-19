@@ -64,6 +64,20 @@ namespace
     {
         rts::bots::HoldAi(bot, 0);
     }
+
+    // Y LO QUE ESTUVIERA HACIENDO, CANCELADO. Va al PRINCIPIO de cada orden,
+    // no al final: interrumpe el lanzamiento en curso y le borra el objetivo de
+    // botin -- lo que se llevaba a los bots al otro lado de la sala a mitad de
+    // pelea -- y eso tiene que pasar ANTES de que la orden ponga lo suyo, o le
+    // estaria cancelando a la orden lo que la orden acaba de empezar.
+    //
+    // Pedido en juego: *"que TODAS las acciones que yo les indique
+    // sobreescriban cualquier accion que tuvieran en mente, pendiente, o en
+    // ejecucion"*.
+    void TakeOver(Player* bot)
+    {
+        rts::bots::Preempt(bot);
+    }
 }
 
 // NADIE CAMINA POR EL AIRE, Y EL CLIENTE NO ES QUIEN DECIDE DONDE ESTA EL SUELO.
@@ -408,6 +422,8 @@ bool rts::orders::MoveBot(Player* master, std::string const& botName, float x, f
     if (!rts::bots::Driven(bot))
         return false;
 
+    TakeOver(bot);
+
     // EL TRAMO, ANTES DE ANCLAR NADA. Un punto lejos, o al otro lado de un
     // monte, no se manda tal cual: se manda hasta donde la malla llega, y al
     // llegar el addon vuelve a pedir. Ver `NextLeg`.
@@ -480,6 +496,8 @@ bool rts::orders::AttackBot(Player* master, std::string const& botName, ObjectGu
     Player* bot = ResolveBot(master, botName);
     if (!rts::bots::Driven(bot) || !targetGuid)
         return false;
+
+    TakeOver(bot);
 
     Unit* victim = ObjectAccessor::GetUnit(*bot, targetGuid);
     if (!victim || !victim->IsAlive() || !bot->IsValidAttackTarget(victim))
@@ -907,6 +925,8 @@ bool rts::orders::TalkBot(Player* master, std::string const& botName, ObjectGuid
     if (!rts::bots::Driven(bot) || !targetGuid)
         return false;
 
+    TakeOver(bot);
+
     Unit* unit = ObjectAccessor::GetUnit(*master, targetGuid);
     Creature* creature = unit ? unit->ToCreature() : nullptr;
     if (!creature)
@@ -1287,6 +1307,8 @@ bool rts::orders::HoldBot(Player* master, std::string const& botName)
     if (!rts::bots::Driven(bot))
         return false;
 
+    TakeOver(bot);
+
     float x = bot->GetPositionX();
     float y = bot->GetPositionY();
     float z = bot->GetPositionZ();
@@ -1322,6 +1344,8 @@ bool rts::orders::SummonBot(Player* master, std::string const& botName)
     if (!rts::bots::Driven(bot))
         return false;
 
+    TakeOver(bot);
+
     if (!rts::bots::DoAction(bot, "summon"))
         return false;
 
@@ -1334,6 +1358,8 @@ bool rts::orders::FollowBot(Player* master, std::string const& botName)
     Player* bot = ResolveBot(master, botName);
     if (!rts::bots::Driven(bot))
         return false;
+
+    TakeOver(bot);
 
     rts::bots::Change(bot, "+follow,-passive,-grind,-move from group", rts::bots::IDLE);
     rts::bots::Change(bot, "-stay,-follow,-passive,-grind,-move from group", rts::bots::COMBAT);

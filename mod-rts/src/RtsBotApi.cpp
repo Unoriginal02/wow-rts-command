@@ -10,6 +10,7 @@
 // es una plantilla suya, asi que hace falta la definicion completa aqui.
 #include "AiObjectContext.h"
 #include "LastMovementValue.h"
+#include "LootObjectStack.h"
 #include "LootStrategyValue.h"
 #include "PlayerbotAI.h"
 #include "PlayerbotAIConfig.h"
@@ -257,6 +258,21 @@ bool rts::bots::ForgetLastMove(Player* bot)
 }
 
 // === acciones ===============================================================
+
+bool rts::bots::Preempt(Player* bot)
+{
+    PlayerbotAI* ai = AiFor(bot);
+    if (!ai)
+        return false;
+
+    ai->InterruptSpell();
+
+    if (AiObjectContext* context = ai->GetAiObjectContext())
+        context->GetValue<LootObject>("loot target")->Set(LootObject());
+
+    ai->SetNextCheckDelay(0);
+    return true;
+}
 
 bool rts::bots::DoAction(Player* bot, char const* action)
 {

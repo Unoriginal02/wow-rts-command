@@ -150,3 +150,25 @@ RTS.CatchUp.ClassQuest = 1
 #
 
 RTS.Pet.Happy = 1
+
+#
+#    RTS.Dungeon.ReviveAtDoor
+#        Morir dentro de una instancia te deja VIVO en la puerta, por fuera, en
+#        vez de fantasma buscando el camino de vuelta. Vale para tus bots y para
+#        tu heroe.
+#
+#        El sitio no es una lista de coordenadas nuestra: es la salida que el
+#        propio nucleo tiene apuntada para esa instancia (`GetGoBackTrigger`),
+#        la misma que usa el cuando tiene que sacar a alguien de un mapa que ya
+#        no existe. Si un mapa no la tiene, no se toca a nadie.
+#
+#        Se revive un par de segundos despues de morir: ni en medio del trabajo
+#        del nucleo, ni tan tarde que parezca que no va a pasar nada.
+#
+#        0 devuelve el comportamiento del juego, con su cementerio y su carrera
+#        de cadaver.
+#
+#        Por defecto: 1
+#
+
+RTS.Dungeon.ReviveAtDoor = 1

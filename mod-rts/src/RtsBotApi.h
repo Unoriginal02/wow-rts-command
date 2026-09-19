@@ -203,6 +203,25 @@ namespace rts
 
         // --- acciones --------------------------------------------------------
 
+        // LO QUE TENIA EN MENTE SE CANCELA, que es lo que una orden tuya tiene
+        // que hacer antes que nada.
+        //
+        // Tres cosas, y las tres son "deja eso":
+        //
+        //   * el LANZAMIENTO en curso se interrumpe (`InterruptSpell`), porque
+        //     una orden dada mientras el bot canaliza algo no se ve hasta que
+        //     termine -- y desde fuera eso es un bot que te ignora;
+        //   * el OBJETIVO DE BOTIN se borra. Es el que se lleva a un bot al
+        //     otro lado de la sala a mitad de pelea, y mientras siga puesto su
+        //     propia IA vuelve a el en cuanto le dejas;
+        //   * y se le despierta (`HoldAi(bot, 0)`), para que piense con lo
+        //     nuevo en el tick siguiente y no dentro de medio segundo.
+        //
+        // NO TOCA SU OBJETIVO DE COMBATE ni sus anclas: eso lo pone la orden
+        // que viene detras, y borrarlo aqui seria pisar lo que se acaba de
+        // pedir. Va al PRINCIPIO de cada orden, nunca al final.
+        bool Preempt(Player* bot);
+
         // Disparar una accion concreta de la IA, saltandose sus estrategias.
         //
         // OJO CON LO QUE ESTO NO HACE, que costo una ronda de pruebas: los
