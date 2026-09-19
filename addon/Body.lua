@@ -503,6 +503,18 @@ end
 --
 -- That the probe starts off is still the rule; what changes is that "off" now
 -- means clearing, not keeping quiet.
+-- MIENTRAS DURA ESE BORRADO NO SE PUEDE ARMAR LA CAMARA LIBRE, y por eso se
+-- puede preguntar desde fuera.
+--
+-- La camara libre necesita los flags PUESTOS (bit 19 y bit 22), y esto acaba de
+-- pedir que se quiten. Quien arme en esta ventana y medio de segundo ve como
+-- sus flags se evaporan detras de el: la puerta del cliente no abre, la espera
+-- se agota y el diagnostico culpa al cliente de algo que hizo el addon. Le paso
+-- a `FreeCam:Regain` al cruzar un portal, que corre con este mismo evento.
+function B:Clearing()
+	return clearUntil ~= nil
+end
+
 local f = CreateFrame("Frame")
 f:RegisterEvent("PLAYER_ENTERING_WORLD")
 f:SetScript("OnEvent", function()

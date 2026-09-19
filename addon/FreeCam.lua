@@ -2128,6 +2128,14 @@ function F:Regain()
 		if self.acc < 0.25 then return end
 		self.acc = 0
 
+		-- Y SE ESPERA A QUE `Body` TERMINE DE BORRAR LOS FLAGS. Al entrar al
+		-- mundo pide quitarlos durante segundo y medio -- a proposito, para no
+		-- heredar los de la sesion anterior -- y armar dentro de esa ventana es
+		-- ponerlos para que se los quiten por detras: la puerta del cliente no
+		-- abre, la espera se agota y el aviso acusa al cliente. Es exactamente
+		-- lo que se veia al cruzar un portal.
+		if ns.Body and ns.Body.Clearing and ns.Body:Clearing() then return end
+
 		if RTS_Ready == 1 and RTS_HasPos == 1 and RTS_PX then
 			self:SetScript("OnUpdate", nil)
 			if F.active or not (ns.RTSMode and ns.RTSMode.active) then return end
